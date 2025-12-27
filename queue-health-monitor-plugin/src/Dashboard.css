@@ -27,6 +27,18 @@
   gap: 16px;
 }
 
+.refresh-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.last-updated {
+  font-size: 11px;
+  color: #666;
+  font-style: italic;
+}
+
 .view-tabs {
   display: flex;
   gap: 4px;

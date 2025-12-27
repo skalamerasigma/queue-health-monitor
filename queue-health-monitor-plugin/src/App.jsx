@@ -29,6 +29,7 @@ function App() {
   const [data, setData] = useState({ conversations: [], teamMembers: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   async function fetchData() {
     setLoading(true);
@@ -53,6 +54,7 @@ function App() {
       const conversations = Array.isArray(response) ? response : (response.conversations || []);
       const teamMembers = response.teamMembers || [];
       setData({ conversations, teamMembers });
+      setLastUpdated(new Date());
     } catch (e) {
       setError(e.message);
     } finally {
@@ -71,6 +73,7 @@ function App() {
       loading={loading}
       error={error}
       onRefresh={fetchData}
+      lastUpdated={lastUpdated}
     />
   );
 }

@@ -30,7 +30,7 @@ const THRESHOLDS = {
   CLOSURE_WARNING_DAYS: 3
 };
 
-function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh }) {
+function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh, lastUpdated }) {
   const [activeView, setActiveView] = useState("overview");
   const [filterTag, setFilterTag] = useState("all");
   const [filterTSE, setFilterTSE] = useState("all");
@@ -456,7 +456,14 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh 
               Conversations
             </button>
           </div>
-          <button onClick={onRefresh} className="refresh-button">Refresh</button>
+          <div className="refresh-section">
+            {lastUpdated && (
+              <span className="last-updated">
+                Last updated: {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
+            <button onClick={onRefresh} className="refresh-button">Refresh</button>
+          </div>
         </div>
       </div>
 
