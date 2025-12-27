@@ -1,0 +1,12 @@
+{
+  "buildCommand": "cd queue-health-monitor-plugin && npm install && npm run build",
+  "outputDirectory": "queue-health-monitor-plugin/build",
+  "framework": "create-react-app",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
+
