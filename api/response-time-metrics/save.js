@@ -103,6 +103,50 @@ export default async function handler(req, res) {
         );
       `);
 
+      // Migrate from old schema (date_hour) to new schema (date) if needed
+      try {
+        const columnCheck = await db.query(`
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_name = 'response_time_metrics' 
+          AND column_name = 'date_hour'
+        `);
+        
+        if (columnCheck.rows.length > 0) {
+          // Old schema exists, migrate data
+          await db.query(`
+            ALTER TABLE response_time_metrics 
+            ADD COLUMN IF NOT EXISTS date VARCHAR(10);
+          `);
+          
+          // Migrate existing data: extract date from date_hour (format: YYYY-MM-DD-HH -> YYYY-MM-DD)
+          await db.query(`
+            UPDATE response_time_metrics 
+            SET date = SUBSTRING(date_hour, 1, 10)
+            WHERE date IS NULL AND date_hour IS NOT NULL;
+          `);
+          
+          // Drop old column and constraint
+          await db.query(`
+            ALTER TABLE response_time_metrics 
+            DROP CONSTRAINT IF EXISTS response_time_metrics_date_hour_key;
+          `);
+          
+          await db.query(`
+            ALTER TABLE response_time_metrics 
+            DROP COLUMN IF EXISTS date_hour;
+          `);
+          
+          // Add new unique constraint on date
+          await db.query(`
+            ALTER TABLE response_time_metrics 
+            ADD CONSTRAINT response_time_metrics_date_key UNIQUE (date);
+          `);
+        }
+      } catch (migrationError) {
+        console.warn('Migration warning (may be safe to ignore):', migrationError.message);
+      }
+
       // Insert or update metric (one entry per day, overwrites if exists)
       await db.query(`
         INSERT INTO response_time_metrics (timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min)

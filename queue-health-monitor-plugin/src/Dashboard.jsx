@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import HistoricalView from "./HistoricalView";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import "./Dashboard.css";
 
 // TSEs to exclude from the dashboard
@@ -35,6 +36,109 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   const [activeView, setActiveView] = useState("overview");
   const [filterTag, setFilterTag] = useState("all");
   const [filterTSE, setFilterTSE] = useState("all");
+  const [historicalSnapshots, setHistoricalSnapshots] = useState([]);
+  const [responseTimeMetrics, setResponseTimeMetrics] = useState([]);
+  const [loadingHistorical, setLoadingHistorical] = useState(false);
+  const [alertsDropdownOpen, setAlertsDropdownOpen] = useState(false);
+
+  // Fetch historical data for Overview tab
+  useEffect(() => {
+    if (activeView === "overview") {
+      fetchOverviewHistoricalData();
+    }
+  }, [activeView]);
+
+  const fetchOverviewHistoricalData = async () => {
+    setLoadingHistorical(true);
+    try {
+      // Get last 7 weekdays (same logic as Historical tab)
+      const getLast7Weekdays = () => {
+        const dates = [];
+        const today = new Date();
+        let daysBack = 0;
+        let weekdaysFound = 0;
+        
+        while (weekdaysFound < 7 && daysBack < 14) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - daysBack);
+          const dayOfWeek = date.getDay();
+          
+          // Monday = 1, Friday = 5
+          if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+            dates.push(date.toISOString().split('T')[0]);
+            weekdaysFound++;
+          }
+          daysBack++;
+        }
+        
+        return dates.sort();
+      };
+      
+      const weekdays = getLast7Weekdays();
+      const startDateStr = weekdays.length > 0 ? weekdays[0] : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const endDateStr = weekdays.length > 0 ? weekdays[weekdays.length - 1] : new Date().toISOString().slice(0, 10);
+
+      console.log('Overview: Fetching snapshots for date range:', { startDateStr, endDateStr, weekdays });
+
+      // Fetch compliance snapshots
+      const snapshotParams = new URLSearchParams();
+      snapshotParams.append('startDate', startDateStr);
+      snapshotParams.append('endDate', endDateStr);
+      
+      // In development, use production API URL since local dev server doesn't have API routes
+      const snapshotUrl = process.env.NODE_ENV === 'production'
+        ? `${window.location.origin}/api/snapshots/get?${snapshotParams}`
+        : `https://queue-health-monitor.vercel.app/api/snapshots/get?${snapshotParams}`;
+      
+      console.log('Overview: Fetching from URL:', snapshotUrl);
+      try {
+        const snapshotRes = await fetch(snapshotUrl);
+        if (snapshotRes.ok) {
+          const snapshotData = await snapshotRes.json();
+          console.log('Overview: Received snapshot data:', { 
+            snapshotsCount: snapshotData.snapshots?.length || 0,
+            snapshots: snapshotData.snapshots 
+          });
+          setHistoricalSnapshots(snapshotData.snapshots || []);
+        } else {
+          const errorText = await snapshotRes.text();
+          console.error('Overview: Failed to fetch snapshots:', snapshotRes.status, errorText);
+        }
+      } catch (error) {
+        console.error('Overview: Error fetching snapshots:', error);
+        // Silently fail in development - historical data is optional
+      }
+
+      // Fetch response time metrics
+      const metricParams = new URLSearchParams();
+      metricParams.append('startDate', startDateStr);
+      metricParams.append('endDate', endDateStr);
+      
+      // In development, use production API URL since local dev server doesn't have API routes
+      const metricUrl = process.env.NODE_ENV === 'production'
+        ? `${window.location.origin}/api/response-time-metrics/get?${metricParams}`
+        : `https://queue-health-monitor.vercel.app/api/response-time-metrics/get?${metricParams}`;
+      
+      try {
+        const metricRes = await fetch(metricUrl);
+        if (metricRes.ok) {
+          const metricData = await metricRes.json();
+          setResponseTimeMetrics(metricData.metrics || []);
+        }
+      } catch (error) {
+        console.error('Overview: Error fetching response time metrics:', error);
+        // Silently fail in development - historical data is optional
+      }
+    } catch (error) {
+      console.error('Error fetching overview historical data:', error);
+      // In development, this is expected since API routes aren't available locally
+      // Set empty arrays so the UI doesn't break
+      setHistoricalSnapshots([]);
+      setResponseTimeMetrics([]);
+    } finally {
+      setLoadingHistorical(false);
+    }
+  };
 
   const handleSaveSnapshot = async () => {
     try {
@@ -596,6 +700,12 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       <div className="dashboard-header">
         <h2>Support Ops: Queue Health Dashboard</h2>
         <div className="header-actions">
+          <AlertsDropdown 
+            alerts={metrics.alerts || []}
+            isOpen={alertsDropdownOpen}
+            onToggle={() => setAlertsDropdownOpen(!alertsDropdownOpen)}
+            onClose={() => setAlertsDropdownOpen(false)}
+          />
           <div className="view-tabs">
             <button 
               className={activeView === "overview" ? "active" : ""}
@@ -681,95 +791,15 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         </div>
       )}
 
-      {/* Alerts Section - Show only in overview */}
-      {activeView === "overview" && metrics.alerts && metrics.alerts.length > 0 && (
-        <div className="alerts-section">
-          <h3 className="section-title">⚠️ Active Alerts</h3>
-          <div className="alerts-grid">
-            {metrics.alerts.map((alert, idx) => (
-              <div key={idx} className={`alert-card alert-${alert.severity}`}>
-                <div className="alert-icon">⚠️</div>
-                <div className="alert-content">
-                  <div className="alert-message">{alert.message}</div>
-                  <div className="alert-count">Count: {alert.count}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* Overview Metrics - Show only in overview */}
+      {/* Modern Overview - Show only in overview */}
       {activeView === "overview" && (
-      <div className="metrics-section">
-        <h3 className="section-title">Overview Metrics</h3>
-        <div className="metrics-grid">
-          <MetricCard
-            title="Total Open Chats"
-            value={metrics.totalOpen}
-            target={THRESHOLDS.MAX_OPEN_IDEAL}
-            status={metrics.totalOpen === 0 ? "success" : metrics.totalOpen <= THRESHOLDS.MAX_OPEN_SOFT ? "warning" : "error"}
-          />
-          <MetricCard
-            title="Total Snoozed"
-            value={metrics.totalSnoozed}
-            status="info"
-          />
-          <MetricCard
-            title="Actionable Snoozed"
-            value={metrics.actionableSnoozed.length}
-            target={THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT}
-            status={metrics.actionableSnoozed.length <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT ? "success" : "warning"}
-          />
-          <MetricCard
-            title="Reassignment Candidates"
-            value={metrics.reassignmentCandidates.length}
-            status={metrics.reassignmentCandidates.length > 0 ? "error" : "success"}
-          />
-          <MetricCard
-            title="Closure Candidates"
-            value={metrics.closureCandidates.length}
-            status={metrics.closureCandidates.length > 0 ? "warning" : "success"}
-          />
-        </div>
-        <h3 className="section-title" style={{ marginTop: "24px" }}>Team Compliance</h3>
-        <div className="metrics-grid">
-          <MetricCard
-            title="Overall Compliance"
-            value={`${metrics.complianceOverall || 0}%`}
-            status={metrics.complianceOverall >= 80 ? "success" : metrics.complianceOverall >= 60 ? "warning" : "error"}
-          />
-          <MetricCard
-            title="Open Compliance Only"
-            value={`${metrics.complianceOpenOnly || 0}%`}
-            status={metrics.complianceOpenOnly >= 10 ? "warning" : "info"}
-          />
-          <MetricCard
-            title="Snoozed Compliance Only"
-            value={`${metrics.complianceSnoozedOnly || 0}%`}
-            status={metrics.complianceSnoozedOnly >= 10 ? "warning" : "info"}
-          />
-        </div>
-      </div>
-      )}
-
-      {/* Unassigned Conversations Card - Show only in overview */}
-      {activeView === "overview" && metrics.unassignedConversations && metrics.unassignedConversations.total > 0 && (
-        <div className="unassigned-section">
-          <h3 className="section-title">⚠️ Unassigned Conversations</h3>
-          <div className="unassigned-card">
-            <div className="unassigned-metrics">
-              <div className="unassigned-metric">
-                <span className="metric-label">Count:</span>
-                <span className="metric-value">{metrics.unassignedConversations.total}</span>
-              </div>
-              <div className="unassigned-metric">
-                <span className="metric-label">Median Wait Time:</span>
-                <span className="metric-value">{metrics.unassignedConversations.medianWaitTime || 0}h</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <OverviewDashboard 
+          metrics={metrics}
+          historicalSnapshots={historicalSnapshots}
+          responseTimeMetrics={responseTimeMetrics}
+          loadingHistorical={loadingHistorical}
+        />
       )}
 
       {/* TSE-Level Breakdown - Show only in TSE view */}
@@ -844,26 +874,468 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         </div>
       )}
 
-      {/* Reassignment Candidates - Only show in overview */}
-      {activeView === "overview" && metrics.reassignmentCandidates && metrics.reassignmentCandidates.length > 0 && (
-        <div className="candidates-section">
-          <h3 className="section-title">🔄 Proactive Reassignment Candidates (48+ hours)</h3>
-          <ConversationTable conversations={metrics.reassignmentCandidates} />
-        </div>
-      )}
-
-      {/* Closure Candidates - Only show in overview */}
-      {activeView === "overview" && metrics.closureCandidates && metrics.closureCandidates.length > 0 && (
-        <div className="candidates-section">
-          <h3 className="section-title">✅ Intelligent Closure Candidates</h3>
-          <ConversationTable conversations={metrics.closureCandidates} showTimeInfo />
-        </div>
-      )}
 
       {/* Historical View */}
       {activeView === "historical" && (
         <HistoricalView onSaveSnapshot={handleSaveSnapshot} />
       )}
+    </div>
+  );
+}
+
+// Alerts Dropdown Component
+function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
+  const [expandedTSEs, setExpandedTSEs] = useState(new Set());
+  const [expandedAlertTypes, setExpandedAlertTypes] = useState(new Set());
+  const [showAllTSEs, setShowAllTSEs] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen, onClose]);
+
+  // Group alerts by TSE
+  const alertsByTSE = useMemo(() => {
+    const grouped = {};
+    (alerts || []).forEach(alert => {
+      const tseKey = alert.tseId || alert.tseName;
+      if (!grouped[tseKey]) {
+        grouped[tseKey] = {
+          tseId: alert.tseId,
+          tseName: alert.tseName,
+          openAlerts: [],
+          snoozedAlerts: []
+        };
+      }
+      
+      if (alert.type === "open_threshold") {
+        grouped[tseKey].openAlerts.push(alert);
+      } else if (alert.type === "actionable_snoozed_threshold") {
+        grouped[tseKey].snoozedAlerts.push(alert);
+      }
+    });
+    return Object.values(grouped).sort((a, b) => a.tseName.localeCompare(b.tseName));
+  }, [alerts]);
+
+  const visibleTSEs = showAllTSEs ? alertsByTSE : alertsByTSE.slice(0, 5);
+  const remainingCount = alertsByTSE.length - 5;
+
+  const toggleTSE = (tseKey) => {
+    const newExpanded = new Set(expandedTSEs);
+    if (newExpanded.has(tseKey)) {
+      newExpanded.delete(tseKey);
+    } else {
+      newExpanded.add(tseKey);
+    }
+    setExpandedTSEs(newExpanded);
+  };
+
+  const toggleAlertType = (key) => {
+    const newExpanded = new Set(expandedAlertTypes);
+    if (newExpanded.has(key)) {
+      newExpanded.delete(key);
+    } else {
+      newExpanded.add(key);
+    }
+    setExpandedAlertTypes(newExpanded);
+  };
+
+  const alertCount = alerts?.length || 0;
+
+  return (
+    <div className="alerts-dropdown-container" ref={dropdownRef}>
+      <button 
+        className="alerts-icon-button"
+        onClick={onToggle}
+        aria-label="Alerts"
+      >
+        {alertCount > 0 ? (
+          <img 
+            src="https://res.cloudinary.com/doznvxtja/image/upload/v1767012829/3_150_x_150_px_b2yyf9.svg" 
+            alt="Alerts" 
+            className="alerts-icon alerts-icon-with-badge"
+          />
+        ) : (
+          <img 
+            src="https://res.cloudinary.com/doznvxtja/image/upload/v1767012190/2_nkazbo.svg" 
+            alt="No alerts" 
+            className="alerts-icon"
+          />
+        )}
+      </button>
+      
+      {isOpen && (
+        <div className="alerts-dropdown">
+          <div className="alerts-dropdown-header">
+            <h3>Active Alerts</h3>
+            <button className="alerts-close-button" onClick={onClose}>×</button>
+          </div>
+          <div className="alerts-dropdown-content">
+            {alertCount === 0 ? (
+              <div className="alerts-empty">
+                <p>No active alerts</p>
+              </div>
+            ) : (
+              <>
+                {visibleTSEs.map((tseGroup) => {
+                  const tseKey = `${tseGroup.tseId}-${tseGroup.tseName}`;
+                  const isTSEExpanded = expandedTSEs.has(tseKey);
+                  const hasOpenAlerts = tseGroup.openAlerts.length > 0;
+                  const hasSnoozedAlerts = tseGroup.snoozedAlerts.length > 0;
+
+                  return (
+                    <div key={tseKey} className="tse-alert-group">
+                      <div 
+                        className="tse-alert-header" 
+                        onClick={() => toggleTSE(tseKey)}
+                      >
+                        <span className="tse-expand-icon">{isTSEExpanded ? '▼' : '▶'}</span>
+                        <span className="tse-name">{tseGroup.tseName}</span>
+                        <span className="tse-alert-count">
+                          ({tseGroup.openAlerts.length + tseGroup.snoozedAlerts.length})
+                        </span>
+                      </div>
+                      
+                      {isTSEExpanded && (
+                        <div className="tse-alert-types">
+                          {hasOpenAlerts && (
+                            <div className="alert-type-group">
+                              <div 
+                                className="alert-type-header"
+                                onClick={() => toggleAlertType(`${tseKey}-open`)}
+                              >
+                                <span className="alert-type-expand-icon">
+                                  {expandedAlertTypes.has(`${tseKey}-open`) ? '▼' : '▶'}
+                                </span>
+                                <span className="alert-type-label">Open Chat Alerts</span>
+                                <span className="alert-type-count">({tseGroup.openAlerts.length})</span>
+                              </div>
+                              {expandedAlertTypes.has(`${tseKey}-open`) && (
+                                <div className="alert-type-items">
+                                  {tseGroup.openAlerts.map((alert, idx) => (
+                                    <div key={idx} className="alert-item">
+                                      <span className="alert-severity">
+                                        {alert.severity === "high" ? "🔴" : "🟡"}
+                                      </span>
+                                      <span className="alert-message">{alert.message}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          {hasSnoozedAlerts && (
+                            <div className="alert-type-group">
+                              <div 
+                                className="alert-type-header"
+                                onClick={() => toggleAlertType(`${tseKey}-snoozed`)}
+                              >
+                                <span className="alert-type-expand-icon">
+                                  {expandedAlertTypes.has(`${tseKey}-snoozed`) ? '▼' : '▶'}
+                                </span>
+                                <span className="alert-type-label">Snoozed Alerts</span>
+                                <span className="alert-type-count">({tseGroup.snoozedAlerts.length})</span>
+                              </div>
+                              {expandedAlertTypes.has(`${tseKey}-snoozed`) && (
+                                <div className="alert-type-items">
+                                  {tseGroup.snoozedAlerts.map((alert, idx) => (
+                                    <div key={idx} className="alert-item">
+                                      <span className="alert-severity">
+                                        {alert.severity === "high" ? "🔴" : "🟡"}
+                                      </span>
+                                      <span className="alert-message">{alert.message}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                
+                {!showAllTSEs && remainingCount > 0 && (
+                  <div 
+                    className="show-more-tse" 
+                    onClick={() => setShowAllTSEs(true)}
+                  >
+                    Show {remainingCount} more TSE{remainingCount !== 1 ? 's' : ''} ▼
+                  </div>
+                )}
+                
+                {showAllTSEs && alertsByTSE.length > 5 && (
+                  <div 
+                    className="show-less-tse" 
+                    onClick={() => setShowAllTSEs(false)}
+                  >
+                    Show less ▲
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Modern Overview Dashboard Component
+function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical }) {
+  // Prepare compliance trend data (last 7 days)
+  const complianceTrendData = useMemo(() => {
+    console.log('Overview: Processing compliance trend data, snapshots:', historicalSnapshots);
+    if (!historicalSnapshots || historicalSnapshots.length === 0) {
+      console.log('Overview: No historical snapshots available');
+      return [];
+    }
+    
+    const processed = historicalSnapshots
+      .map(snapshot => {
+        const tseData = snapshot.tse_data || snapshot.tseData || [];
+        const totalTSEs = tseData.length;
+        if (totalTSEs === 0) return null;
+
+        let compliantBoth = 0;
+        tseData.forEach(tse => {
+          const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
+          const totalActionableSnoozed = (tse.actionableSnoozed || 0) + (tse.investigationSnoozed || 0);
+          const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+          if (meetsOpen && meetsSnoozed) compliantBoth++;
+        });
+
+        const compliance = totalTSEs > 0 ? Math.round((compliantBoth / totalTSEs) * 100) : 0;
+        
+        // Parse date avoiding timezone issues
+        const [year, month, day] = snapshot.date.split('-').map(Number);
+        const localDate = new Date(year, month - 1, day);
+        const displayMonth = localDate.getMonth() + 1;
+        const displayDay = localDate.getDate();
+        
+        return {
+          date: snapshot.date,
+          displayLabel: `${displayMonth}/${displayDay}`,
+          compliance
+        };
+      })
+      .filter(item => item !== null)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-7); // Last 7 days
+    
+    console.log('Overview: Processed compliance trend data:', processed);
+    return processed;
+  }, [historicalSnapshots]);
+
+  // Prepare response time trend data (last 7 days)
+  const responseTimeTrendData = useMemo(() => {
+    if (!responseTimeMetrics || responseTimeMetrics.length === 0) return [];
+    
+    return responseTimeMetrics
+      .map(metric => {
+        const [year, month, day] = metric.date.split('-').map(Number);
+        const localDate = new Date(year, month - 1, day);
+        const displayMonth = localDate.getMonth() + 1;
+        const displayDay = localDate.getDate();
+        
+        return {
+          date: metric.date,
+          displayLabel: `${displayMonth}/${displayDay}`,
+          percentage: parseFloat(metric.percentage10PlusMin || 0)
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-7); // Last 7 days
+  }, [responseTimeMetrics]);
+
+  // Calculate current response time percentage
+  const currentResponseTimePct = useMemo(() => {
+    if (responseTimeTrendData.length === 0) return 0;
+    return Math.round(responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage || 0);
+  }, [responseTimeTrendData]);
+
+  // Calculate trend indicators
+  const complianceTrend = useMemo(() => {
+    if (complianceTrendData.length < 2) return { direction: 'stable', change: 0 };
+    const first = complianceTrendData[0].compliance;
+    const last = complianceTrendData[complianceTrendData.length - 1].compliance;
+    const change = last - first;
+    return {
+      direction: change > 0 ? 'up' : change < 0 ? 'down' : 'stable',
+      change: Math.abs(change)
+    };
+  }, [complianceTrendData]);
+
+  const responseTimeTrend = useMemo(() => {
+    if (responseTimeTrendData.length < 2) return { direction: 'stable', change: 0 };
+    const first = responseTimeTrendData[0].percentage;
+    const last = responseTimeTrendData[responseTimeTrendData.length - 1].percentage;
+    const change = last - first;
+    return {
+      direction: change < 0 ? 'up' : change > 0 ? 'down' : 'stable', // Lower is better for response time
+      change: Math.abs(change)
+    };
+  }, [responseTimeTrendData]);
+
+  return (
+    <div className="modern-overview">
+      {/* Key KPIs */}
+      <div className="overview-kpis">
+        <div className="kpi-card primary">
+          <div className="kpi-label">Team Compliance</div>
+          <div className="kpi-value">{metrics.complianceOverall || 0}%</div>
+          {complianceTrendData.length >= 2 && (
+            <div className={`kpi-trend ${complianceTrend.direction}`}>
+              {complianceTrend.direction === 'up' ? '↑' : complianceTrend.direction === 'down' ? '↓' : '→'}
+              {complianceTrend.change > 0 && ` ${complianceTrend.change}%`}
+            </div>
+          )}
+          <div className="kpi-subtitle">Last 7 days</div>
+        </div>
+
+        <div className="kpi-card primary">
+          <div className="kpi-label">10+ Min Wait Rate</div>
+          <div className="kpi-value">{currentResponseTimePct}%</div>
+          {responseTimeTrendData.length >= 2 && (
+            <div className={`kpi-trend ${responseTimeTrend.direction}`}>
+              {responseTimeTrend.direction === 'up' ? '↓' : responseTimeTrend.direction === 'down' ? '↑' : '→'}
+              {responseTimeTrend.change > 0 && ` ${responseTimeTrend.change.toFixed(1)}%`}
+            </div>
+          )}
+          <div className="kpi-subtitle">Last 7 days avg</div>
+        </div>
+
+        <div className="kpi-card">
+          <div className="kpi-label">Open Chats</div>
+          <div className="kpi-value">{metrics.totalOpen}</div>
+          <div className="kpi-subtitle">Currently open</div>
+        </div>
+
+        <div className="kpi-card">
+          <div className="kpi-label">Actionable Snoozed</div>
+          <div className="kpi-value">{metrics.actionableSnoozed.length}</div>
+          <div className="kpi-subtitle">Requires attention</div>
+        </div>
+      </div>
+
+      {/* Trend Charts */}
+      <div className="overview-charts">
+        <div className="trend-card">
+          <div className="trend-header">
+            <h4>Compliance Trend</h4>
+            <span className="trend-period">7 days</span>
+          </div>
+          {complianceTrendData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={complianceTrendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="complianceGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#35a1b4" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#35a1b4" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis 
+                  dataKey="displayLabel" 
+                  stroke="#666"
+                  tick={{ fill: '#666', fontSize: 11 }}
+                />
+                <YAxis 
+                  stroke="#666"
+                  tick={{ fill: '#666', fontSize: 11 }}
+                  domain={[0, 100]}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'white', 
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '4px'
+                  }}
+                  formatter={(value) => [`${value}%`, 'Compliance']}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="compliance" 
+                  stroke="#35a1b4" 
+                  strokeWidth={2}
+                  fill="url(#complianceGradient)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="chart-placeholder">
+              <p>No compliance data available</p>
+              <span>Snapshots are captured daily at 10pm ET</span>
+            </div>
+          )}
+        </div>
+
+        <div className="trend-card">
+          <div className="trend-header">
+            <h4>Response Time Trend</h4>
+            <span className="trend-period">7 days</span>
+          </div>
+          {responseTimeTrendData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={responseTimeTrendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="responseGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#fd8789" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#fd8789" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis 
+                  dataKey="displayLabel" 
+                  stroke="#666"
+                  tick={{ fill: '#666', fontSize: 11 }}
+                />
+                <YAxis 
+                  stroke="#666"
+                  tick={{ fill: '#666', fontSize: 11 }}
+                  domain={[0, 'auto']}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'white', 
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '4px'
+                  }}
+                  formatter={(value) => [`${value.toFixed(1)}%`, '10+ Min Wait']}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="percentage" 
+                  stroke="#fd8789" 
+                  strokeWidth={2}
+                  fill="url(#responseGradient)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="chart-placeholder">
+              <p>No response time data available</p>
+              <span>Metrics are captured daily at midnight UTC</span>
+            </div>
+          )}
+        </div>
+      </div>
+
     </div>
   );
 }

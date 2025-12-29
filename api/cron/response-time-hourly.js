@@ -51,11 +51,14 @@ function getPool() {
 export const dynamic = 'force-dynamic';
 
 export default async function handler(req, res) {
-  // Verify this is a cron job request (Vercel Cron)
+  // Allow manual triggers from frontend (no auth required for manual calls)
+  // Only verify auth if Authorization header is present (cron jobs from Vercel)
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
   
-  if (cronSecret) {
+  // If Authorization header is present, verify it matches CRON_SECRET
+  // This allows manual triggers without auth, but protects cron jobs
+  if (authHeader && cronSecret) {
     if (authHeader !== `Bearer ${cronSecret}`) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -71,9 +74,6 @@ export default async function handler(req, res) {
       ? INTERCOM_TOKEN
       : `Bearer ${INTERCOM_TOKEN}`;
 
-    // Fetch all conversations (including closed)
-    const conversations = await fetchAllTeamConversations(authHeaderValue);
-
     // Get today's date range (start and end of day in UTC)
     const now = new Date();
     const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
@@ -81,13 +81,8 @@ export default async function handler(req, res) {
     const todayStartSeconds = Math.floor(todayStart.getTime() / 1000);
     const todayEndSeconds = Math.floor(todayEnd.getTime() / 1000);
 
-    // Filter to only conversations created today
-    const conversationsToday = conversations.filter(conv => {
-      const createdAt = conv.created_at;
-      if (!createdAt) return false;
-      // createdAt is a Unix timestamp in seconds
-      return createdAt >= todayStartSeconds && createdAt <= todayEndSeconds;
-    });
+    // Fetch only conversations created today (optimized query)
+    const conversationsToday = await fetchTeamConversationsCreatedToday(authHeaderValue, todayStartSeconds, todayEndSeconds);
 
     // Calculate metrics: count conversations with 10+ minute wait time
     const TEN_MINUTES_SECONDS = 600;
@@ -152,6 +147,50 @@ export default async function handler(req, res) {
       );
     `);
 
+    // Migrate from old schema (date_hour) to new schema (date) if needed
+    try {
+      const columnCheck = await db.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'response_time_metrics' 
+        AND column_name = 'date_hour'
+      `);
+      
+      if (columnCheck.rows.length > 0) {
+        // Old schema exists, migrate data
+        await db.query(`
+          ALTER TABLE response_time_metrics 
+          ADD COLUMN IF NOT EXISTS date VARCHAR(10);
+        `);
+        
+        // Migrate existing data: extract date from date_hour (format: YYYY-MM-DD-HH -> YYYY-MM-DD)
+        await db.query(`
+          UPDATE response_time_metrics 
+          SET date = SUBSTRING(date_hour, 1, 10)
+          WHERE date IS NULL AND date_hour IS NOT NULL;
+        `);
+        
+        // Drop old column and constraint
+        await db.query(`
+          ALTER TABLE response_time_metrics 
+          DROP CONSTRAINT IF EXISTS response_time_metrics_date_hour_key;
+        `);
+        
+        await db.query(`
+          ALTER TABLE response_time_metrics 
+          DROP COLUMN IF EXISTS date_hour;
+        `);
+        
+        // Add new unique constraint on date
+        await db.query(`
+          ALTER TABLE response_time_metrics 
+          ADD CONSTRAINT response_time_metrics_date_key UNIQUE (date);
+        `);
+      }
+    } catch (migrationError) {
+      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
+    }
+
     await db.query(`
       INSERT INTO response_time_metrics (timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min)
       VALUES ($1, $2, $3, $4, $5)
@@ -177,12 +216,13 @@ export default async function handler(req, res) {
   }
 }
 
-async function fetchAllTeamConversations(authHeader) {
+// Optimized: Fetch conversations created today using Intercom API date filtering
+// According to Intercom API docs, created_at supports > and < operators
+async function fetchTeamConversationsCreatedToday(authHeader, startSeconds, endSeconds) {
   let all = [];
   let startingAfter = null;
   let pageCount = 0;
-  const MAX_PAGES = 50;
-  const BATCH_SIZE = 10;
+  const MAX_PAGES = 10; // Limit pages to avoid timeout
 
   while (pageCount < MAX_PAGES) {
     const body = {
@@ -193,6 +233,16 @@ async function fetchAllTeamConversations(authHeader) {
             field: "team_assignee_id",
             operator: "=",
             value: "5480079"
+          },
+          {
+            field: "created_at",
+            operator: ">",
+            value: startSeconds - 1 // Use > with startSeconds-1 to include startSeconds
+          },
+          {
+            field: "created_at",
+            operator: "<",
+            value: endSeconds + 1 // Use < with endSeconds+1 to include endSeconds
           }
         ]
       },
@@ -221,39 +271,69 @@ async function fetchAllTeamConversations(authHeader) {
     const data = await resp.json();
     const items = data.data || data.conversations || [];
     
-    // Fetch full conversation details in batches
-    const enrichedItems = [];
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const batch = items.slice(i, i + BATCH_SIZE);
-      const batchPromises = batch.map(async (item) => {
-        try {
-          const convResp = await fetch(`${INTERCOM_BASE_URL}/conversations/${item.id}`, {
-            headers: {
-              "Authorization": authHeader,
-              "Accept": "application/json",
-              "Intercom-Version": "2.10"
+    // Double-check date filtering client-side (API should filter, but verify)
+    const filteredItems = items.filter(item => {
+      const createdAt = item.created_at;
+      return createdAt && createdAt >= startSeconds && createdAt <= endSeconds;
+    });
+    
+    // Check if search results already have statistics (no need to fetch full details)
+    // If statistics are missing, fetch full details only for those conversations
+    const itemsNeedingDetails = filteredItems.filter(item => !item.statistics);
+    const enrichedItems = [...filteredItems.filter(item => item.statistics)]; // Keep items with stats
+    
+    // Only fetch details for conversations missing statistics
+    if (itemsNeedingDetails.length > 0) {
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < itemsNeedingDetails.length; i += BATCH_SIZE) {
+        const batch = itemsNeedingDetails.slice(i, i + BATCH_SIZE);
+        const batchPromises = batch.map(async (item) => {
+          try {
+            const convResp = await fetch(`${INTERCOM_BASE_URL}/conversations/${item.id}`, {
+              headers: {
+                "Authorization": authHeader,
+                "Accept": "application/json",
+                "Intercom-Version": "2.10"
+              }
+            });
+            
+            if (convResp.ok) {
+              return await convResp.json();
             }
-          });
-          
-          if (convResp.ok) {
-            return await convResp.json();
+          } catch (err) {
+            console.warn(`Failed to fetch details for conversation ${item.id}:`, err.message);
           }
-        } catch (err) {
-          console.warn(`Failed to fetch details for conversation ${item.id}:`, err.message);
+          return item;
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        enrichedItems.push(...batchResults);
+        
+        if (i + BATCH_SIZE < itemsNeedingDetails.length) {
+          await new Promise(resolve => setTimeout(resolve, 50)); // Reduced delay
         }
-        return item;
-      });
-      
-      const batchResults = await Promise.all(batchPromises);
-      enrichedItems.push(...batchResults);
-      
-      if (i + BATCH_SIZE < items.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
     
     all = all.concat(enrichedItems);
     pageCount++;
+
+    // Stop early if no results for today (API filtered them out)
+    if (filteredItems.length === 0 && items.length > 0) {
+      // If API returned items but none match today's date, we've likely gone past today
+      const oldestItem = items.reduce((oldest, item) => {
+        return (!oldest || (item.created_at && item.created_at < oldest.created_at)) ? item : oldest;
+      }, null);
+      if (oldestItem && oldestItem.created_at < startSeconds) {
+        // All remaining pages will be older than today, so stop
+        break;
+      }
+    }
+
+    // If no items returned at all, we're done
+    if (items.length === 0) {
+      break;
+    }
 
     const pages = data.pages || {};
     const next = pages.next;

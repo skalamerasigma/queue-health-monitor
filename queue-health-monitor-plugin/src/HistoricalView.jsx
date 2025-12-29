@@ -121,7 +121,11 @@ function HistoricalView({ onSaveSnapshot }) {
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
+        console.log('Fetched response time metrics:', data);
         setResponseTimeMetrics(data.metrics || []);
+      } else {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Failed to fetch metrics:', errorData);
       }
     } catch (error) {
       console.error('Error fetching response time metrics:', error);
@@ -259,24 +263,42 @@ function HistoricalView({ onSaveSnapshot }) {
 
   // Prepare response time chart data
   const responseTimeChartData = useMemo(() => {
-    return responseTimeMetrics.map(metric => {
-      // date format: YYYY-MM-DD (e.g., "2025-12-29")
-      const [year, month, day] = metric.date.split('-').map(Number);
-      
-      // Create a local date to avoid timezone issues
-      const localDate = new Date(year, month - 1, day);
-      const displayMonth = localDate.getMonth() + 1;
-      const displayDay = localDate.getDate();
-      
-      return {
-        date: metric.date,
-        timestamp: metric.timestamp,
-        displayLabel: `${displayMonth}/${displayDay}`,
-        count10PlusMin: metric.count10PlusMin,
-        totalConversations: metric.totalConversations,
-        percentage10PlusMin: metric.percentage10PlusMin
-      };
-    }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    if (!responseTimeMetrics || responseTimeMetrics.length === 0) {
+      return [];
+    }
+    
+    return responseTimeMetrics
+      .filter(metric => metric.date) // Only include metrics with a date
+      .map(metric => {
+        try {
+          // date format: YYYY-MM-DD (e.g., "2025-12-29")
+          const [year, month, day] = metric.date.split('-').map(Number);
+          
+          if (isNaN(year) || isNaN(month) || isNaN(day)) {
+            console.warn('Invalid date format:', metric.date);
+            return null;
+          }
+          
+          // Create a local date to avoid timezone issues
+          const localDate = new Date(year, month - 1, day);
+          const displayMonth = localDate.getMonth() + 1;
+          const displayDay = localDate.getDate();
+          
+          return {
+            date: metric.date,
+            timestamp: metric.timestamp,
+            displayLabel: `${displayMonth}/${displayDay}`,
+            count10PlusMin: metric.count10PlusMin || 0,
+            totalConversations: metric.totalConversations || 0,
+            percentage10PlusMin: metric.percentage10PlusMin || 0
+          };
+        } catch (error) {
+          console.error('Error processing metric:', metric, error);
+          return null;
+        }
+      })
+      .filter(item => item !== null) // Remove any null entries
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
   }, [responseTimeMetrics]);
 
   // Calculate response time summary metrics
@@ -327,14 +349,27 @@ function HistoricalView({ onSaveSnapshot }) {
 
                   const res = await fetch(url);
                   if (res.ok) {
+                    const result = await res.json().catch(() => ({}));
+                    console.log('Capture response:', result);
                     alert('Response time metric captured successfully!');
-                    fetchResponseTimeMetrics();
+                    // Wait a moment for the database to be ready, then refresh
+                    setTimeout(() => {
+                      fetchResponseTimeMetrics();
+                    }, 500);
                   } else {
-                    throw new Error('Failed to capture metric');
+                    let errorData;
+                    try {
+                      errorData = await res.json();
+                    } catch (e) {
+                      errorData = { error: `HTTP ${res.status}: ${res.statusText}` };
+                    }
+                    console.error('Capture failed:', errorData);
+                    throw new Error(errorData.error || `HTTP ${res.status}: Failed to capture metric`);
                   }
                 } catch (error) {
                   console.error('Error capturing response time metric:', error);
-                  alert('Failed to capture metric: ' + error.message);
+                  const errorMessage = error?.message || error?.toString() || 'Unknown error occurred';
+                  alert('Failed to capture metric: ' + errorMessage);
                 }
               }} 
               className="save-snapshot-button"

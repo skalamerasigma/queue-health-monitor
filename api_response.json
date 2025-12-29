@@ -1,0 +1,1119 @@
+{
+    "type": "conversation.list",
+    "pages": {
+        "type": "pages",
+        "page": 1,
+        "per_page": 150,
+        "total_pages": 1
+    },
+    "total_count": 9,
+    "conversations": [
+        {
+            "type": "conversation",
+            "id": "215472455767679",
+            "created_at": 1766999867,
+            "updated_at": 1767003722,
+            "waiting_since": 1767003593,
+            "snoozed_until": null,
+            "source": {
+                "type": "conversation",
+                "id": "3356688929",
+                "delivered_as": "customer_initiated",
+                "subject": "",
+                "body": "<p>Hi, I am unable to access a sigma sheet but all access is granted by owner, can please assist? </p>",
+                "author": {
+                    "type": "user",
+                    "id": "685cdda788be2d074824800d",
+                    "name": "esther tan",
+                    "email": "esther_tan@colpal.com"
+                },
+                "attachments": [],
+                "url": "https://app.sigmacomputing.com/colgate/workbook/CDF-IDT-TRP-actuals-YTP5-2IYNh72bfbxeii355FzHsW?:nodeId=eVY586LrjU",
+                "redacted": false
+            },
+            "contacts": {
+                "type": "contact.list",
+                "contacts": [
+                    {
+                        "type": "contact",
+                        "id": "685cdda788be2d074824800d",
+                        "external_id": "U40BipyhYCO8jJp372dnHLF8ZTrGg"
+                    }
+                ]
+            },
+            "first_contact_reply": {
+                "created_at": 1766999867,
+                "type": "conversation",
+                "url": "https://app.sigmacomputing.com/colgate/workbook/CDF-IDT-TRP-actuals-YTP5-2IYNh72bfbxeii355FzHsW?:nodeId=eVY586LrjU"
+            },
+            "admin_assignee_id": 8212272,
+            "team_assignee_id": 5480079,
+            "open": true,
+            "state": "open",
+            "read": true,
+            "tags": {
+                "type": "tag.list",
+                "tags": []
+            },
+            "priority": "not_priority",
+            "sla_applied": {
+                "type": "conversation_sla_summary",
+                "sla_name": "Responsiveness SLA - 5min follow-up",
+                "sla_status": "hit"
+            },
+            "statistics": {
+                "type": "conversation_statistics",
+                "time_to_assignment": null,
+                "time_to_admin_reply": null,
+                "time_to_first_close": null,
+                "time_to_last_close": null,
+                "median_time_to_reply": 47,
+                "first_contact_reply_at": 1766999867,
+                "first_assignment_at": 1766999868,
+                "first_admin_reply_at": 1767002392,
+                "first_close_at": null,
+                "last_assignment_at": 1767002358,
+                "last_assignment_admin_reply_at": 1767002392,
+                "last_contact_reply_at": 1767003722,
+                "last_admin_reply_at": 1767003060,
+                "last_close_at": null,
+                "last_closed_by_id": null,
+                "count_reopens": 0,
+                "count_assignments": 4,
+                "count_conversation_parts": 26
+            },
+            "conversation_rating": null,
+            "teammates": {
+                "type": "admin.list",
+                "admins": [
+                    {
+                        "type": "admin",
+                        "id": "8212272"
+                    }
+                ]
+            },
+            "title": null,
+            "custom_attributes": {
+                "Has attachments": true,
+                "Imported via standalone": false,
+                "Auto-translated": false,
+                "Fin AI Agent: Preview": false,
+                "Fin AI Agent: Image used in reply": false,
+                "Copilot used": false,
+                "Language": "English",
+                "Off Shift Workflow Count": 1,
+                "initial_contact": true
+            },
+            "topics": {
+                "type": "topic.list",
+                "topics": [
+                    {
+                        "type": "topic",
+                        "id": 33432,
+                        "name": "Authentication"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 33460,
+                        "name": "Result Download"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 33435,
+                        "name": "User Permissions"
+                    }
+                ],
+                "total_count": 3
+            },
+            "ticket": null,
+            "linked_objects": {
+                "type": "list",
+                "data": [],
+                "total_count": 0,
+                "has_more": false
+            },
+            "ai_agent": null,
+            "ai_agent_participated": false
+        },
+        {
+            "type": "conversation",
+            "id": "215472456150265",
+            "created_at": 1767002950,
+            "updated_at": 1767003728,
+            "waiting_since": 1767003719,
+            "snoozed_until": null,
+            "source": {
+                "type": "conversation",
+                "id": "3356762733",
+                "delivered_as": "customer_initiated",
+                "subject": "",
+                "body": "<p>Hi there, happy christmas all. I had a Q about the beta hierarchies and charts. I would love to set a hierarchy like Monthname / Day of month - and display them both on a chart as you would in excel rather than the full date string for each day. Currently it seems that you can only show one step of the hierarchy at any point. </p>",
+                "author": {
+                    "type": "user",
+                    "id": "67d844750e57bda48e4bac3a",
+                    "name": "Alex Wembridge",
+                    "email": "alex.wembridge@hl.co.uk"
+                },
+                "attachments": [],
+                "url": "https://app.sigmacomputing.com/hl-qd51584/workbook/Daily-Flows-AW-NNB-5VSuuk0fGC9B52kqcTS90U/edit?:nodeId=_FW1qRRxqc",
+                "redacted": false
+            },
+            "contacts": {
+                "type": "contact.list",
+                "contacts": [
+                    {
+                        "type": "contact",
+                        "id": "67d844750e57bda48e4bac3a",
+                        "external_id": "BTii4HrmYB6zuIkzpFGsOyg7bYs3P"
+                    }
+                ]
+            },
+            "first_contact_reply": {
+                "created_at": 1767002950,
+                "type": "conversation",
+                "url": "https://app.sigmacomputing.com/hl-qd51584/workbook/Daily-Flows-AW-NNB-5VSuuk0fGC9B52kqcTS90U/edit?:nodeId=_FW1qRRxqc"
+            },
+            "admin_assignee_id": 9276961,
+            "team_assignee_id": 5480079,
+            "open": true,
+            "state": "open",
+            "read": true,
+            "tags": {
+                "type": "tag.list",
+                "tags": []
+            },
+            "priority": "not_priority",
+            "sla_applied": {
+                "type": "conversation_sla_summary",
+                "sla_name": "Responsiveness SLA - 5min follow-up",
+                "sla_status": "canceled"
+            },
+            "statistics": {
+                "type": "conversation_statistics",
+                "time_to_assignment": 2,
+                "time_to_admin_reply": 81,
+                "time_to_first_close": null,
+                "time_to_last_close": null,
+                "median_time_to_reply": 81,
+                "first_contact_reply_at": 1767002950,
+                "first_assignment_at": 1767002952,
+                "first_admin_reply_at": 1767003031,
+                "first_close_at": null,
+                "last_assignment_at": 1767002957,
+                "last_assignment_admin_reply_at": 1767003031,
+                "last_contact_reply_at": 1767003728,
+                "last_admin_reply_at": 1767003696,
+                "last_close_at": null,
+                "last_closed_by_id": null,
+                "count_reopens": 0,
+                "count_assignments": 6,
+                "count_conversation_parts": 25
+            },
+            "conversation_rating": null,
+            "teammates": {
+                "type": "admin.list",
+                "admins": [
+                    {
+                        "type": "admin",
+                        "id": "9276961"
+                    }
+                ]
+            },
+            "title": null,
+            "custom_attributes": {
+                "Has attachments": false,
+                "Imported via standalone": false,
+                "Auto-translated": false,
+                "Fin AI Agent: Preview": false,
+                "Fin AI Agent: Image used in reply": false,
+                "Copilot used": false,
+                "Language": "English",
+                "Off Shift Workflow Count": 1,
+                "initial_contact": true
+            },
+            "topics": {
+                "type": "topic.list",
+                "topics": [],
+                "total_count": 0
+            },
+            "ticket": null,
+            "linked_objects": {
+                "type": "list",
+                "data": [],
+                "total_count": 0,
+                "has_more": false
+            },
+            "ai_agent": null,
+            "ai_agent_participated": false
+        },
+        {
+            "type": "conversation",
+            "id": "215472456214042",
+            "created_at": 1767003191,
+            "updated_at": 1767003597,
+            "waiting_since": null,
+            "snoozed_until": null,
+            "source": {
+                "type": "conversation",
+                "id": "3356768470",
+                "delivered_as": "customer_initiated",
+                "subject": "",
+                "body": "<p>I can't seem to make these bars thicker on a graph when the x axis is set to time, but they need to be set to time to enable a trend line</p>",
+                "author": {
+                    "type": "user",
+                    "id": "683f171b75a94df8021eeba9",
+                    "name": "Ed Whiffin",
+                    "email": "ewhiffin@sagacitysolutions.co.uk"
+                },
+                "attachments": [],
+                "url": "https://app.sigmacomputing.com/sagacity/workbook/Playbook-Dashboard-2Pw3d1JTIm4Iy22313GyqB/edit?:nodeId=fIpCpex06G",
+                "redacted": false
+            },
+            "contacts": {
+                "type": "contact.list",
+                "contacts": [
+                    {
+                        "type": "contact",
+                        "id": "683f171b75a94df8021eeba9",
+                        "external_id": "MlDlRE8hiRddK2d3mhFPzyL1jmPQ1"
+                    }
+                ]
+            },
+            "first_contact_reply": {
+                "created_at": 1767003191,
+                "type": "conversation",
+                "url": "https://app.sigmacomputing.com/sagacity/workbook/Playbook-Dashboard-2Pw3d1JTIm4Iy22313GyqB/edit?:nodeId=fIpCpex06G"
+            },
+            "admin_assignee_id": 8363153,
+            "team_assignee_id": 5480079,
+            "open": true,
+            "state": "open",
+            "read": true,
+            "tags": {
+                "type": "tag.list",
+                "tags": []
+            },
+            "priority": "not_priority",
+            "sla_applied": {
+                "type": "conversation_sla_summary",
+                "sla_name": "Responsiveness SLA - 5min follow-up",
+                "sla_status": "hit"
+            },
+            "statistics": {
+                "type": "conversation_statistics",
+                "time_to_assignment": 2,
+                "time_to_admin_reply": 52,
+                "time_to_first_close": null,
+                "time_to_last_close": null,
+                "median_time_to_reply": 50,
+                "first_contact_reply_at": 1767003191,
+                "first_assignment_at": 1767003193,
+                "first_admin_reply_at": 1767003243,
+                "first_close_at": null,
+                "last_assignment_at": 1767003194,
+                "last_assignment_admin_reply_at": 1767003243,
+                "last_contact_reply_at": 1767003561,
+                "last_admin_reply_at": 1767003597,
+                "last_close_at": null,
+                "last_closed_by_id": null,
+                "count_reopens": 0,
+                "count_assignments": 4,
+                "count_conversation_parts": 20
+            },
+            "conversation_rating": null,
+            "teammates": {
+                "type": "admin.list",
+                "admins": [
+                    {
+                        "type": "admin",
+                        "id": "8363153"
+                    }
+                ]
+            },
+            "title": "",
+            "custom_attributes": {
+                "Has attachments": true,
+                "Imported via standalone": false,
+                "Auto-translated": false,
+                "Fin AI Agent: Preview": false,
+                "Fin AI Agent: Image used in reply": false,
+                "Copilot used": false,
+                "Language": "English",
+                "Off Shift Workflow Count": 1,
+                "initial_contact": true
+            },
+            "topics": {
+                "type": "topic.list",
+                "topics": [],
+                "total_count": 0
+            },
+            "ticket": null,
+            "linked_objects": {
+                "type": "list",
+                "data": [],
+                "total_count": 0,
+                "has_more": false
+            },
+            "ai_agent": null,
+            "ai_agent_participated": false
+        },
+        {
+            "type": "conversation",
+            "id": "215472455979471",
+            "created_at": 1767002156,
+            "updated_at": 1767003491,
+            "waiting_since": null,
+            "snoozed_until": null,
+            "source": {
+                "type": "conversation",
+                "id": "3356742133",
+                "delivered_as": "customer_initiated",
+                "subject": "",
+                "body": "<p>Try AI before Human Support</p>",
+                "author": {
+                    "type": "user",
+                    "id": "666706e2ea8e30effb100ce6",
+                    "name": "Sarah Perrone",
+                    "email": "sperrone@toolsgroup.com"
+                },
+                "attachments": [],
+                "url": "https://app.sigmacomputing.com/toolsgroupbi/workbook/RebalanceAI-Aggregation-5OL4seRBK2Qba7U8hPQCzh/edit?:nodeId=TK7C69I0YX",
+                "redacted": false
+            },
+            "contacts": {
+                "type": "contact.list",
+                "contacts": [
+                    {
+                        "type": "contact",
+                        "id": "666706e2ea8e30effb100ce6",
+                        "external_id": "Dtaa0WqmBLYanzUKFTFICSwdGUqq5"
+                    }
+                ]
+            },
+            "first_contact_reply": {
+                "created_at": 1767002156,
+                "type": "conversation",
+                "url": "https://app.sigmacomputing.com/toolsgroupbi/workbook/RebalanceAI-Aggregation-5OL4seRBK2Qba7U8hPQCzh/edit?:nodeId=TK7C69I0YX"
+            },
+            "admin_assignee_id": 8212272,
+            "team_assignee_id": 5480079,
+            "open": true,
+            "state": "open",
+            "read": true,
+            "tags": {
+                "type": "tag.list",
+                "tags": []
+            },
+            "priority": "not_priority",
+            "sla_applied": {
+                "type": "conversation_sla_summary",
+                "sla_name": "Responsiveness SLA - 5min follow-up",
+                "sla_status": "hit"
+            },
+            "statistics": {
+                "type": "conversation_statistics",
+                "time_to_assignment": null,
+                "time_to_admin_reply": null,
+                "time_to_first_close": null,
+                "time_to_last_close": null,
+                "median_time_to_reply": 133,
+                "first_contact_reply_at": 1767002156,
+                "first_assignment_at": 1767002158,
+                "first_admin_reply_at": 1767002382,
+                "first_close_at": null,
+                "last_assignment_at": 1767002358,
+                "last_assignment_admin_reply_at": 1767002382,
+                "last_contact_reply_at": 1767003361,
+                "last_admin_reply_at": 1767003490,
+                "last_close_at": null,
+                "last_closed_by_id": null,
+                "count_reopens": 0,
+                "count_assignments": 6,
+                "count_conversation_parts": 25
+            },
+            "conversation_rating": null,
+            "teammates": {
+                "type": "admin.list",
+                "admins": [
+                    {
+                        "type": "admin",
+                        "id": "8212272"
+                    }
+                ]
+            },
+            "title": null,
+            "custom_attributes": {
+                "Has attachments": true,
+                "Imported via standalone": false,
+                "Auto-translated": false,
+                "Fin AI Agent: Preview": false,
+                "Fin AI Agent: Image used in reply": false,
+                "Copilot used": false,
+                "Off Shift Workflow Count": 1,
+                "initial_contact": true,
+                "Language": "English",
+                "AI Tone of Voice": "Friendly",
+                "AI Answer Length": "Standard",
+                "AI Pronoun Formality": "Let Fin decide",
+                "Fin AI Agent resolution state": "Assumed Resolution"
+            },
+            "topics": {
+                "type": "topic.list",
+                "topics": [
+                    {
+                        "type": "topic",
+                        "id": 33452,
+                        "name": "Formulas"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 33454,
+                        "name": "Tables"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 8065,
+                        "name": "Parameters"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 8061,
+                        "name": "Filters and Controls"
+                    }
+                ],
+                "total_count": 4
+            },
+            "ticket": null,
+            "linked_objects": {
+                "type": "list",
+                "data": [],
+                "total_count": 0,
+                "has_more": false
+            },
+            "ai_agent": {
+                "content_sources": {
+                    "type": "content_source.list",
+                    "content_sources": [
+                        {
+                            "url": "/fin-ai-agent/content?content=external_content&id=32139601",
+                            "content_type": "external_content",
+                            "title": "Reference control values as parameters",
+                            "locale": "en"
+                        },
+                        {
+                            "url": "/fin-ai-agent/content?content=external_content&id=57263609",
+                            "content_type": "external_content",
+                            "title": "Using Date Range Controls in Elements for Advanced Logic - Forums - Sigma Community",
+                            "locale": "en"
+                        },
+                        {
+                            "url": "/fin-ai-agent/content?content=external_content&id=109384455",
+                            "content_type": "external_content",
+                            "title": "Dynamically filter and modify data in Sigma",
+                            "locale": "en"
+                        }
+                    ],
+                    "total_count": 3
+                },
+                "last_answer_type": "ai_answer",
+                "rating": null,
+                "rating_remark": null,
+                "resolution_state": "assumed_resolution",
+                "source_type": "workflow",
+                "source_title": "New Chat - Fin AI (Off-Hours)"
+            },
+            "ai_agent_participated": true
+        },
+        {
+            "type": "conversation",
+            "id": "215472456094758",
+            "created_at": 1767002708,
+            "updated_at": 1767003484,
+            "waiting_since": 1767003433,
+            "snoozed_until": null,
+            "source": {
+                "type": "conversation",
+                "id": "3356756763",
+                "delivered_as": "customer_initiated",
+                "subject": "",
+                "body": "<p>Good morning</p>",
+                "author": {
+                    "type": "user",
+                    "id": "68930db1ccf387bd72af400d",
+                    "name": "Gonzalo Mukherjee",
+                    "email": "gonzalo.mukherjee@revantage.eu"
+                },
+                "attachments": [],
+                "url": "https://app.sigmacomputing.com/revantageeu/workbook/TP-Documentation-Status-Proxity-Work-Sheet-MbaOVnfufyK7Bfe3caicA/edit?:nodeId=pvUOm0AjSV",
+                "redacted": false
+            },
+            "contacts": {
+                "type": "contact.list",
+                "contacts": [
+                    {
+                        "type": "contact",
+                        "id": "68930db1ccf387bd72af400d",
+                        "external_id": "OexjlmESKUhGDgmCRtuIpq5NV669a"
+                    }
+                ]
+            },
+            "first_contact_reply": {
+                "created_at": 1767002708,
+                "type": "conversation",
+                "url": "https://app.sigmacomputing.com/revantageeu/workbook/TP-Documentation-Status-Proxity-Work-Sheet-MbaOVnfufyK7Bfe3caicA/edit?:nodeId=pvUOm0AjSV"
+            },
+            "admin_assignee_id": 8867406,
+            "team_assignee_id": 5480079,
+            "open": true,
+            "state": "open",
+            "read": true,
+            "tags": {
+                "type": "tag.list",
+                "tags": []
+            },
+            "priority": "not_priority",
+            "sla_applied": {
+                "type": "conversation_sla_summary",
+                "sla_name": "Responsiveness SLA - 5min follow-up",
+                "sla_status": "hit"
+            },
+            "statistics": {
+                "type": "conversation_statistics",
+                "time_to_assignment": 1,
+                "time_to_admin_reply": 10,
+                "time_to_first_close": null,
+                "time_to_last_close": null,
+                "median_time_to_reply": 35,
+                "first_contact_reply_at": 1767002709,
+                "first_assignment_at": 1767002710,
+                "first_admin_reply_at": 1767002719,
+                "first_close_at": null,
+                "last_assignment_at": 1767002713,
+                "last_assignment_admin_reply_at": 1767002719,
+                "last_contact_reply_at": 1767003484,
+                "last_admin_reply_at": 1767003275,
+                "last_close_at": null,
+                "last_closed_by_id": null,
+                "count_reopens": 0,
+                "count_assignments": 5,
+                "count_conversation_parts": 31
+            },
+            "conversation_rating": null,
+            "teammates": {
+                "type": "admin.list",
+                "admins": [
+                    {
+                        "type": "admin",
+                        "id": "8867406"
+                    }
+                ]
+            },
+            "title": null,
+            "custom_attributes": {
+                "Has attachments": true,
+                "Imported via standalone": false,
+                "Auto-translated": false,
+                "Fin AI Agent: Preview": false,
+                "Fin AI Agent: Image used in reply": false,
+                "Copilot used": false,
+                "Language": "English",
+                "Off Shift Workflow Count": 1,
+                "initial_contact": true
+            },
+            "topics": {
+                "type": "topic.list",
+                "topics": [
+                    {
+                        "type": "topic",
+                        "id": 33448,
+                        "name": "Joins"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 33454,
+                        "name": "Tables"
+                    }
+                ],
+                "total_count": 2
+            },
+            "ticket": null,
+            "linked_objects": {
+                "type": "list",
+                "data": [],
+                "total_count": 0,
+                "has_more": false
+            },
+            "ai_agent": null,
+            "ai_agent_participated": false
+        },
+        {
+            "type": "conversation",
+            "id": "215472454710703",
+            "created_at": 1766991052,
+            "updated_at": 1767002973,
+            "waiting_since": null,
+            "snoozed_until": null,
+            "source": {
+                "type": "conversation",
+                "id": "3356506745",
+                "delivered_as": "customer_initiated",
+                "subject": "",
+                "body": "<p>Hii</p>",
+                "author": {
+                    "type": "user",
+                    "id": "68806fc69aac42ad24f0d91e",
+                    "name": "Deepika Yarra (C)",
+                    "email": "dyarra@bdainc.com"
+                },
+                "attachments": [],
+                "url": "https://app.sigmacomputing.com/bda-external/workbook/EXT_SALES_DASH-1-38HIA7SMcgqoYGM7kB5lL7/edit?:nodeId=eK9q96MvUk",
+                "redacted": false
+            },
+            "contacts": {
+                "type": "contact.list",
+                "contacts": [
+                    {
+                        "type": "contact",
+                        "id": "68806fc69aac42ad24f0d91e",
+                        "external_id": "Z4CwMIdWHD4EhUrbAKc08oKNiA7sn"
+                    }
+                ]
+            },
+            "first_contact_reply": {
+                "created_at": 1766991052,
+                "type": "conversation",
+                "url": "https://app.sigmacomputing.com/bda-external/workbook/EXT_SALES_DASH-1-38HIA7SMcgqoYGM7kB5lL7/edit?:nodeId=eK9q96MvUk"
+            },
+            "admin_assignee_id": 8867406,
+            "team_assignee_id": 5480079,
+            "open": true,
+            "state": "open",
+            "read": false,
+            "tags": {
+                "type": "tag.list",
+                "tags": []
+            },
+            "priority": "not_priority",
+            "sla_applied": null,
+            "statistics": {
+                "type": "conversation_statistics",
+                "time_to_assignment": null,
+                "time_to_admin_reply": null,
+                "time_to_first_close": null,
+                "time_to_last_close": null,
+                "median_time_to_reply": null,
+                "first_contact_reply_at": 1766991052,
+                "first_assignment_at": 1766991054,
+                "first_admin_reply_at": 1767002374,
+                "first_close_at": null,
+                "last_assignment_at": 1767002356,
+                "last_assignment_admin_reply_at": 1767002374,
+                "last_contact_reply_at": 1766991052,
+                "last_admin_reply_at": 1767002973,
+                "last_close_at": null,
+                "last_closed_by_id": null,
+                "count_reopens": 0,
+                "count_assignments": 4,
+                "count_conversation_parts": 12
+            },
+            "conversation_rating": null,
+            "teammates": {
+                "type": "admin.list",
+                "admins": [
+                    {
+                        "type": "admin",
+                        "id": "8867406"
+                    }
+                ]
+            },
+            "title": null,
+            "custom_attributes": {
+                "Has attachments": false,
+                "Imported via standalone": false,
+                "Auto-translated": false,
+                "Fin AI Agent: Preview": false,
+                "Fin AI Agent: Image used in reply": false,
+                "Copilot used": false,
+                "Off Shift Workflow Count": 1,
+                "initial_contact": true
+            },
+            "topics": {
+                "type": "topic.list",
+                "topics": [],
+                "total_count": 0
+            },
+            "ticket": null,
+            "linked_objects": {
+                "type": "list",
+                "data": [],
+                "total_count": 0,
+                "has_more": false
+            },
+            "ai_agent": null,
+            "ai_agent_participated": false
+        },
+        {
+            "type": "conversation",
+            "id": "215472455710242",
+            "created_at": 1766999217,
+            "updated_at": 1767002963,
+            "waiting_since": null,
+            "snoozed_until": null,
+            "source": {
+                "type": "conversation",
+                "id": "3356673725",
+                "delivered_as": "customer_initiated",
+                "subject": "",
+                "body": "<p>Hi, is there a way to hide the nulls in a date column? I have a drop-down where the user is able to select the date format to switch between dd/mm/yy, dd-mm-yyyy etc. I do not want to lose the sorting capability by converting the date to text.</p>",
+                "author": {
+                    "type": "user",
+                    "id": "67ce812e4dd14755d1ac5ef2",
+                    "name": "Nehalkumar Parate",
+                    "email": "nparate@onelineage.com"
+                },
+                "attachments": [],
+                "url": "https://app.sigmacomputing.com/lineage/workbook/Projected-Inventory-Shortage-Report-5HYBdvTU01SJ2dDpY5t2Xg/edit?:nodeId=C77aNNwmEp",
+                "redacted": false
+            },
+            "contacts": {
+                "type": "contact.list",
+                "contacts": [
+                    {
+                        "type": "contact",
+                        "id": "67ce812e4dd14755d1ac5ef2",
+                        "external_id": "yCSZZ2Pk03jpQyrC8t60y98ZWQ15V"
+                    }
+                ]
+            },
+            "first_contact_reply": {
+                "created_at": 1766999217,
+                "type": "conversation",
+                "url": "https://app.sigmacomputing.com/lineage/workbook/Projected-Inventory-Shortage-Report-5HYBdvTU01SJ2dDpY5t2Xg/edit?:nodeId=C77aNNwmEp"
+            },
+            "admin_assignee_id": 8867406,
+            "team_assignee_id": 5480079,
+            "open": true,
+            "state": "open",
+            "read": false,
+            "tags": {
+                "type": "tag.list",
+                "tags": []
+            },
+            "priority": "not_priority",
+            "sla_applied": {
+                "type": "conversation_sla_summary",
+                "sla_name": "Responsiveness SLA - 5min follow-up",
+                "sla_status": "hit"
+            },
+            "statistics": {
+                "type": "conversation_statistics",
+                "time_to_assignment": null,
+                "time_to_admin_reply": null,
+                "time_to_first_close": null,
+                "time_to_last_close": null,
+                "median_time_to_reply": 108,
+                "first_contact_reply_at": 1766999217,
+                "first_assignment_at": 1766999218,
+                "first_admin_reply_at": 1767002378,
+                "first_close_at": null,
+                "last_assignment_at": 1767002357,
+                "last_assignment_admin_reply_at": 1767002378,
+                "last_contact_reply_at": 1767002686,
+                "last_admin_reply_at": 1767002963,
+                "last_close_at": null,
+                "last_closed_by_id": null,
+                "count_reopens": 0,
+                "count_assignments": 4,
+                "count_conversation_parts": 23
+            },
+            "conversation_rating": null,
+            "teammates": {
+                "type": "admin.list",
+                "admins": [
+                    {
+                        "type": "admin",
+                        "id": "8867406"
+                    }
+                ]
+            },
+            "title": null,
+            "custom_attributes": {
+                "Has attachments": true,
+                "Imported via standalone": false,
+                "Auto-translated": false,
+                "Fin AI Agent: Preview": false,
+                "Fin AI Agent: Image used in reply": false,
+                "Copilot used": false,
+                "Language": "English",
+                "Off Shift Workflow Count": 1,
+                "initial_contact": true
+            },
+            "topics": {
+                "type": "topic.list",
+                "topics": [
+                    {
+                        "type": "topic",
+                        "id": 33448,
+                        "name": "Joins"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 33454,
+                        "name": "Tables"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 8061,
+                        "name": "Filters and Controls"
+                    }
+                ],
+                "total_count": 3
+            },
+            "ticket": null,
+            "linked_objects": {
+                "type": "list",
+                "data": [],
+                "total_count": 0,
+                "has_more": false
+            },
+            "ai_agent": null,
+            "ai_agent_participated": false
+        },
+        {
+            "type": "conversation",
+            "id": "215472455799791",
+            "created_at": 1767000207,
+            "updated_at": 1767002583,
+            "waiting_since": null,
+            "snoozed_until": null,
+            "source": {
+                "type": "conversation",
+                "id": "3356696987",
+                "delivered_as": "customer_initiated",
+                "subject": "",
+                "body": "<b>Subject:</b> Re: Pleasant Lake Partners &lt;&gt; Sigma; connect\n |<b>Original Zendesk ID: 40561 </b> | <b>Customer marked ticket severity (if blank, then severity was not specified)</b>:  |\n <b>Message:</b> ----------------------------------------------\n\nDaniel Barrundia, Dec 26, 2025, 11:17\n\n+ Support\n\n\nHi all - sorry we just got the free trial ended. Any chance we can extend please? I unfortunately started the trial period before the holidays so just started using the platform.\n\n ![image.png](cid:ii_mjn964j11)\n\n\n\nOn Fri, Dec 26, 2025 at 8:17 AM Daniel Barrundia <a href=\"mailto:dbarrundia@plpfunds.com\" rel=\"nofollow\" target=\"_blank\">dbarrundia@plpfunds.com</a> wrote:\n\n&gt; Hi Fiona - thanks for reaching out. I have used Sigma Computing in the past and i'm a big fan. Will reach out if we need a Solutions Engineer.\n&gt;\n&gt;\n&gt; Would it be possible for us to extend the trial period for ~7 days? Unfortunately I started the trial right before the holidays so timing wasn't great on my part.\n&gt;\n&gt;\n&gt;\n&gt; Thanks,\n&gt;\n&gt; Daniel\n&gt;\n&gt;\n&gt;\n&gt; On Fri, Dec 19, 2025 at 5:15 PM Fiona Reiner <a href=\"mailto:fiona@sigmacomputing.com\" rel=\"nofollow\" target=\"_blank\">fiona@sigmacomputing.com</a> wrote:\n&gt;\n&gt; &gt; Hi Daniel,\n&gt; &gt;\n&gt; &gt;\n&gt; &gt;\n&gt; &gt; Thanks for engaging in a free trial of Sigma!\n&gt; &gt;\n&gt; &gt;\n&gt; &gt;\n&gt; &gt; My name is Fiona and I'm part of your Sigma Account Team, nice to virtually meet you! Typically along with a free trial, we gather your interest in setting up time to talk with a Sigma Solutions Engineer.\n&gt; &gt;\n&gt; &gt;\n&gt; &gt;\n&gt; &gt; I'd like to highlight that the intention of this outreach is not to set up a sales call. Instead, it is to guide you in your journey as you dig into Sigma. It is a complex tool, and we want to ensure that you have the easiest time possible and extract maximum value while exploring our platform.\n&gt; &gt;\n&gt; &gt;\n&gt; &gt;\n&gt; &gt; This shouldn't take more than 20 min, let me know if any of these times work for you:\n&gt; &gt;\n&gt; &gt; -\n&gt; &gt; 12/22: 10:00 AM - 12:00 PM\n&gt; &gt; -\n&gt; &gt; 1/5: 11:30 AM - 2:00 PM\n&gt; &gt; -\n&gt; &gt; 1/6: 12:00 PM - 2:00 PM\n&gt; &gt; -\n&gt; &gt; 1/7: 10:00 AM - 2:00 PM\n&gt; &gt;\n&gt; &gt; Best,\n&gt; &gt;\n&gt; &gt; Fiona\n&gt; &gt;\n&gt; &gt;\n&gt; &gt;\n&gt; &gt; ![](<a href=\"https://lh5.googleusercontent.com/v337QVdG8AmpyaiOwbTpbs-OfYgzuYpmvJPrTOStfOlc72lxkBjk66med6z_5HNzvs92BjksHQEF18fAdg8YeZl122hWZZMjy-hINNUWDRaWNHFlJH_rt_6L5qUiVGTERLj_8jGKHDuj72IWt_O4CvA\" rel=\"nofollow\" target=\"_blank\">https://lh5.googleusercontent.com/v337QVdG8AmpyaiOwbTpbs-OfYgzuYpmvJPrTOStfOlc72lxkBjk66med6z_5HNzvs92BjksHQEF18fAdg8YeZl122hWZZMjy-hINNUWDRaWNHFlJH_rt_6L5qUiVGTERLj_8jGKHDuj72IWt_O4CvA</a>)\n&gt; &gt;\n&gt; &gt; Fiona Reiner\n&gt; &gt;\n&gt; &gt;\n&gt; &gt;\n&gt; &gt; ![](cid:0bBxnZgWHe_Ukg2hbpB3WfgKi_fxn6HLWUMOU8e8sSQ)\n&gt; &gt;\n&gt; &gt; Want a quick demo?\n&gt; &gt;\n&gt; &gt;\n&gt; &gt;\n&gt; &gt; 802.355.7556\n&gt; &gt;\n&gt; &gt; 124 E 14th St\n&gt; &gt;\n&gt; &gt; 9th Floor\n&gt; &gt;\n&gt; &gt; New York, NY 10003\n&gt; &gt;\n&gt; &gt; Sigmacomputing.com\n&gt; &gt;\n&gt; &gt; If you'd like me to stop sending you emails, please click here\n&gt; &gt; ![](<a href=\"https://go.sigmacomputing.com/api/mailings/opened/PMRGSZBCHI2TGOBRHE2TOLBCN5ZGOIR2EJSDMYTDGE3GKNZNHA3GMNJNGQ3TMOBNHAZDGNBNMEZDIZDCHFRDAMLBMJRSELBCOZSXE43JN5XCEORCGQRCYITTNFTSEORCMV2HG5CXJVSGMTLVIJNHO5LJKRMEIRC7GU4GQVCHLJFWYUCIMVGFENKPNN5GSSDSKRUDAPJCPU======.gif\" rel=\"nofollow\" target=\"_blank\">https://go.sigmacomputing.com/api/mailings/opened/PMRGSZBCHI2TGOBRHE2TOLBCN5ZGOIR2EJSDMYTDGE3GKNZNHA3GMNJNGQ3TMOBNHAZDGNBNMEZDIZDCHFRDAMLBMJRSELBCOZSXE43JN5XCEORCGQRCYITTNFTSEORCMV2HG5CXJVSGMTLVIJNHO5LJKRMEIRC7GU4GQVCHLJFWYUCIMVGFENKPNN5GSSDSKRUDAPJCPU======.gif</a>)\n\n\n\n\n**Disclaimer**\n\nThe information contained in this communication from the sender is confidential. It is intended solely for use by the recipient and others authorized to receive it. If you are not the recipient, you are hereby notified that any disclosure, copying, distribution or taking action in relation of the contents of this information is strictly prohibited and may be unlawful.\n\nThis email has been scanned for viruses and malware, and may have been automatically archived by Mimecast, a leader in email security and cyber resilience. Mimecast integrates email defenses with brand protection, security awareness training, web security, compliance and other essential capabilities. Mimecast helps protect large and small organizations from malicious activity, human error and technology failure; and to lead the movement toward building a more resilient world. To find out more, visit our website.\n\nAttachment(s):\nimage.png - <a href=\"https://support.sigmacomputing.com/attachments/token/6ReN6Kj66A9ioMdxOFGd15thQ/?name=image.png0bBxnZgWHe_Ukg2hbpB3WfgKi_fxn6HLWUMOU8e8sSQ\" rel=\"nofollow\" target=\"_blank\">https://support.sigmacomputing.com/attachments/token/6ReN6Kj66A9ioMdxOFGd15thQ/?name=image.png0bBxnZgWHe_Ukg2hbpB3WfgKi_fxn6HLWUMOU8e8sSQ</a> - <a href=\"https://support.sigmacomputing.com/attachments/token/Dj1GKN35Wxiots4L8ZxzIKkZ9/?name=0bBxnZgWHe_Ukg2hbpB3WfgKi_fxn6HLWUMOU8e8sSQ\" rel=\"nofollow\" target=\"_blank\">https://support.sigmacomputing.com/attachments/token/Dj1GKN35Wxiots4L8ZxzIKkZ9/?name=0bBxnZgWHe_Ukg2hbpB3WfgKi_fxn6HLWUMOU8e8sSQ</a>",
+                "author": {
+                    "type": "user",
+                    "id": "6945957e10798f92f5d74588",
+                    "name": "Daniel Barrundia",
+                    "email": "dbarrundia@plpfunds.com"
+                },
+                "attachments": [],
+                "url": null,
+                "redacted": false
+            },
+            "contacts": {
+                "type": "contact.list",
+                "contacts": [
+                    {
+                        "type": "contact",
+                        "id": "6945957e10798f92f5d74588",
+                        "external_id": "paHCprG2KINLGdVmxLLXpYbOI3ck6"
+                    }
+                ]
+            },
+            "first_contact_reply": {
+                "created_at": 1767000207,
+                "type": "conversation",
+                "url": null
+            },
+            "admin_assignee_id": 8212272,
+            "team_assignee_id": 5480079,
+            "open": true,
+            "state": "open",
+            "read": false,
+            "tags": {
+                "type": "tag.list",
+                "tags": []
+            },
+            "priority": "not_priority",
+            "sla_applied": null,
+            "statistics": {
+                "type": "conversation_statistics",
+                "time_to_assignment": null,
+                "time_to_admin_reply": 0,
+                "time_to_first_close": null,
+                "time_to_last_close": null,
+                "median_time_to_reply": 0,
+                "first_contact_reply_at": 1767000207,
+                "first_assignment_at": 1767000208,
+                "first_admin_reply_at": 1767002400,
+                "first_close_at": null,
+                "last_assignment_at": 1767002358,
+                "last_assignment_admin_reply_at": 1767002400,
+                "last_contact_reply_at": 1767000207,
+                "last_admin_reply_at": 1767002584,
+                "last_close_at": null,
+                "last_closed_by_id": null,
+                "count_reopens": 0,
+                "count_assignments": 3,
+                "count_conversation_parts": 13
+            },
+            "conversation_rating": null,
+            "teammates": {
+                "type": "admin.list",
+                "admins": [
+                    {
+                        "type": "admin",
+                        "id": "8212272"
+                    }
+                ]
+            },
+            "title": "",
+            "custom_attributes": {
+                "Has attachments": true,
+                "Imported via standalone": false,
+                "Auto-translated": false,
+                "Fin AI Agent: Preview": false,
+                "Fin AI Agent: Image used in reply": false,
+                "Copilot used": false,
+                "Created by app package code": "svc-prd-tse-intercom-service-token",
+                "Language": "English",
+                "FromZendeskID": "40561",
+                "Off Shift Workflow Count": 1,
+                "initial_contact": true
+            },
+            "topics": {
+                "type": "topic.list",
+                "topics": [
+                    {
+                        "type": "topic",
+                        "id": 8060,
+                        "name": "deleted"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 33433,
+                        "name": "Connections"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 33435,
+                        "name": "User Permissions"
+                    },
+                    {
+                        "type": "topic",
+                        "id": 90207,
+                        "name": "Workbook actions"
+                    }
+                ],
+                "total_count": 4
+            },
+            "ticket": null,
+            "linked_objects": {
+                "type": "list",
+                "data": [],
+                "total_count": 0,
+                "has_more": false
+            },
+            "ai_agent": null,
+            "ai_agent_participated": false
+        },
+        {
+            "type": "conversation",
+            "id": "215472454618787",
+            "created_at": 1766990508,
+            "updated_at": 1767002435,
+            "waiting_since": null,
+            "snoozed_until": null,
+            "source": {
+                "type": "conversation",
+                "id": "3356498381",
+                "delivered_as": "customer_initiated",
+                "subject": "",
+                "body": "<p>Try AI before Human Support</p>",
+                "author": {
+                    "type": "user",
+                    "id": "65b1a17b0850515162a08da1",
+                    "name": "Aswathi KV",
+                    "email": "aswathi.kv@quantcast.com"
+                },
+                "attachments": [],
+                "url": "https://app.sigmacomputing.com/quantcast/workbook/TAC-and-Performance-Dashboard-7DHuPDxs4PMQFSeSY9XST9/edit?:nodeId=pQDKV-cgRr",
+                "redacted": false
+            },
+            "contacts": {
+                "type": "contact.list",
+                "contacts": [
+                    {
+                        "type": "contact",
+                        "id": "65b1a17b0850515162a08da1",
+                        "external_id": "wsBYQo5kn4eWQk6Jtxya9vf3ub4Yx"
+                    }
+                ]
+            },
+            "first_contact_reply": {
+                "created_at": 1766990508,
+                "type": "conversation",
+                "url": "https://app.sigmacomputing.com/quantcast/workbook/TAC-and-Performance-Dashboard-7DHuPDxs4PMQFSeSY9XST9/edit?:nodeId=pQDKV-cgRr"
+            },
+            "admin_assignee_id": 8363153,
+            "team_assignee_id": 5480079,
+            "open": true,
+            "state": "open",
+            "read": true,
+            "tags": {
+                "type": "tag.list",
+                "tags": []
+            },
+            "priority": "not_priority",
+            "sla_applied": null,
+            "statistics": {
+                "type": "conversation_statistics",
+                "time_to_assignment": null,
+                "time_to_admin_reply": 32,
+                "time_to_first_close": null,
+                "time_to_last_close": null,
+                "median_time_to_reply": 32,
+                "first_contact_reply_at": 1766990508,
+                "first_assignment_at": 1766990510,
+                "first_admin_reply_at": 1767002432,
+                "first_close_at": null,
+                "last_assignment_at": 1767002205,
+                "last_assignment_admin_reply_at": 1767002432,
+                "last_contact_reply_at": 1766990508,
+                "last_admin_reply_at": 1767002432,
+                "last_close_at": null,
+                "last_closed_by_id": null,
+                "count_reopens": 0,
+                "count_assignments": 6,
+                "count_conversation_parts": 14
+            },
+            "conversation_rating": null,
+            "teammates": {
+                "type": "admin.list",
+                "admins": [
+                    {
+                        "type": "admin",
+                        "id": "8363153"
+                    }
+                ]
+            },
+            "title": null,
+            "custom_attributes": {
+                "Has attachments": false,
+                "Imported via standalone": false,
+                "Auto-translated": false,
+                "Fin AI Agent: Preview": false,
+                "Fin AI Agent: Image used in reply": false,
+                "Copilot used": false,
+                "Off Shift Workflow Count": 1,
+                "initial_contact": true
+            },
+            "topics": {
+                "type": "topic.list",
+                "topics": [],
+                "total_count": 0
+            },
+            "ticket": null,
+            "linked_objects": {
+                "type": "list",
+                "data": [],
+                "total_count": 0,
+                "has_more": false
+            },
+            "ai_agent": null,
+            "ai_agent_participated": false
+        }
+    ]
+}
