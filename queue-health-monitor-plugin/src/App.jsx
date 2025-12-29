@@ -31,8 +31,10 @@ function App() {
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  async function fetchData() {
-    setLoading(true);
+  async function fetchData(showLoading = true) {
+    if (showLoading) {
+      setLoading(true);
+    }
     setError("");
 
     try {
@@ -58,12 +60,21 @@ function App() {
     } catch (e) {
       setError(e.message);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
-    fetchData();
+    fetchData(true); // Initial load with loading state
+    
+    // Set up auto-refresh every 2 minutes (120000 ms)
+    const interval = setInterval(() => {
+      fetchData(false); // Background refresh without loading state
+    }, 120000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -72,7 +83,7 @@ function App() {
       teamMembers={data.teamMembers || []}
       loading={loading}
       error={error}
-      onRefresh={fetchData}
+      onRefresh={() => fetchData(true)}
       lastUpdated={lastUpdated}
     />
   );

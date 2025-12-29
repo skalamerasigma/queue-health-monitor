@@ -2,8 +2,10 @@
   "name": "queue-health-monitor-api",
   "version": "1.0.0",
   "type": "module",
+  "description": "API endpoints for queue health monitor",
   "dependencies": {
-    "node-fetch": "^3.3.2"
+    "@vercel/postgres": "^0.5.1",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.16.3"
   }
 }
-

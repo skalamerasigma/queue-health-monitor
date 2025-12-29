@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
+import HistoricalView from "./HistoricalView";
 import "./Dashboard.css";
 
 // TSEs to exclude from the dashboard
@@ -34,6 +35,117 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   const [activeView, setActiveView] = useState("overview");
   const [filterTag, setFilterTag] = useState("all");
   const [filterTSE, setFilterTSE] = useState("all");
+
+  const handleSaveSnapshot = async () => {
+    try {
+      // Calculate current TSE metrics
+      const EXCLUDED_TSE_NAMES = [
+        "Stephen Skalamera", "Zen Junior", "Nathan Parrish", "Leticia Esparza",
+        "Rob Woollen", "Brett Bedevian", "Viswa Jeyaraman", "Brandon Yee",
+        "Holly Coxon", "Chetana Shinde", "Matt Morgenroth", "Grace Sanford",
+        "svc-prd-tse-intercom SVC"
+      ];
+
+      const byTSE = {};
+      teamMembers.forEach(admin => {
+        const tseId = admin.id;
+        if (tseId && !EXCLUDED_TSE_NAMES.includes(admin.name)) {
+          byTSE[tseId] = {
+            id: tseId,
+            name: admin.name || admin.email?.split("@")[0] || `TSE ${tseId}`,
+            open: 0,
+            actionableSnoozed: 0,
+            investigationSnoozed: 0,
+            customerWaitSnoozed: 0,
+            totalSnoozed: 0
+          };
+        }
+      });
+
+      conversations.forEach((conv) => {
+        const hasAssigneeId = conv.admin_assignee_id && conv.admin_assignee_id !== null;
+        const hasAssigneeObject = conv.admin_assignee && 
+                                  (typeof conv.admin_assignee === "object" ? (conv.admin_assignee.id || conv.admin_assignee.name) : true);
+        const isUnassigned = !hasAssigneeId && !hasAssigneeObject;
+        
+        if (isUnassigned) return;
+
+        const tseId = conv.admin_assignee_id || 
+                      (conv.admin_assignee && typeof conv.admin_assignee === "object" ? conv.admin_assignee.id : null);
+        
+        if (!tseId || !byTSE[tseId]) return;
+
+        const assigneeName = conv.admin_assignee?.name || 
+                            (typeof conv.admin_assignee === "string" ? conv.admin_assignee : null);
+        if (assigneeName && EXCLUDED_TSE_NAMES.includes(assigneeName)) return;
+
+        const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+        const tags = conv.tags || [];
+        const hasInvestigationTag = tags.some(t => 
+          t.name === "#Snooze.Investigation" || 
+          (typeof t === "string" && t.includes("Investigation"))
+        );
+        const hasCustomerWaitTag = tags.some(t => 
+          t.name === "#Snooze.CustomerWait" || 
+          (typeof t === "string" && t.includes("CustomerWait"))
+        );
+
+        if (isSnoozed) {
+          byTSE[tseId].totalSnoozed = (byTSE[tseId].totalSnoozed || 0) + 1;
+          if (hasInvestigationTag) {
+            byTSE[tseId].investigationSnoozed++;
+          } else if (hasCustomerWaitTag) {
+            byTSE[tseId].customerWaitSnoozed++;
+          } else {
+            byTSE[tseId].actionableSnoozed++;
+          }
+        }
+
+        if (conv.state === "open" && !isSnoozed) {
+          byTSE[tseId].open++;
+        }
+      });
+
+      const snapshot = {
+        date: new Date().toISOString().split('T')[0],
+        timestamp: new Date().toISOString(),
+        tseData: Object.values(byTSE).map(tse => ({
+          id: tse.id,
+          name: tse.name,
+          open: tse.open,
+          actionableSnoozed: tse.actionableSnoozed,
+          investigationSnoozed: tse.investigationSnoozed,
+          customerWaitSnoozed: tse.customerWaitSnoozed,
+          totalSnoozed: tse.totalSnoozed || 0
+        }))
+      };
+
+      const apiPath = process.env.NODE_ENV === 'production' 
+        ? '/api/snapshots/save'
+        : 'http://localhost:3000/api/snapshots/save';
+      
+      const url = process.env.NODE_ENV === 'production'
+        ? `${window.location.origin}/api/snapshots/save`
+        : apiPath;
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(snapshot)
+      });
+
+      if (res.ok) {
+        alert('Snapshot saved successfully!');
+      } else {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Snapshot save error:', errorData);
+        throw new Error(errorData.error || errorData.detail || `Failed to save snapshot: ${res.status}`);
+      }
+    } catch (error) {
+      console.error('Error saving snapshot:', error);
+      alert('Failed to save snapshot: ' + error.message);
+    }
+  };
 
   // Process conversations to extract metrics
   const metrics = useMemo(() => {
@@ -338,6 +450,45 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       return isSnoozed;
     }).length;
     
+    // Calculate compliance metrics
+    const totalTSEs = filteredByTSE.length;
+    let compliantBoth = 0;
+    let compliantOpen = 0; // TSEs meeting open requirement (regardless of snoozed)
+    let compliantSnoozed = 0; // TSEs meeting snoozed requirement (regardless of open)
+    
+    filteredByTSE.forEach(tse => {
+      const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
+      const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
+      const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+      
+      if (meetsOpen && meetsSnoozed) {
+        compliantBoth++;
+      }
+      
+      // Count independently - these are not mutually exclusive
+      if (meetsOpen) {
+        compliantOpen++;
+      }
+      if (meetsSnoozed) {
+        compliantSnoozed++;
+      }
+    });
+    
+    const complianceOverall = totalTSEs > 0 ? Math.round((compliantBoth / totalTSEs) * 100) : 0;
+    const complianceOpenOnlyPct = totalTSEs > 0 ? Math.round((compliantOpen / totalTSEs) * 100) : 0;
+    const complianceSnoozedOnlyPct = totalTSEs > 0 ? Math.round((compliantSnoozed / totalTSEs) * 100) : 0;
+    
+    // Debug logging
+    console.log('Compliance breakdown:', {
+      totalTSEs,
+      compliantBoth,
+      compliantOpen,
+      compliantSnoozed,
+      complianceOverall: `${complianceOverall}%`,
+      complianceOpenOnly: `${complianceOpenOnlyPct}%`,
+      complianceSnoozedOnly: `${complianceSnoozedOnlyPct}%`
+    });
+    
     return {
       totalOpen: conversations.filter(c => {
         const isSnoozed = c.state === "snoozed" || c.snoozed_until;
@@ -351,7 +502,10 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       customerWaitSnoozed: Array.isArray(customerWaitSnoozed) ? customerWaitSnoozed : [],
       reassignmentCandidates: Array.isArray(reassignmentCandidates) ? reassignmentCandidates : [],
       closureCandidates: Array.isArray(closureCandidates) ? closureCandidates : [],
-      alerts: Array.isArray(filteredAlerts) ? filteredAlerts : []
+      alerts: Array.isArray(filteredAlerts) ? filteredAlerts : [],
+      complianceOverall,
+      complianceOpenOnly: complianceOpenOnlyPct,
+      complianceSnoozedOnly: complianceSnoozedOnlyPct
     };
     }, [conversations, teamMembers]);
 
@@ -414,7 +568,8 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     return (metrics.byTSE || []).map(tse => ({ id: tse.id, name: tse.name }));
   }, [metrics.byTSE]);
 
-  if (loading) {
+  // Only show loading screen on initial load, not on auto-refresh
+  if (loading && !conversations || (Array.isArray(conversations) && conversations.length === 0)) {
     return (
       <div className="dashboard-container">
         <div className="loading">Loading queue health data…</div>
@@ -433,6 +588,11 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
 
   return (
     <div className="dashboard-container">
+      {loading && conversations && conversations.length > 0 && (
+        <div className="refreshing-indicator">
+          <span>🔄 Refreshing data...</span>
+        </div>
+      )}
       <div className="dashboard-header">
         <h2>Support Ops: Queue Health Dashboard</h2>
         <div className="header-actions">
@@ -454,6 +614,12 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
               onClick={() => setActiveView("conversations")}
             >
               Conversations
+            </button>
+            <button 
+              className={activeView === "historical" ? "active" : ""}
+              onClick={() => setActiveView("historical")}
+            >
+              Historical
             </button>
           </div>
           <div className="refresh-section">
@@ -491,13 +657,14 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                 <option key={tse.id} value={tse.id}>{tse.name}</option>
               ))}
             </select>
+          </div>
+          <div className="filter-buttons">
             <button 
               onClick={() => {
                 setFilterTSE("unassigned");
                 setFilterTag("all");
               }} 
               className="filter-button"
-              style={{ marginLeft: "8px" }}
             >
               Show Unassigned
             </button>
@@ -507,7 +674,6 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                 setFilterTSE("all");
               }} 
               className="filter-button"
-              style={{ marginLeft: "8px" }}
             >
               Show Snoozed
             </button>
@@ -564,6 +730,24 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             title="Closure Candidates"
             value={metrics.closureCandidates.length}
             status={metrics.closureCandidates.length > 0 ? "warning" : "success"}
+          />
+        </div>
+        <h3 className="section-title" style={{ marginTop: "24px" }}>Team Compliance</h3>
+        <div className="metrics-grid">
+          <MetricCard
+            title="Overall Compliance"
+            value={`${metrics.complianceOverall || 0}%`}
+            status={metrics.complianceOverall >= 80 ? "success" : metrics.complianceOverall >= 60 ? "warning" : "error"}
+          />
+          <MetricCard
+            title="Open Compliance Only"
+            value={`${metrics.complianceOpenOnly || 0}%`}
+            status={metrics.complianceOpenOnly >= 10 ? "warning" : "info"}
+          />
+          <MetricCard
+            title="Snoozed Compliance Only"
+            value={`${metrics.complianceSnoozedOnly || 0}%`}
+            status={metrics.complianceSnoozedOnly >= 10 ? "warning" : "info"}
           />
         </div>
       </div>
@@ -674,6 +858,11 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           <h3 className="section-title">✅ Intelligent Closure Candidates</h3>
           <ConversationTable conversations={metrics.closureCandidates} showTimeInfo />
         </div>
+      )}
+
+      {/* Historical View */}
+      {activeView === "historical" && (
+        <HistoricalView onSaveSnapshot={handleSaveSnapshot} />
       )}
     </div>
   );

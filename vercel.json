@@ -2,6 +2,16 @@
   "buildCommand": "cd queue-health-monitor-plugin && npm install && npm run build",
   "outputDirectory": "queue-health-monitor-plugin/build",
   "framework": "create-react-app",
+  "crons": [
+    {
+      "path": "/api/cron/snapshot",
+      "schedule": "0 3 * * 2-6"
+    },
+    {
+      "path": "/api/cron/response-time-hourly",
+      "schedule": "0 0 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",
