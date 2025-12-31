@@ -56,6 +56,9 @@ export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
   
+  // Detect if this is a scheduled cron job (has auth header) or manual trigger (no auth header)
+  const isScheduledCron = !!(authHeader && cronSecret);
+  
   // If Authorization header is present, verify it matches CRON_SECRET
   // This allows manual triggers without auth, but protects cron jobs
   if (authHeader && cronSecret) {
@@ -74,20 +77,77 @@ export default async function handler(req, res) {
       ? INTERCOM_TOKEN
       : `Bearer ${INTERCOM_TOKEN}`;
 
-    // Get today's date range (start and end of day in UTC)
     const now = new Date();
-    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
-    const todayEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59));
-    const todayStartSeconds = Math.floor(todayStart.getTime() / 1000);
-    const todayEndSeconds = Math.floor(todayEnd.getTime() / 1000);
+    
+    // Get the current date in Los Angeles/Pacific timezone (GMT-8)
+    // Both manual triggers and scheduled cron jobs capture conversations created on the CURRENT LA day
+    // Scheduled cron runs at 10:30 PM ET (3:30 AM UTC next day), but captures that LA day's data
+    const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    
+    // Format as YYYY-MM-DD (current LA date)
+    const year = laNow.getFullYear();
+    const month = String(laNow.getMonth() + 1).padStart(2, '0');
+    const day = String(laNow.getDate()).padStart(2, '0');
+    const laDateStr = `${year}-${month}-${day}`;
+    
+    console.log(`[Response Time Hourly] ${isScheduledCron ? 'Scheduled cron' : 'Manual trigger'}: capturing data for LA date ${laDateStr}`);
+    
+    // Calculate LA to UTC offset
+    // Include conversations created between 2:00 AM - 6:00 PM Pacific Time
+    // Exclude conversations created before 2AM and between 6PM - 11:59PM
+    const startLAStr = `${laDateStr}T02:00:00`;
+    const endLAStr = `${laDateStr}T18:00:00`; // 6:00 PM Pacific Time
+    
+    // Use Intl.DateTimeFormat to properly convert LA times to UTC
+    // Create Date objects representing the LA times, then get their UTC equivalents
+    const startLADate = new Date(startLAStr);
+    const endLADate = new Date(endLAStr);
+    
+    // Get the UTC equivalent by formatting in LA timezone and parsing back
+    // This handles DST automatically
+    const startLAFormatted = startLADate.toLocaleString('en-US', { 
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    const endLAFormatted = endLADate.toLocaleString('en-US', { 
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    
+    // Calculate offset: difference between UTC time and LA time representation
+    const utcNow = now.getTime();
+    const laNowFormatted = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+    const laNowParsed = new Date(laNowFormatted);
+    const offsetMs = utcNow - laNowParsed.getTime();
+    
+    // Apply offset to get UTC timestamps
+    const startUTC = new Date(startLADate.getTime() - offsetMs);
+    const endUTC = new Date(endLADate.getTime() - offsetMs);
+    
+    const todayStartSeconds = Math.floor(startUTC.getTime() / 1000);
+    const todayEndSeconds = Math.floor(endUTC.getTime() / 1000);
 
     // Fetch only conversations created today (optimized query)
     const conversationsToday = await fetchTeamConversationsCreatedToday(authHeaderValue, todayStartSeconds, todayEndSeconds);
 
     // Calculate metrics: count conversations with 10+ minute wait time
+    // Also store conversation IDs for those with 10+ minute wait times
     const TEN_MINUTES_SECONDS = 600;
     let count10PlusMin = 0;
     let totalWithResponse = 0;
+    const conversations10PlusMin = []; // Store conversation IDs with 10+ minute wait times
 
     conversationsToday.forEach(conv => {
       // Check if conversation has a first admin reply
@@ -111,6 +171,14 @@ export default async function handler(req, res) {
         
         if (waitTimeSeconds >= TEN_MINUTES_SECONDS) {
           count10PlusMin++;
+          // Store conversation ID and wait time for display in expandable table
+          if (conv.id) {
+            conversations10PlusMin.push({
+              id: conv.id,
+              waitTimeSeconds: waitTimeSeconds,
+              waitTimeMinutes: Math.round(waitTimeSeconds / 60 * 100) / 100 // Round to 2 decimal places
+            });
+          }
         }
       }
     });
@@ -119,8 +187,8 @@ export default async function handler(req, res) {
       ? (count10PlusMin / totalWithResponse) * 100 
       : 0;
 
-    // Create metric record
-    const date = now.toISOString().slice(0, 10); // Format: YYYY-MM-DD (one entry per day)
+    // Create metric record - use current LA date (same day as when the job runs)
+    const date = laDateStr; // Format: YYYY-MM-DD (LA date, one entry per day)
 
     const metric = {
       timestamp: now.toISOString(),
@@ -128,7 +196,8 @@ export default async function handler(req, res) {
       count10PlusMin,
       totalConversations: conversationsToday.length, // Only count conversations created today
       totalWithResponse,
-      percentage10PlusMin: Math.round(percentage10PlusMin * 100) / 100
+      percentage10PlusMin: Math.round(percentage10PlusMin * 100) / 100,
+      conversationIds10PlusMin: conversations10PlusMin // Store IDs for expandable table
     };
 
     // Save to database
@@ -142,10 +211,70 @@ export default async function handler(req, res) {
         count_10_plus_min INTEGER NOT NULL,
         total_conversations INTEGER NOT NULL,
         percentage_10_plus_min DECIMAL(5,2) NOT NULL,
+        conversation_ids_10_plus_min JSONB,
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(date)
       );
     `);
+
+    // Add conversation_ids_10_plus_min column if it doesn't exist (for existing tables)
+    try {
+      await db.query(`
+        ALTER TABLE response_time_metrics 
+        ADD COLUMN IF NOT EXISTS conversation_ids_10_plus_min JSONB;
+      `);
+    } catch (migrationError) {
+      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
+    }
+
+    // Migrate from assignment time schema back to simple schema if needed
+    try {
+      const assignmentColumnsCheck = await db.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'response_time_metrics' 
+        AND column_name IN ('count_10_plus_min_response_time', 'count_10_plus_min_assignment_time')
+      `);
+      
+      if (assignmentColumnsCheck.rows.length > 0) {
+        console.log('Migrating from assignment time schema back to simple schema...');
+        
+        // Add simple columns if they don't exist
+        await db.query(`
+          ALTER TABLE response_time_metrics 
+          ADD COLUMN IF NOT EXISTS count_10_plus_min INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS percentage_10_plus_min DECIMAL(5,2) DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS conversation_ids_10_plus_min JSONB;
+        `);
+        
+        // Migrate data from response_time columns to simple columns
+        await db.query(`
+          UPDATE response_time_metrics 
+          SET 
+            count_10_plus_min = COALESCE(count_10_plus_min_response_time, count_10_plus_min, 0),
+            percentage_10_plus_min = COALESCE(percentage_10_plus_min_response_time, percentage_10_plus_min, 0),
+            conversation_ids_10_plus_min = COALESCE(conversation_ids_10_plus_min_response_time, conversation_ids_10_plus_min, '[]'::jsonb)
+          WHERE count_10_plus_min IS NULL OR count_10_plus_min = 0;
+        `);
+        
+        // Drop assignment time columns
+        await db.query(`
+          ALTER TABLE response_time_metrics 
+          DROP COLUMN IF EXISTS count_10_plus_min_response_time,
+          DROP COLUMN IF EXISTS total_with_response_time,
+          DROP COLUMN IF EXISTS percentage_10_plus_min_response_time,
+          DROP COLUMN IF EXISTS conversation_ids_10_plus_min_response_time,
+          DROP COLUMN IF EXISTS count_10_plus_min_assignment_time,
+          DROP COLUMN IF EXISTS total_with_assignment_time,
+          DROP COLUMN IF EXISTS percentage_10_plus_min_assignment_time,
+          DROP COLUMN IF EXISTS conversation_ids_10_plus_min_assignment_time;
+        `);
+        
+        console.log('Migration back to simple schema completed');
+      }
+    } catch (migrationError) {
+      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
+    }
 
     // Migrate from old schema (date_hour) to new schema (date) if needed
     try {
@@ -191,25 +320,51 @@ export default async function handler(req, res) {
       console.warn('Migration warning (may be safe to ignore):', migrationError.message);
     }
 
-    await db.query(`
-      INSERT INTO response_time_metrics (timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min)
-      VALUES ($1, $2, $3, $4, $5)
+    console.log(`[Response Time Hourly] Saving metric for date: ${metric.date}`, {
+      timestamp: metric.timestamp,
+      count10PlusMin: metric.count10PlusMin,
+      totalConversations: metric.totalConversations,
+      percentage10PlusMin: metric.percentage10PlusMin,
+      conversationIdsCount: metric.conversationIds10PlusMin?.length || 0
+    });
+
+    const insertResult = await db.query(`
+      INSERT INTO response_time_metrics (timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (date) 
       DO UPDATE SET 
         timestamp = EXCLUDED.timestamp,
         count_10_plus_min = EXCLUDED.count_10_plus_min,
         total_conversations = EXCLUDED.total_conversations,
         percentage_10_plus_min = EXCLUDED.percentage_10_plus_min,
-        created_at = NOW();
+        conversation_ids_10_plus_min = EXCLUDED.conversation_ids_10_plus_min,
+        created_at = NOW()
+      RETURNING id, date, timestamp;
     `, [
       metric.timestamp,
       metric.date,
       metric.count10PlusMin,
       metric.totalConversations,
-      metric.percentage10PlusMin
+      metric.percentage10PlusMin,
+      JSON.stringify(metric.conversationIds10PlusMin || [])
     ]);
 
-    return res.status(200).json({ success: true, metric });
+    console.log(`[Response Time Hourly] Database insert successful:`, insertResult.rows[0]);
+
+    // Verify the data was actually saved
+    const verifyResult = await db.query(`
+      SELECT id, date, timestamp, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min
+      FROM response_time_metrics
+      WHERE date = $1
+    `, [metric.date]);
+
+    console.log(`[Response Time Hourly] Verification query result:`, verifyResult.rows);
+
+    if (verifyResult.rows.length === 0) {
+      console.error(`[Response Time Hourly] WARNING: Data was not found after insert for date ${metric.date}`);
+    }
+
+    return res.status(200).json({ success: true, metric, savedRow: verifyResult.rows[0] });
   } catch (error) {
     console.error("Cron job error:", error);
     return res.status(500).json({ error: error.message });

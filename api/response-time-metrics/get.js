@@ -85,32 +85,40 @@ export default async function handler(req, res) {
           count_10_plus_min INTEGER NOT NULL,
           total_conversations INTEGER NOT NULL,
           percentage_10_plus_min DECIMAL(5,2) NOT NULL,
+          conversation_ids_10_plus_min JSONB,
           created_at TIMESTAMP DEFAULT NOW(),
           UNIQUE(date)
         );
       `);
 
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, all } = req.query;
       
       let result;
       
-      if (startDate && endDate) {
+      // If all=true, return all records regardless of date filters
+      if (all === 'true') {
         result = await db.query(`
-          SELECT timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min
+          SELECT timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min
+          FROM response_time_metrics
+          ORDER BY date DESC, timestamp DESC
+        `);
+      } else if (startDate && endDate) {
+        result = await db.query(`
+          SELECT timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min
           FROM response_time_metrics
           WHERE date >= $1 AND date <= $2
           ORDER BY timestamp ASC
         `, [startDate, endDate]);
       } else if (startDate) {
         result = await db.query(`
-          SELECT timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min
+          SELECT timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min
           FROM response_time_metrics
           WHERE date >= $1
           ORDER BY timestamp ASC
         `, [startDate]);
       } else if (endDate) {
         result = await db.query(`
-          SELECT timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min
+          SELECT timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min
           FROM response_time_metrics
           WHERE date <= $1
           ORDER BY timestamp ASC
@@ -122,7 +130,7 @@ export default async function handler(req, res) {
         const startDateStr = sevenDaysAgo.toISOString().slice(0, 10);
         
         result = await db.query(`
-          SELECT timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min
+          SELECT timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min
           FROM response_time_metrics
           WHERE date >= $1
           ORDER BY timestamp ASC
@@ -132,9 +140,10 @@ export default async function handler(req, res) {
       const metrics = result.rows.map(row => ({
         timestamp: row.timestamp,
         date: row.date,
-        count10PlusMin: parseInt(row.count_10_plus_min),
-        totalConversations: parseInt(row.total_conversations),
-        percentage10PlusMin: parseFloat(row.percentage_10_plus_min)
+        count10PlusMin: parseInt(row.count_10_plus_min) || 0,
+        totalConversations: parseInt(row.total_conversations) || 0,
+        percentage10PlusMin: parseFloat(row.percentage_10_plus_min) || 0,
+        conversationIds10PlusMin: row.conversation_ids_10_plus_min || []
       }));
 
       return res.status(200).json({ metrics });

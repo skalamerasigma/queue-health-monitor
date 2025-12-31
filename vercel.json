@@ -9,7 +9,7 @@
     },
     {
       "path": "/api/cron/response-time-hourly",
-      "schedule": "0 0 * * *"
+      "schedule": "30 3 * * 2-6"
     }
   ],
   "rewrites": [

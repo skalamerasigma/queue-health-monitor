@@ -3,6 +3,147 @@ import HistoricalView from "./HistoricalView";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import "./Dashboard.css";
 
+// Holiday configuration with SVG URLs
+const HOLIDAYS = {
+  '01-01': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767183389/new_years_gsfi9s.svg', // New Year's Day
+  '06-19': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767183557/juneteenth_wgccmi.svg', // Juneteenth
+  '07-04': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767183658/independence_day_xkqltc.svg', // Independence Day
+  '12-25': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767180781/xmas_hat_o0mk2w.svg', // Christmas Day
+};
+
+// Helper function to get the Nth weekday of a month
+const getNthWeekday = (year, month, weekday, n) => {
+  // weekday: 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  // n: 1 = first, 2 = second, etc.
+  const firstDay = new Date(year, month, 1).getDay();
+  let day = 1 + ((weekday - firstDay + 7) % 7);
+  day += (n - 1) * 7;
+  return day;
+};
+
+// Helper function to get the last weekday of a month
+const getLastWeekday = (year, month, weekday) => {
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const lastDayOfWeek = new Date(year, month, lastDay).getDay();
+  let day = lastDay - ((lastDayOfWeek - weekday + 7) % 7);
+  return day;
+};
+
+// Function to check if a date matches any holiday and return the icon URL
+const getHolidayIcon = (dateStr) => {
+  if (!dateStr) return null;
+  
+  // Parse date - handle both "YYYY-MM-DD" and "MM/DD" formats
+  let year, month, day;
+  if (dateStr.includes('-')) {
+    // Format: "YYYY-MM-DD"
+    [year, month, day] = dateStr.split('-').map(Number);
+  } else if (dateStr.includes('/')) {
+    // Format: "MM/DD" - need to get year from current context
+    // For display labels, we'll need to infer the year
+    const parts = dateStr.split('/');
+    month = parseInt(parts[0], 10);
+    day = parseInt(parts[1], 10);
+    // Try to get year from data if available, otherwise use current year
+    year = new Date().getFullYear();
+  } else {
+    return null;
+  }
+  
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+  
+  const date = new Date(year, month - 1, day);
+  const dateMonth = date.getMonth() + 1; // 1-12
+  const dateDay = date.getDate();
+  const dateYear = date.getFullYear();
+  const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  
+  // Check fixed date holidays
+  const monthDayKey = `${String(dateMonth).padStart(2, '0')}-${String(dateDay).padStart(2, '0')}`;
+  if (HOLIDAYS[monthDayKey]) {
+    return HOLIDAYS[monthDayKey];
+  }
+  
+  // Check variable holidays
+  // MLK Day - 3rd Monday in January
+  if (dateMonth === 1 && dayOfWeek === 1) {
+    const mlkDay = getNthWeekday(dateYear, 0, 1, 3); // month is 0-indexed
+    if (dateDay === mlkDay) {
+      return 'https://res.cloudinary.com/doznvxtja/image/upload/v1767184247/mlk_n0k97m.svg';
+    }
+  }
+  
+  // Presidents' Day - 3rd Monday in February
+  if (dateMonth === 2 && dayOfWeek === 1) {
+    const presidentsDay = getNthWeekday(dateYear, 1, 1, 3);
+    if (dateDay === presidentsDay) {
+      return 'https://res.cloudinary.com/doznvxtja/image/upload/v1767184785/white_house_kjvx5t.svg';
+    }
+  }
+  
+  // Memorial Day - last Monday in May
+  if (dateMonth === 5 && dayOfWeek === 1) {
+    const memorialDay = getLastWeekday(dateYear, 4, 1); // month is 0-indexed
+    if (dateDay === memorialDay) {
+      return 'https://res.cloudinary.com/doznvxtja/image/upload/v1767182069/memorial_day_jg4tdh.svg';
+    }
+  }
+  
+  // Labor Day - 1st Monday in September
+  if (dateMonth === 9 && dayOfWeek === 1) {
+    const laborDay = getNthWeekday(dateYear, 8, 1, 1);
+    if (dateDay === laborDay) {
+      return 'https://res.cloudinary.com/doznvxtja/image/upload/v1767185195/labor_day_qppq3c.svg';
+    }
+  }
+  
+  // Thanksgiving - 4th Thursday in November
+  if (dateMonth === 11 && dayOfWeek === 4) {
+    const thanksgiving = getNthWeekday(dateYear, 10, 4, 4);
+    if (dateDay === thanksgiving) {
+      return 'https://res.cloudinary.com/doznvxtja/image/upload/v1767183818/thanksgiving_wsdwsa.svg';
+    }
+  }
+  
+  // Day after Thanksgiving - Friday after Thanksgiving
+  if (dateMonth === 11 && dayOfWeek === 5) {
+    const thanksgiving = getNthWeekday(dateYear, 10, 4, 4);
+    if (dateDay === thanksgiving + 1) {
+      return 'https://res.cloudinary.com/doznvxtja/image/upload/v1767184107/black_friday_sjz6g1.svg';
+    }
+  }
+  
+  return null;
+};
+
+// Custom label function to render holiday icons
+const createHolidayLabel = (data, isBarChart = false) => (props) => {
+  const { x, y, index, width } = props;
+  if (index === undefined || !data || !data[index]) return null;
+  
+  const dataPoint = data[index];
+  const dateStr = dataPoint.date || dataPoint.displayLabel;
+  
+  const iconUrl = getHolidayIcon(dateStr);
+  if (!iconUrl) return null;
+  
+  // For bar charts, center the icon horizontally within the bar
+  // For line/area charts, center on the data point
+  const iconX = isBarChart && width ? (x + width / 2 - 15) : (x - 15);
+  
+  return (
+    <g>
+      <image
+        href={iconUrl}
+        x={iconX}
+        y={y - 45}
+        width="30"
+        height="30"
+      />
+    </g>
+  );
+};
+
 // TSEs to exclude from the dashboard
 const EXCLUDED_TSE_NAMES = [
   "Stephen Skalamera",
@@ -36,10 +177,13 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   const [activeView, setActiveView] = useState("overview");
   const [filterTag, setFilterTag] = useState("all");
   const [filterTSE, setFilterTSE] = useState("all");
+  const [searchId, setSearchId] = useState("");
   const [historicalSnapshots, setHistoricalSnapshots] = useState([]);
   const [responseTimeMetrics, setResponseTimeMetrics] = useState([]);
   const [loadingHistorical, setLoadingHistorical] = useState(false);
   const [alertsDropdownOpen, setAlertsDropdownOpen] = useState(false);
+  const [showCompletion, setShowCompletion] = useState(false);
+  const [wasLoading, setWasLoading] = useState(false);
 
   // Fetch historical data for Overview tab
   useEffect(() => {
@@ -47,6 +191,17 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       fetchOverviewHistoricalData();
     }
   }, [activeView]);
+
+  // Refresh historical data when conversations are refreshed (for auto-refresh)
+  // This ensures Overview tab data refreshes automatically
+  useEffect(() => {
+    if (activeView === "overview" && lastUpdated) {
+      // Refresh historical data when conversations are auto-refreshed
+      // Only refresh if we're on overview tab
+      console.log('Dashboard: Auto-refresh triggered for Overview tab');
+      fetchOverviewHistoricalData();
+    }
+  }, [lastUpdated, activeView]);
 
   const fetchOverviewHistoricalData = async () => {
     setLoadingHistorical(true);
@@ -595,6 +750,12 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     
     return {
       totalOpen: conversations.filter(c => {
+        // Exclude conversations from excluded TSEs (to match filtered table behavior)
+        const assigneeName = c.admin_assignee?.name || 
+                            (typeof c.admin_assignee === "string" ? c.admin_assignee : null);
+        if (assigneeName && EXCLUDED_TSE_NAMES.includes(assigneeName)) {
+          return false;
+        }
         const isSnoozed = c.state === "snoozed" || c.snoozed_until;
         return c.state === "open" && !isSnoozed;
       }).length,
@@ -626,6 +787,15 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                            conv.snoozed_until || 
                            (conv.statistics && conv.statistics.state === "snoozed");
           return isSnoozed;
+        });
+      }
+      if (filterTag === "open") {
+        return conversations.filter(conv => {
+          const isSnoozed = conv.state === "snoozed" || 
+                           conv.state === "Snoozed" ||
+                           conv.snoozed_until || 
+                           (conv.statistics && conv.statistics.state === "snoozed");
+          return conv.state === "open" && !isSnoozed;
         });
       }
       if (filterTag === "investigation") return metrics.investigationSnoozed || [];
@@ -664,19 +834,56 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       }
     }
     
+    // Filter by ID search if provided
+    if (searchId.trim()) {
+      const searchTerm = searchId.trim().toLowerCase();
+      tagFiltered = tagFiltered.filter(conv => {
+        const convId = String(conv.id || "").toLowerCase();
+        return convId.includes(searchTerm);
+      });
+    }
+    
     return tagFiltered;
-  }, [conversations, filterTag, filterTSE, metrics]);
+  }, [conversations, filterTag, filterTSE, metrics, searchId]);
   
   // Get list of TSEs for filter dropdown
   const tseList = useMemo(() => {
     return (metrics.byTSE || []).map(tse => ({ id: tse.id, name: tse.name }));
   }, [metrics.byTSE]);
 
-  // Only show loading screen on initial load, not on auto-refresh
-  if (loading && !conversations || (Array.isArray(conversations) && conversations.length === 0)) {
+  // Track loading state changes to show completion animation
+  useEffect(() => {
+    if (loading) {
+      setWasLoading(true);
+      setShowCompletion(false);
+    } else if (wasLoading && conversations && conversations.length > 0) {
+      // Loading just finished, show completion GIF
+      setShowCompletion(true);
+      const timer = setTimeout(() => {
+        setShowCompletion(false);
+        setWasLoading(false);
+      }, 3000); // Show completion GIF for 3 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [loading, conversations, wasLoading]);
+
+  // Show loading screen on initial load or during completion animation
+  if ((loading && (!conversations || (Array.isArray(conversations) && conversations.length === 0))) || showCompletion) {
     return (
-      <div className="dashboard-container">
-        <div className="loading">Loading queue health data…</div>
+      <div className="loading-container">
+        <div className="loading-content">
+          <img 
+            src={showCompletion 
+              ? "https://res.cloudinary.com/doznvxtja/image/upload/v1767180044/loading_complete_uvvhiz.gif"
+              : "https://res.cloudinary.com/doznvxtja/image/upload/v1767179531/loading_kgv5kg.gif"
+            } 
+            alt={showCompletion ? "Complete" : "Loading..."} 
+            className="loading-gif"
+          />
+          <div className={`loading-text ${!showCompletion ? 'pulse' : ''}`}>
+            {showCompletion ? "Loading complete!" : "Loading queue health data…"}
+          </div>
+        </div>
       </div>
     );
   }
@@ -685,6 +892,16 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     return (
       <div className="dashboard-container">
         <div className="error">Error loading data: {error}</div>
+        <button onClick={onRefresh} className="refresh-button">Retry</button>
+      </div>
+    );
+  }
+
+  // Show error if no conversations after loading completes
+  if (!loading && (!conversations || (Array.isArray(conversations) && conversations.length === 0))) {
+    return (
+      <div className="dashboard-container">
+        <div className="error">No conversation data available. Please check the API connection.</div>
         <button onClick={onRefresh} className="refresh-button">Retry</button>
       </div>
     );
@@ -768,6 +985,16 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
               ))}
             </select>
           </div>
+          <div className="filter-group">
+            <label>Search by ID:</label>
+            <input
+              type="text"
+              value={searchId}
+              onChange={(e) => setSearchId(e.target.value)}
+              placeholder="Enter conversation ID..."
+              className="filter-input"
+            />
+          </div>
           <div className="filter-buttons">
             <button 
               onClick={() => {
@@ -786,6 +1013,25 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
               className="filter-button"
             >
               Show Snoozed
+            </button>
+            <button 
+              onClick={() => {
+                setFilterTag("open");
+                setFilterTSE("all");
+              }} 
+              className="filter-button"
+            >
+              Show Open
+            </button>
+            <button 
+              onClick={() => {
+                setFilterTag("all");
+                setFilterTSE("all");
+                setSearchId("");
+              }} 
+              className="filter-button clear-button"
+            >
+              Clear
             </button>
           </div>
         </div>
@@ -830,22 +1076,16 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                     <span className={`metric-value ${totalOpen > THRESHOLDS.MAX_OPEN_SOFT ? "metric-error" : ""}`}>
                       {totalOpen}
                     </span>
-                    <span className="metric-target">(target: {THRESHOLDS.MAX_OPEN_IDEAL})</span>
                   </div>
                   <div className="tse-metric">
                     <span className="metric-label">Actionable Snoozed:</span>
                     <span className={`metric-value ${totalActionableSnoozed > THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT ? "metric-error" : ""}`}>
                       {totalActionableSnoozed}
                     </span>
-                    <span className="metric-target">(limit: {THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})</span>
                   </div>
                   <div className="tse-metric">
-                    <span className="metric-label">#Investigation:</span>
-                    <span className="metric-value">{tse.investigationSnoozed}</span>
-                  </div>
-                  <div className="tse-metric">
-                    <span className="metric-label">#CustomerWait:</span>
-                    <span className="metric-value">{tse.customerWaitSnoozed}</span>
+                    <span className="metric-label">Waiting on Customer:</span>
+                    <span className="metric-value">{tse.customerWaitSnoozed || 0}</span>
                   </div>
                 </div>
               </div>
@@ -877,7 +1117,10 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
 
       {/* Historical View */}
       {activeView === "historical" && (
-        <HistoricalView onSaveSnapshot={handleSaveSnapshot} />
+        <HistoricalView 
+          onSaveSnapshot={handleSaveSnapshot} 
+          refreshTrigger={lastUpdated}
+        />
       )}
     </div>
   );
@@ -1163,11 +1406,25 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       .slice(-7); // Last 7 days
   }, [responseTimeMetrics]);
 
-  // Calculate current response time percentage
+  // Calculate current response time percentage (most recent day)
   const currentResponseTimePct = useMemo(() => {
     if (responseTimeTrendData.length === 0) return 0;
     return Math.round(responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage || 0);
   }, [responseTimeTrendData]);
+
+  // Calculate average response time percentage (last 7 days)
+  const avgResponseTimePct = useMemo(() => {
+    if (responseTimeTrendData.length === 0) return 0;
+    const sum = responseTimeTrendData.reduce((acc, item) => acc + (item.percentage || 0), 0);
+    return Math.round((sum / responseTimeTrendData.length) * 10) / 10; // Round to 1 decimal
+  }, [responseTimeTrendData]);
+
+  // Calculate current compliance from historical data (to match Historical tab)
+  const currentCompliance = useMemo(() => {
+    if (complianceTrendData.length === 0) return 0;
+    // Use the most recent snapshot's compliance value
+    return complianceTrendData[complianceTrendData.length - 1]?.compliance || 0;
+  }, [complianceTrendData]);
 
   // Calculate trend indicators
   const complianceTrend = useMemo(() => {
@@ -1194,42 +1451,66 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
 
   return (
     <div className="modern-overview">
-      {/* Key KPIs */}
+      {/* Key KPIs - Organized by Realtime vs Historical */}
       <div className="overview-kpis">
-        <div className="kpi-card primary">
-          <div className="kpi-label">Team Compliance</div>
-          <div className="kpi-value">{metrics.complianceOverall || 0}%</div>
-          {complianceTrendData.length >= 2 && (
-            <div className={`kpi-trend ${complianceTrend.direction}`}>
-              {complianceTrend.direction === 'up' ? '↑' : complianceTrend.direction === 'down' ? '↓' : '→'}
-              {complianceTrend.change > 0 && ` ${complianceTrend.change}%`}
+        {/* Realtime Metrics Section */}
+        <div className="kpi-section">
+          <h3 className="kpi-section-title">Today / Realtime Metrics</h3>
+          <div className="kpi-section-cards">
+            <div className="kpi-card primary">
+              <div className="kpi-label">Realtime Compliance</div>
+              <div className="kpi-value">{metrics.complianceOverall || 0}%</div>
+              <div className="kpi-subtitle">Current snapshot</div>
             </div>
-          )}
-          <div className="kpi-subtitle">Last 7 days</div>
-        </div>
 
-        <div className="kpi-card primary">
-          <div className="kpi-label">10+ Min Wait Rate</div>
-          <div className="kpi-value">{currentResponseTimePct}%</div>
-          {responseTimeTrendData.length >= 2 && (
-            <div className={`kpi-trend ${responseTimeTrend.direction}`}>
-              {responseTimeTrend.direction === 'up' ? '↓' : responseTimeTrend.direction === 'down' ? '↑' : '→'}
-              {responseTimeTrend.change > 0 && ` ${responseTimeTrend.change.toFixed(1)}%`}
+            <div className="kpi-card primary">
+              <div className="kpi-label">10+ Min Wait Rate</div>
+              <div className="kpi-value">{currentResponseTimePct}%</div>
+              {responseTimeTrendData.length >= 2 && (
+                <div className={`kpi-trend ${responseTimeTrend.direction}`}>
+                  {responseTimeTrend.direction === 'up' ? '↓' : responseTimeTrend.direction === 'down' ? '↑' : '→'}
+                  {responseTimeTrend.change > 0 && ` ${responseTimeTrend.change.toFixed(1)}%`}
+                </div>
+              )}
+              <div className="kpi-subtitle">Most recent day</div>
             </div>
-          )}
-          <div className="kpi-subtitle">Last 7 days avg</div>
+
+            <div className="kpi-card">
+              <div className="kpi-label">Open Chats</div>
+              <div className="kpi-value">{metrics.totalOpen}</div>
+              <div className="kpi-subtitle">Currently open</div>
+            </div>
+
+            <div className="kpi-card">
+              <div className="kpi-label">Actionable Snoozed</div>
+              <div className="kpi-value">{metrics.actionableSnoozed.length}</div>
+              <div className="kpi-subtitle">Requires attention</div>
+            </div>
+          </div>
         </div>
 
-        <div className="kpi-card">
-          <div className="kpi-label">Open Chats</div>
-          <div className="kpi-value">{metrics.totalOpen}</div>
-          <div className="kpi-subtitle">Currently open</div>
-        </div>
+        {/* Last 7 Days Averages Section */}
+        <div className="kpi-section">
+          <h3 className="kpi-section-title">Last 7 Days Averages</h3>
+          <div className="kpi-section-cards">
+            <div className="kpi-card primary">
+              <div className="kpi-label">Team Compliance</div>
+              <div className="kpi-value">{currentCompliance}%</div>
+              {complianceTrendData.length >= 2 && (
+                <div className={`kpi-trend ${complianceTrend.direction}`}>
+                  {complianceTrend.direction === 'up' ? '↑' : complianceTrend.direction === 'down' ? '↓' : '→'}
+                  {complianceTrend.change > 0 && ` ${complianceTrend.change}%`}
+                </div>
+              )}
+              <div className="kpi-subtitle">Last 7 days avg</div>
+            </div>
 
-        <div className="kpi-card">
-          <div className="kpi-label">Actionable Snoozed</div>
-          <div className="kpi-value">{metrics.actionableSnoozed.length}</div>
-          <div className="kpi-subtitle">Requires attention</div>
+            <div className="kpi-card primary">
+              <div className="kpi-label">10+ Min Wait Rate</div>
+              <div className="kpi-value">{avgResponseTimePct}%</div>
+              <div className="kpi-subtitle">Last 7 days avg</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1242,7 +1523,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           </div>
           {complianceTrendData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={complianceTrendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <AreaChart data={complianceTrendData} margin={{ top: 50, right: 10, left: 0, bottom: 5 }}>
                 <defs>
                   <linearGradient id="complianceGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#35a1b4" stopOpacity={0.3}/>
@@ -1274,6 +1555,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   stroke="#35a1b4" 
                   strokeWidth={2}
                   fill="url(#complianceGradient)"
+                  label={createHolidayLabel(complianceTrendData)}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -1292,7 +1574,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           </div>
           {responseTimeTrendData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={responseTimeTrendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <AreaChart data={responseTimeTrendData} margin={{ top: 50, right: 10, left: 0, bottom: 5 }}>
                 <defs>
                   <linearGradient id="responseGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#fd8789" stopOpacity={0.3}/>
@@ -1324,6 +1606,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   stroke="#fd8789" 
                   strokeWidth={2}
                   fill="url(#responseGradient)"
+                  label={createHolidayLabel(responseTimeTrendData)}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -1361,9 +1644,8 @@ function ConversationTable({ conversations, showTimeInfo = false }) {
     updated: 180,
     assigned: 150,
     author: 200,
-    state: 100,
+    state: 250,
     medianReply: 150,
-    snoozedUntil: 180,
     tags: 200
   });
   const [isResizing, setIsResizing] = useState(null);
@@ -1473,6 +1755,21 @@ function ConversationTable({ conversations, showTimeInfo = false }) {
     } else if (sortColumn === 'updated') {
       aVal = a.updatedTimestamp;
       bVal = b.updatedTimestamp;
+    } else if (sortColumn === 'assigned') {
+      const aAssignee = a.admin_assignee?.name || 
+                       (typeof a.admin_assignee === "string" ? a.admin_assignee : null) ||
+                       "Unassigned";
+      const bAssignee = b.admin_assignee?.name || 
+                       (typeof b.admin_assignee === "string" ? b.admin_assignee : null) ||
+                       "Unassigned";
+      aVal = aAssignee.toLowerCase();
+      bVal = bAssignee.toLowerCase();
+    } else if (sortColumn === 'state') {
+      aVal = (a.state || "open").toLowerCase();
+      bVal = (b.state || "open").toLowerCase();
+    } else if (sortColumn === 'medianReply') {
+      aVal = a.medianReplySeconds !== null && a.medianReplySeconds !== undefined ? a.medianReplySeconds : -1;
+      bVal = b.medianReplySeconds !== null && b.medianReplySeconds !== undefined ? b.medianReplySeconds : -1;
     } else {
       return 0;
     }
@@ -1508,7 +1805,7 @@ function ConversationTable({ conversations, showTimeInfo = false }) {
               onClick={() => handleSort('created')}
               className="sortable-header"
             >
-              Created At
+              Created At (UTC)
               {sortColumn === 'created' && (
                 <span className="sort-indicator">{sortDirection === 'asc' ? ' ↑' : ' ↓'}</span>
               )}
@@ -1522,7 +1819,7 @@ function ConversationTable({ conversations, showTimeInfo = false }) {
               onClick={() => handleSort('updated')}
               className="sortable-header"
             >
-              Last Updated
+              Last Updated (UTC)
               {sortColumn === 'updated' && (
                 <span className="sort-indicator">{sortDirection === 'asc' ? ' ↑' : ' ↓'}</span>
               )}
@@ -1531,29 +1828,43 @@ function ConversationTable({ conversations, showTimeInfo = false }) {
                 onMouseDown={(e) => handleMouseDown(e, 'updated')}
               />
             </th>
-            <th style={{ width: columnWidths.assigned, position: 'relative', minWidth: '50px' }}>
+            <th 
+              style={{ width: columnWidths.assigned, position: 'relative', minWidth: '50px', cursor: 'pointer' }}
+              onClick={() => handleSort('assigned')}
+              className="sortable-header"
+            >
               Assigned To
+              {sortColumn === 'assigned' && (
+                <span className="sort-indicator">{sortDirection === 'asc' ? ' ↑' : ' ↓'}</span>
+              )}
               <div 
                 className="column-resizer"
                 onMouseDown={(e) => handleMouseDown(e, 'assigned')}
               />
             </th>
-            <th style={{ width: columnWidths.state, position: 'relative', minWidth: '50px' }}>
+            <th 
+              style={{ width: columnWidths.state, position: 'relative', minWidth: '50px', cursor: 'pointer' }}
+              onClick={() => handleSort('state')}
+              className="sortable-header"
+            >
               State
+              {sortColumn === 'state' && (
+                <span className="sort-indicator">{sortDirection === 'asc' ? ' ↑' : ' ↓'}</span>
+              )}
               <div 
                 className="column-resizer"
                 onMouseDown={(e) => handleMouseDown(e, 'state')}
               />
             </th>
-            <th style={{ width: columnWidths.snoozedUntil, position: 'relative', minWidth: '50px' }}>
-              Snoozed Until
-              <div 
-                className="column-resizer"
-                onMouseDown={(e) => handleMouseDown(e, 'snoozedUntil')}
-              />
-            </th>
-            <th style={{ width: columnWidths.medianReply, position: 'relative', minWidth: '50px' }}>
+            <th 
+              style={{ width: columnWidths.medianReply, position: 'relative', minWidth: '50px', cursor: 'pointer' }}
+              onClick={() => handleSort('medianReply')}
+              className="sortable-header"
+            >
               Median Time to Reply (s)
+              {sortColumn === 'medianReply' && (
+                <span className="sort-indicator">{sortDirection === 'asc' ? ' ↑' : ' ↓'}</span>
+              )}
               <div 
                 className="column-resizer"
                 onMouseDown={(e) => handleMouseDown(e, 'medianReply')}
@@ -1583,9 +1894,29 @@ function ConversationTable({ conversations, showTimeInfo = false }) {
             
             const created = conv.created_at || conv.createdAt || conv.first_opened_at;
             const createdDate = created ? new Date(typeof created === "number" ? created * 1000 : created) : null;
+            const createdDateUTC = createdDate ? createdDate.toLocaleString('en-US', { 
+              timeZone: 'UTC', 
+              year: 'numeric', 
+              month: '2-digit', 
+              day: '2-digit', 
+              hour: '2-digit', 
+              minute: '2-digit', 
+              second: '2-digit',
+              hour12: false 
+            }) + ' UTC' : null;
             
             const updated = conv.updated_at || conv.last_contacted_at;
             const updatedDate = updated ? new Date(typeof updated === "number" ? updated * 1000 : updated) : null;
+            const updatedDateUTC = updatedDate ? updatedDate.toLocaleString('en-US', { 
+              timeZone: 'UTC', 
+              year: 'numeric', 
+              month: '2-digit', 
+              day: '2-digit', 
+              hour: '2-digit', 
+              minute: '2-digit', 
+              second: '2-digit',
+              hour12: false 
+            }) + ' UTC' : null;
             
             const assigneeName = conv.admin_assignee?.name || 
                                 (typeof conv.admin_assignee === "string" ? conv.admin_assignee : null) ||
@@ -1624,23 +1955,30 @@ function ConversationTable({ conversations, showTimeInfo = false }) {
                   </a>
                 </td>
                 <td className="date-cell" style={{ width: columnWidths.created }}>
-                  {createdDate ? createdDate.toLocaleString() : "-"}
+                  {createdDateUTC || "-"}
                 </td>
                 <td className="date-cell" style={{ width: columnWidths.updated }}>
-                  {updatedDate ? updatedDate.toLocaleString() : "-"}
+                  {updatedDateUTC || "-"}
                 </td>
                 <td style={{ width: columnWidths.assigned }}>{assigneeName}</td>
                 <td style={{ width: columnWidths.state }}>
-                  <span style={{ 
-                    textTransform: 'capitalize',
-                    fontWeight: conv.state === 'snoozed' ? 600 : 400,
-                    color: conv.state === 'snoozed' ? '#ff9a74' : '#292929'
-                  }}>
-                    {conv.state || "open"}
-                  </span>
-                </td>
-                <td className="date-cell" style={{ width: columnWidths.snoozedUntil }}>
-                  {conv.snoozedUntilDate ? conv.snoozedUntilDate.toLocaleString() : "-"}
+                  {conv.state === 'snoozed' && conv.snoozedUntilDate ? (
+                    <span style={{ 
+                      textTransform: 'capitalize',
+                      fontWeight: 600,
+                      color: '#ff9a74'
+                    }}>
+                      Snoozed Until {conv.snoozedUntilDate.toLocaleString()}
+                    </span>
+                  ) : (
+                    <span style={{ 
+                      textTransform: 'capitalize',
+                      fontWeight: 400,
+                      color: '#292929'
+                    }}>
+                      {conv.state || "open"}
+                    </span>
+                  )}
                 </td>
                 <td style={{ width: columnWidths.medianReply }}>
                   {formatMedianReplyDisplay(conv.medianReplySeconds)}

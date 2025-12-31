@@ -33,18 +33,20 @@ function App() {
 
   async function fetchData(showLoading = true) {
     if (showLoading) {
-      setLoading(true);
+    setLoading(true);
     }
     setError("");
 
     try {
-      // In production, use /api route; in development, use full backend URL
-      const apiPath = process.env.NODE_ENV === 'production' 
-        ? '/api/intercom/conversations/open-team-5480079'
-        : '/intercom/conversations/open-team-5480079';
-      const res = await fetch(
-        `${BACKEND_URL}${apiPath}`
-      );
+      // In development, use production API URL since local dev server doesn't have API routes
+      // In production, use /api route
+      const apiUrl = process.env.NODE_ENV === 'production' 
+        ? `${window.location.origin}/api/intercom/conversations/open-team-5480079`
+        : 'https://queue-health-monitor.vercel.app/api/intercom/conversations/open-team-5480079';
+      
+      console.log('App: Fetching conversations from:', apiUrl);
+      const res = await fetch(apiUrl);
+      console.log('App: Response status:', res.status, res.ok);
 
       if (!res.ok) {
         const text = await res.text();
@@ -52,16 +54,23 @@ function App() {
       }
 
       const response = await res.json();
+      console.log('App: Received response:', { 
+        isArray: Array.isArray(response),
+        conversationsCount: Array.isArray(response) ? response.length : (response.conversations?.length || 0),
+        teamMembersCount: response.teamMembers?.length || 0
+      });
       // Handle both old format (array) and new format (object with conversations and teamMembers)
       const conversations = Array.isArray(response) ? response : (response.conversations || []);
       const teamMembers = response.teamMembers || [];
+      console.log('App: Setting data with', conversations.length, 'conversations and', teamMembers.length, 'team members');
       setData({ conversations, teamMembers });
       setLastUpdated(new Date());
     } catch (e) {
+      console.error('App: Error fetching data:', e);
       setError(e.message);
     } finally {
       if (showLoading) {
-        setLoading(false);
+      setLoading(false);
       }
     }
   }
