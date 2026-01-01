@@ -79,43 +79,28 @@ export default async function handler(req, res) {
 
     const now = new Date();
     
-    // Get the current date in Los Angeles/Pacific timezone (GMT-8)
-    // Both manual triggers and scheduled cron jobs capture conversations created on the CURRENT LA day
-    // Scheduled cron runs at 10:30 PM ET (3:30 AM UTC next day), but captures that LA day's data
-    const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    // Get the previous UTC day (yesterday in UTC)
+    const prevUTCDay = new Date(now);
+    prevUTCDay.setUTCDate(prevUTCDay.getUTCDate() - 1);
+    prevUTCDay.setUTCHours(0, 0, 0, 0);
     
-    // Format as YYYY-MM-DD (current LA date)
-    const year = laNow.getFullYear();
-    const month = String(laNow.getMonth() + 1).padStart(2, '0');
-    const day = String(laNow.getDate()).padStart(2, '0');
-    const laDateStr = `${year}-${month}-${day}`;
+    const year = prevUTCDay.getUTCFullYear();
+    const month = prevUTCDay.getUTCMonth() + 1;
+    const day = prevUTCDay.getUTCDate();
     
-    console.log(`[Response Time Hourly] ${isScheduledCron ? 'Scheduled cron' : 'Manual trigger'}: capturing data for LA date ${laDateStr}`);
+    // Format as YYYY-MM-DD for the date column
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     
-    // Calculate LA to UTC offset
-    // Include conversations created between 2:00 AM - 6:00 PM Pacific Time
-    // Exclude conversations created before 2AM and between 6PM - 11:59PM
-    const startLAStr = `${laDateStr}T02:00:00`;
-    const endLAStr = `${laDateStr}T18:00:00`; // 6:00 PM Pacific Time
+    console.log(`[Response Time Hourly] ${isScheduledCron ? 'Scheduled cron' : 'Manual trigger'}: capturing data for UTC date ${dateStr}`);
     
-    // Use Intl.DateTimeFormat to properly convert LA times to UTC
-    // Create Date objects representing the LA times, then get their UTC equivalents
-    const startLADate = new Date(startLAStr);
-    const endLADate = new Date(endLAStr);
+    // Convert 2 AM - 6 PM PT for this date to UTC timestamps
+    // Create date strings in PT timezone, then convert to UTC
+    const startPTStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T02:00:00`;
+    const endPTStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T18:00:00`;
     
-    // Get the UTC equivalent by formatting in LA timezone and parsing back
-    // This handles DST automatically
-    const startLAFormatted = startLADate.toLocaleString('en-US', { 
-      timeZone: 'America/Los_Angeles',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    });
-    const endLAFormatted = endLADate.toLocaleString('en-US', { 
+    // Use Intl.DateTimeFormat to properly convert PT times to UTC
+    // Create a formatter for PT timezone
+    const ptFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Los_Angeles',
       year: 'numeric',
       month: '2-digit',
@@ -126,18 +111,48 @@ export default async function handler(req, res) {
       hour12: false
     });
     
-    // Calculate offset: difference between UTC time and LA time representation
-    const utcNow = now.getTime();
-    const laNowFormatted = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
-    const laNowParsed = new Date(laNowFormatted);
-    const offsetMs = utcNow - laNowParsed.getTime();
+    // Helper: find UTC timestamp that represents a given PT time
+    function ptTimeToUTC(ptYear, ptMonth, ptDay, ptHour, ptMinute, ptSecond) {
+      // Start with estimate: PT is UTC-8 (PST) or UTC-7 (PDT)
+      // Try UTC-8 first (PST)
+      let utcCandidate = new Date(Date.UTC(ptYear, ptMonth - 1, ptDay, ptHour + 8, ptMinute, ptSecond));
+      
+      // Verify and adjust if needed
+      for (let i = 0; i < 3; i++) {
+        const parts = ptFormatter.formatToParts(utcCandidate);
+        const actualYear = parseInt(parts.find(p => p.type === 'year').value);
+        const actualMonth = parseInt(parts.find(p => p.type === 'month').value);
+        const actualDay = parseInt(parts.find(p => p.type === 'day').value);
+        const actualHour = parseInt(parts.find(p => p.type === 'hour').value);
+        const actualMinute = parseInt(parts.find(p => p.type === 'minute').value);
+        
+        if (actualYear === ptYear && actualMonth === ptMonth && actualDay === ptDay && 
+            actualHour === ptHour && actualMinute === ptMinute) {
+          return utcCandidate;
+        }
+        
+        // Adjust: if actual is later, UTC candidate is too early, so add hours
+        // If actual is earlier, UTC candidate is too late, so subtract hours
+        const actualDate = new Date(Date.UTC(actualYear, actualMonth - 1, actualDay, actualHour, actualMinute, 0));
+        const targetDate = new Date(Date.UTC(ptYear, ptMonth - 1, ptDay, ptHour, ptMinute, 0));
+        const diffMs = targetDate.getTime() - actualDate.getTime();
+        utcCandidate = new Date(utcCandidate.getTime() - diffMs);
+      }
+      
+      return utcCandidate;
+    }
     
-    // Apply offset to get UTC timestamps
-    const startUTC = new Date(startLADate.getTime() - offsetMs);
-    const endUTC = new Date(endLADate.getTime() - offsetMs);
+    const startUTC = ptTimeToUTC(year, month, day, 2, 0, 0);
+    const endUTC = ptTimeToUTC(year, month, day, 18, 0, 0);
     
     const todayStartSeconds = Math.floor(startUTC.getTime() / 1000);
     const todayEndSeconds = Math.floor(endUTC.getTime() / 1000);
+    
+    console.log(`[Response Time Hourly] Date range for ${dateStr}:`);
+    console.log(`  Start: ${startUTC.toISOString()} (${todayStartSeconds})`);
+    console.log(`  End: ${endUTC.toISOString()} (${todayEndSeconds})`);
+    console.log(`  Start PT: ${startUTC.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })}`);
+    console.log(`  End PT: ${endUTC.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })}`);
 
     // Fetch only conversations created today (optimized query)
     const conversationsToday = await fetchTeamConversationsCreatedToday(authHeaderValue, todayStartSeconds, todayEndSeconds);
@@ -187,8 +202,8 @@ export default async function handler(req, res) {
       ? (count10PlusMin / totalWithResponse) * 100 
       : 0;
 
-    // Create metric record - use current LA date (same day as when the job runs)
-    const date = laDateStr; // Format: YYYY-MM-DD (LA date, one entry per day)
+    // Create metric record - use the UTC date we calculated
+    const date = dateStr; // Format: YYYY-MM-DD (UTC date, one entry per day)
 
     const metric = {
       timestamp: now.toISOString(),

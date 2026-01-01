@@ -2,6 +2,23 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import './HistoricalView.css';
 
+// TSE Region mapping
+const TSE_REGIONS = {
+  'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson'],
+  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Priyanshi Singh', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker'],
+  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh']
+};
+
+// Helper function to get region for a TSE name
+const getTSERegion = (tseName) => {
+  for (const [region, names] of Object.entries(TSE_REGIONS)) {
+    if (names.includes(tseName)) {
+      return region;
+    }
+  }
+  return 'Other'; // Fallback for any TSEs not in the list
+};
+
 // Holiday configuration with SVG URLs
 const HOLIDAYS = {
   '01-01': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767183389/new_years_gsfi9s.svg', // New Year's Day
@@ -161,6 +178,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const [expandedResponseTimeDates, setExpandedResponseTimeDates] = useState(new Set());
   const [complianceSortConfig, setComplianceSortConfig] = useState({ key: null, direction: 'asc' });
   const [responseTimeSortConfig, setResponseTimeSortConfig] = useState({ key: null, direction: 'asc' });
+  const [expandedRegions, setExpandedRegions] = useState(new Set(['UK', 'NY', 'SF', 'Other'])); // All expanded by default
 
   // Calculate default date range (last 7 weekdays)
   const getLast7Weekdays = () => {
@@ -215,15 +233,43 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   }, [refreshTrigger]);
 
   useEffect(() => {
-    // Extract unique TSEs from snapshots
+    // Extract unique TSEs from snapshots, excluding Prerit Sachdeva
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
     const tseSet = new Set();
     snapshots.forEach(snapshot => {
       snapshot.tseData?.forEach(tse => {
-        tseSet.add(JSON.stringify({ id: tse.id, name: tse.name }));
+        // Skip excluded TSEs
+        if (!EXCLUDED_TSE_NAMES.includes(tse.name)) {
+          tseSet.add(JSON.stringify({ id: tse.id, name: tse.name }));
+        }
       });
     });
     setAvailableTSEs(Array.from(tseSet).map(s => JSON.parse(s)));
   }, [snapshots]);
+
+  // Group TSEs by region
+  const tseByRegion = useMemo(() => {
+    const grouped = { 'UK': [], 'NY': [], 'SF': [], 'Other': [] };
+    availableTSEs.forEach(tse => {
+      const region = getTSERegion(tse.name);
+      grouped[region].push(tse);
+    });
+    // Sort TSEs within each region
+    Object.keys(grouped).forEach(region => {
+      grouped[region].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    return grouped;
+  }, [availableTSEs]);
+
+  const toggleRegion = (region) => {
+    const newExpanded = new Set(expandedRegions);
+    if (newExpanded.has(region)) {
+      newExpanded.delete(region);
+    } else {
+      newExpanded.add(region);
+    }
+    setExpandedRegions(newExpanded);
+  };
 
   const fetchSnapshots = async () => {
     setLoading(true);
@@ -343,9 +389,13 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         };
       }
 
-      const tseData = selectedTSEs.length > 0
+      const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+      let tseData = selectedTSEs.length > 0
         ? snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)))
         : snapshot.tseData;
+      
+      // Filter out excluded TSEs
+      tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
 
       tseData.forEach(tse => {
         dataByDate[date].totalTSEs++;
@@ -373,12 +423,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const groupedTableData = useMemo(() => {
     if (!snapshots.length) return [];
 
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
     const groupedByDate = {};
     
     snapshots.forEach(snapshot => {
-      const tseData = selectedTSEs.length > 0
+      let tseData = selectedTSEs.length > 0
         ? snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)))
         : snapshot.tseData;
+      
+      // Filter out excluded TSEs
+      tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
 
       if (!groupedByDate[snapshot.date]) {
         groupedByDate[snapshot.date] = {
@@ -750,16 +804,45 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               <button onClick={selectAllTSEs} className="select-all-button">Select All</button>
               <button onClick={clearTSEs} className="clear-button">Clear</button>
               <div className="tse-checkbox-list">
-                {availableTSEs.map(tse => (
-                  <label key={tse.id} className="tse-checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={selectedTSEs.includes(String(tse.id))}
-                      onChange={(e) => handleTSEChange(tse.id, e.target.checked)}
-                    />
-                    <span>{tse.name}</span>
-                  </label>
-                ))}
+                {['UK', 'NY', 'SF', 'Other'].map(region => {
+                  const regionTSEs = tseByRegion[region] || [];
+                  if (regionTSEs.length === 0) return null;
+
+                  const isRegionExpanded = expandedRegions.has(region);
+                  const regionLabels = {
+                    'UK': 'UK 🇬🇧',
+                    'NY': 'New York 🗽',
+                    'SF': 'San Francisco 🌉',
+                    'Other': 'Other'
+                  };
+
+                  return (
+                    <div key={region} className="tse-region-filter-group">
+                      <div 
+                        className="tse-region-filter-header"
+                        onClick={() => toggleRegion(region)}
+                      >
+                        <span className="region-expand-icon">{isRegionExpanded ? '▼' : '▶'}</span>
+                        <span className="region-filter-name">{regionLabels[region]}</span>
+                        <span className="region-filter-count">({regionTSEs.length})</span>
+                      </div>
+                      {isRegionExpanded && (
+                        <div className="tse-region-checkbox-list">
+                          {regionTSEs.map(tse => (
+                            <label key={tse.id} className="tse-checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={selectedTSEs.includes(String(tse.id))}
+                                onChange={(e) => handleTSEChange(tse.id, e.target.checked)}
+                              />
+                              <span>{tse.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

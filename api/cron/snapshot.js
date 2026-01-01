@@ -157,22 +157,21 @@ export default async function handler(req, res) {
       }
     });
 
-    // Create snapshot - use ET date for the day the cron runs
-    // When cron runs at 10:30 PM ET (3:30 AM UTC next day), we want snapshot for that ET day
+    // Create snapshot - use previous UTC day
+    // When cron runs, capture current state and store with previous UTC day's date
     const now = new Date();
     
-    // Get the current date in ET timezone
-    // If cron runs at 3:42 UTC on Jan 1, that's 10:42 PM ET on Dec 31, so we want Dec 31
-    const etDateStr = now.toLocaleString('en-CA', { 
-      timeZone: 'America/New_York',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    });
+    // Get the previous UTC day (yesterday in UTC)
+    const prevUTCDay = new Date(now);
+    prevUTCDay.setUTCDate(prevUTCDay.getUTCDate() - 1);
+    prevUTCDay.setUTCHours(0, 0, 0, 0);
     
-    // Use the ET date directly (no subtraction needed)
-    // Format as YYYY-MM-DD
-    const snapshotDate = etDateStr; // Already in YYYY-MM-DD format from toLocaleString
+    const year = prevUTCDay.getUTCFullYear();
+    const month = String(prevUTCDay.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(prevUTCDay.getUTCDate()).padStart(2, '0');
+    const snapshotDate = `${year}-${month}-${day}`;
+    
+    console.log(`[Snapshot] Capturing snapshot for UTC date: ${snapshotDate}`);
 
     const snapshot = {
       date: snapshotDate,

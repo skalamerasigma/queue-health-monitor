@@ -65,13 +65,15 @@ AUTH_HEADER = INTERCOM_TOKEN if INTERCOM_TOKEN.startswith("Bearer ") else f"Bear
 
 
 def get_weekdays_last_2_weeks():
-    """Get all weekdays (Monday-Friday) from the last 2 weeks."""
+    """Get all weekdays (Monday-Friday) from the last 2 weeks, based on UTC time.
+    Excludes today - only processes previous UTC days."""
     weekdays = []
-    la_tz = pytz.timezone("America/Los_Angeles")
-    today = datetime.now(la_tz)
+    utc_tz = pytz.UTC
+    today = datetime.now(utc_tz)
     
     # Go back up to 14 days to find 10 weekdays
-    days_back = 0
+    # Start from days_back = 1 to exclude today (only process previous days)
+    days_back = 1
     weekdays_found = 0
     
     while weekdays_found < 10 and days_back < 14:
@@ -85,23 +87,36 @@ def get_weekdays_last_2_weeks():
     return sorted(weekdays)
 
 
-def get_la_date_range_utc(date_obj):
+def get_pt_time_range_utc(utc_date_obj):
     """
-    Convert a LA date (YYYY-MM-DD) to UTC timestamp range.
-    Returns (start_utc_seconds, end_utc_seconds) for that day in LA timezone.
-    Includes conversations created between 2:00 AM - 6:00 PM Pacific Time.
-    Excludes conversations created before 2AM and between 6PM - 11:59PM.
+    Convert a UTC date to PT time range, then to UTC timestamps.
+    Takes a UTC date and converts that date's 2:00 AM - 6:00 PM PT window to UTC timestamps.
+    
+    Args:
+        utc_date_obj: A date object representing a UTC date
+        
+    Returns:
+        (start_utc_seconds, end_utc_seconds) for that UTC date's 2 AM - 6 PM PT window
     """
     la_tz = pytz.timezone("America/Los_Angeles")
     utc_tz = pytz.UTC
     
-    # Create start at 2:00 AM and end at 6:00 PM (18:00) in LA timezone
-    start_la = la_tz.localize(datetime.combine(date_obj, datetime.min.time().replace(hour=2, minute=0, second=0)))
-    end_la = la_tz.localize(datetime.combine(date_obj, datetime.min.time().replace(hour=18, minute=0, second=0)))
+    # Create start at 2:00 AM and end at 6:00 PM (18:00) in PT timezone for this UTC date
+    # We need to find what PT date corresponds to this UTC date
+    # Create a datetime at midnight UTC for this date
+    utc_midnight = utc_tz.localize(datetime.combine(utc_date_obj, datetime.min.time()))
+    
+    # Convert to PT to see what PT date this UTC date represents
+    pt_midnight = utc_midnight.astimezone(la_tz)
+    pt_date = pt_midnight.date()
+    
+    # Create start at 2:00 AM and end at 6:00 PM PT for that PT date
+    start_pt = la_tz.localize(datetime.combine(pt_date, datetime.min.time().replace(hour=2, minute=0, second=0)))
+    end_pt = la_tz.localize(datetime.combine(pt_date, datetime.min.time().replace(hour=18, minute=0, second=0)))
     
     # Convert to UTC
-    start_utc = start_la.astimezone(utc_tz)
-    end_utc = end_la.astimezone(utc_tz)
+    start_utc = start_pt.astimezone(utc_tz)
+    end_utc = end_pt.astimezone(utc_tz)
     
     return int(start_utc.timestamp()), int(end_utc.timestamp())
 
@@ -390,12 +405,12 @@ def save_metric_to_db(conn, date_str, metric, total_conversations):
 def main():
     """Main backfill function."""
     print("Starting backfill for response_time_metrics table...")
-    la_tz = pytz.timezone("America/Los_Angeles")
-    print(f"Time: {datetime.now(la_tz).strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    utc_tz = pytz.UTC
+    print(f"Time (UTC): {datetime.now(utc_tz).strftime('%Y-%m-%d %H:%M:%S %Z')}")
     
-    # Get weekdays for last 2 weeks
+    # Get weekdays for last 2 weeks (based on UTC)
     weekdays = get_weekdays_last_2_weeks()
-    print(f"\nFound {len(weekdays)} weekdays to process:")
+    print(f"\nFound {len(weekdays)} UTC weekdays to process:")
     for day in weekdays:
         print(f"  - {day}")
     
@@ -417,12 +432,11 @@ def main():
     try:
         for i, date_obj in enumerate(weekdays, 1):
             date_str = date_obj.strftime("%Y-%m-%d")
-            print(f"\n[{i}/{len(weekdays)}] Processing {date_str}...")
+            print(f"\n[{i}/{len(weekdays)}] Processing UTC date {date_str}...")
             
-            # Get UTC timestamp range for this date in LA timezone
-            start_seconds, end_seconds = get_la_date_range_utc(date_obj)
-            utc_tz = pytz.UTC
-            print(f"  Date range (UTC): {datetime.fromtimestamp(start_seconds, tz=utc_tz)} to {datetime.fromtimestamp(end_seconds, tz=utc_tz)}")
+            # Get UTC timestamp range for this UTC date's 2 AM - 6 PM PT window
+            start_seconds, end_seconds = get_pt_time_range_utc(date_obj)
+            print(f"  PT time window (2 AM - 6 PM) converted to UTC: {datetime.fromtimestamp(start_seconds, tz=utc_tz)} to {datetime.fromtimestamp(end_seconds, tz=utc_tz)}")
             
             # Fetch conversations
             print("  Fetching conversations from Intercom...")

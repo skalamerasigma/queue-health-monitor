@@ -3,6 +3,71 @@ import HistoricalView from "./HistoricalView";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import "./Dashboard.css";
 
+// TSE Region mapping
+const TSE_REGIONS = {
+  'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson'],
+  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Priyanshi Singh', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker'],
+  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh']
+};
+
+// Helper function to get region for a TSE name
+const getTSERegion = (tseName) => {
+  for (const [region, names] of Object.entries(TSE_REGIONS)) {
+    if (names.includes(tseName)) {
+      return region;
+    }
+  }
+  return 'Other'; // Fallback for any TSEs not in the list
+};
+
+// TSE Avatar mapping (first name to Cloudinary URL)
+const TSE_AVATARS = {
+  // New York
+  'Nick': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232392/2_fpxpja.svg',
+  'Julia': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232388/17_hxyc2t.svg',
+  'Ankita': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765282918/Untitled_design_10_bsgeve.svg',
+  'Nikhil': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765284907/Untitled_design_13_qeyxww.svg',
+  'Erez': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/10_ttgpck.svg',
+  'Xyla': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232391/7_qwfphq.svg',
+  'Rashi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765293772/Untitled_design_14_w3uv23.svg',
+  'Ryan': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232392/5_kw4h8x.svg',
+  'Krish': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232388/15_hwmz5x.svg',
+  'Lyle': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232388/14_vqo4ks.svg',
+  'Betty': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232391/8_efebpc.svg',
+  'Arley': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/9_vpzwjd.svg',
+  'Priyanshi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/12_avm2xl.svg',
+  'Siddhi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232392/6_f3d2qt.svg',
+  'Swapnil': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/11_xrb9qj.svg',
+  // San Francisco
+  'Sanyam': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765382789/Untitled_design_10_kzcja0.svg',
+  'Hem': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765318686/Untitled_design_22_uydf2h.svg',
+  'Sagarika': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232530/Untitled_design_8_ikixmx.svg',
+  'Nikita': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765284091/Untitled_design_11_mbsjbt.svg',
+  'Payton': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232385/22_pammoi.svg',
+  'Bhavana': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765318568/Untitled_design_21_kuwvcw.svg',
+  'Grania': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232388/21_tjy6io.svg',
+  'Soheli': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765318474/Untitled_design_20_zsho0q.svg',
+  'Hayden': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765311038/Untitled_design_18_uze5nk.svg',
+  'Roshini': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765311036/Untitled_design_19_ls5fat.svg',
+  'Abhijeet': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765310522/Untitled_design_16_jffaql.svg',
+  'Ratna': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765311039/Untitled_design_17_lchaky.svg',
+  'Sahibeer': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767268642/sahibeer_g0bk1n.svg',
+  // London/UK
+  'Nathan': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232389/13_flxpry.svg',
+  'J': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232387/18_yqqjho.svg',
+  'Kabilan': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232387/16_hgphrw.svg',
+  'Salman': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232386/20_ukjqlc.svg',
+  'Erin': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232386/19_q54uo5.svg'
+};
+
+// Helper function to get avatar URL for a TSE name
+const getTSEAvatar = (tseName) => {
+  if (!tseName) return null;
+  // Extract first name from full name
+  const firstName = tseName.split(' ')[0];
+  return TSE_AVATARS[firstName] || null;
+};
+
 // Holiday configuration with SVG URLs
 const HOLIDAYS = {
   '01-01': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767183389/new_years_gsfi9s.svg', // New Year's Day
@@ -149,6 +214,7 @@ const EXCLUDED_TSE_NAMES = [
   "Stephen Skalamera",
   "Zen Junior",
   "Nathan Parrish",
+  "Prerit Sachdeva",
   "Leticia Esparza",
   "Rob Woollen",
   "Brett Bedevian",
@@ -184,6 +250,8 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   const [alertsDropdownOpen, setAlertsDropdownOpen] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [wasLoading, setWasLoading] = useState(false);
+  const [selectedColors, setSelectedColors] = useState(new Set(['success', 'warning', 'error'])); // All selected by default
+  const [selectedRegions, setSelectedRegions] = useState(new Set(['UK', 'NY', 'SF', 'Other'])); // All selected by default
 
   // Fetch historical data for Overview tab
   useEffect(() => {
@@ -302,7 +370,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         "Stephen Skalamera", "Zen Junior", "Nathan Parrish", "Leticia Esparza",
         "Rob Woollen", "Brett Bedevian", "Viswa Jeyaraman", "Brandon Yee",
         "Holly Coxon", "Chetana Shinde", "Matt Morgenroth", "Grace Sanford",
-        "svc-prd-tse-intercom SVC"
+        "Prerit Sachdeva", "svc-prd-tse-intercom SVC"
       ];
 
       const byTSE = {};
@@ -851,6 +919,16 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     return (metrics.byTSE || []).map(tse => ({ id: tse.id, name: tse.name }));
   }, [metrics.byTSE]);
 
+  // Group TSEs by region (memoized at component level - must be before early returns)
+  const tseByRegion = useMemo(() => {
+    const grouped = { 'UK': [], 'NY': [], 'SF': [], 'Other': [] };
+    (metrics.byTSE || []).forEach(tse => {
+      const region = getTSERegion(tse.name);
+      grouped[region].push(tse);
+    });
+    return grouped;
+  }, [metrics.byTSE]);
+
   // Track loading state changes to show completion animation
   useEffect(() => {
     if (loading) {
@@ -1052,46 +1130,234 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       {activeView === "tse" && (
         <div className="tse-section">
           <h3 className="section-title">TSE Queue Health</h3>
-        <div className="tse-grid">
-          {(metrics.byTSE || []).map((tse) => {
-            const totalOpen = tse.open;
-            const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
-            const status = totalOpen === 0 && totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT
-              ? "success"
-              : totalOpen <= THRESHOLDS.MAX_OPEN_SOFT && totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT
-              ? "warning"
-              : "error";
+          
+          {/* Filters Container */}
+          <div className="tse-filters-container">
+            <h4 className="filters-title">Filters</h4>
+            
+            {/* Color Filters */}
+            <div className="tse-color-filters-section">
+              <div className="filter-section-header">
+                <span className="filter-section-label">Status:</span>
+                <div className="filter-buttons">
+                  <button 
+                    className="filter-button"
+                    onClick={() => setSelectedColors(new Set(['success', 'warning', 'error']))}
+                  >
+                    Select All
+                  </button>
+                  <button 
+                    className="filter-button"
+                    onClick={() => setSelectedColors(new Set())}
+                  >
+                    Unselect All
+                  </button>
+                </div>
+              </div>
+              <div className="tse-color-filters">
+                <div 
+                  className={`legend-item legend-clickable ${selectedColors.has('success') ? 'legend-selected' : ''}`}
+                  onClick={() => {
+                    const newColors = new Set(selectedColors);
+                    if (newColors.has('success')) {
+                      newColors.delete('success');
+                    } else {
+                      newColors.add('success');
+                    }
+                    setSelectedColors(newColors);
+                  }}
+                >
+                  <div className="legend-color legend-success">
+                    {selectedColors.has('success') && <span className="legend-checkmark">✓</span>}
+                  </div>
+                  <span className="legend-label">Healthy (0 open, ≤{THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT} actionable snoozed)</span>
+                </div>
+                <div 
+                  className={`legend-item legend-clickable ${selectedColors.has('warning') ? 'legend-selected' : ''}`}
+                  onClick={() => {
+                    const newColors = new Set(selectedColors);
+                    if (newColors.has('warning')) {
+                      newColors.delete('warning');
+                    } else {
+                      newColors.add('warning');
+                    }
+                    setSelectedColors(newColors);
+                  }}
+                >
+                  <div className="legend-color legend-warning">
+                    {selectedColors.has('warning') && <span className="legend-checkmark">✓</span>}
+                  </div>
+                  <span className="legend-label">Warning (≤{THRESHOLDS.MAX_OPEN_SOFT} open, ≤{THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT} actionable snoozed)</span>
+                </div>
+                <div 
+                  className={`legend-item legend-clickable ${selectedColors.has('error') ? 'legend-selected' : ''}`}
+                  onClick={() => {
+                    const newColors = new Set(selectedColors);
+                    if (newColors.has('error')) {
+                      newColors.delete('error');
+                    } else {
+                      newColors.add('error');
+                    }
+                    setSelectedColors(newColors);
+                  }}
+                >
+                  <div className="legend-color legend-error">
+                    {selectedColors.has('error') && <span className="legend-checkmark">✓</span>}
+                  </div>
+                  <span className="legend-label">Alert ({'>'}{THRESHOLDS.MAX_OPEN_SOFT} open or {'>'}{THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT} actionable snoozed)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Region Filter */}
+            <div className="tse-region-filter-section">
+              <div className="filter-section-header">
+                <span className="filter-section-label">Region:</span>
+                <div className="filter-buttons">
+                  <button 
+                    className="filter-button"
+                    onClick={() => setSelectedRegions(new Set(['UK', 'NY', 'SF', 'Other']))}
+                  >
+                    Select All
+                  </button>
+                  <button 
+                    className="filter-button"
+                    onClick={() => setSelectedRegions(new Set())}
+                  >
+                    Unselect All
+                  </button>
+                </div>
+              </div>
+              <div className="tse-region-filter">
+                {['UK', 'NY', 'SF', 'Other'].map(region => {
+                  const regionLabels = {
+                    'UK': { text: 'UK', emoji: '🇬🇧' },
+                    'NY': { text: 'New York', emoji: '🗽' },
+                    'SF': { text: 'San Francisco', emoji: '🌉' },
+                    'Other': { text: 'Other', emoji: '' }
+                  };
+                  const label = regionLabels[region];
+                  return (
+                    <label key={region} className="region-filter-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={selectedRegions.has(region)}
+                        onChange={(e) => {
+                          const newRegions = new Set(selectedRegions);
+                          if (e.target.checked) {
+                            newRegions.add(region);
+                          } else {
+                            newRegions.delete(region);
+                          }
+                          setSelectedRegions(newRegions);
+                        }}
+                      />
+                      <span className="region-filter-text">{label.text}</span>
+                      {label.emoji && <span className="region-filter-emoji">{label.emoji}</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {['UK', 'NY', 'SF', 'Other'].map(region => {
+            // Skip if region is not selected
+            if (!selectedRegions.has(region)) return null;
+            
+            const tses = tseByRegion[region];
+            if (tses.length === 0) return null;
+
+            const regionLabels = {
+              'UK': 'UK 🇬🇧',
+              'NY': 'New York 🗽',
+              'SF': 'San Francisco 🌉',
+              'Other': 'Other'
+            };
+
+            // Helper function to get status for a TSE
+            const getTSEStatus = (tse) => {
+              const totalOpen = tse.open;
+              const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
+              return totalOpen === 0 && totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT
+                ? "success"
+                : totalOpen <= THRESHOLDS.MAX_OPEN_SOFT && totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT
+                ? "warning"
+                : "error";
+            };
+
+            // Filter TSEs by selected colors, then sort by status
+            const filteredAndSortedTSEs = [...tses]
+              .filter(tse => selectedColors.has(getTSEStatus(tse)))
+              .sort((a, b) => {
+                const statusOrder = { "success": 0, "warning": 1, "error": 2 };
+                return statusOrder[getTSEStatus(a)] - statusOrder[getTSEStatus(b)];
+              });
+
+            // Don't render region group if no TSEs match the filter
+            if (filteredAndSortedTSEs.length === 0) return null;
+
+            // Split region label into text and emoji for styling
+            const regionLabelParts = regionLabels[region].split(' ');
+            const regionText = regionLabelParts.slice(0, -1).join(' ');
+            const regionEmoji = regionLabelParts[regionLabelParts.length - 1];
 
             return (
-              <div key={tse.id} className={`tse-card tse-${status}`}>
-                <div className="tse-header">
-                  <h4>{tse.name}</h4>
-                  <span className={`status-badge status-${status}`}>
-                    {status === "success" ? "✓" : status === "warning" ? "⚠" : "✗"}
-                  </span>
-                </div>
-                <div className="tse-metrics">
-                  <div className="tse-metric">
-                    <span className="metric-label">Open:</span>
-                    <span className={`metric-value ${totalOpen > THRESHOLDS.MAX_OPEN_SOFT ? "metric-error" : ""}`}>
-                      {totalOpen}
-                    </span>
-                  </div>
-                  <div className="tse-metric">
-                    <span className="metric-label">Actionable Snoozed:</span>
-                    <span className={`metric-value ${totalActionableSnoozed > THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT ? "metric-error" : ""}`}>
-                      {totalActionableSnoozed}
-                    </span>
-                  </div>
-                  <div className="tse-metric">
-                    <span className="metric-label">Waiting on Customer:</span>
-                    <span className="metric-value">{tse.customerWaitSnoozed || 0}</span>
-                  </div>
+              <div key={region} className="tse-region-group">
+                <h4 className="tse-region-title">
+                  <span className="region-title-text">{regionText}</span>
+                  {regionEmoji && <span className="region-title-emoji"> {regionEmoji}</span>}
+                </h4>
+                <div className="tse-grid">
+                  {filteredAndSortedTSEs.map((tse) => {
+                    const totalOpen = tse.open;
+                    const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
+                    const status = getTSEStatus(tse);
+
+                    const avatarUrl = getTSEAvatar(tse.name);
+
+                    return (
+                      <div key={tse.id} className={`tse-card tse-${status}`}>
+                        <div className="tse-header">
+                          <div className="tse-header-left">
+                            {avatarUrl && (
+                              <img 
+                                src={avatarUrl} 
+                                alt={tse.name}
+                                className="tse-avatar"
+                              />
+                            )}
+                            <h4>{tse.name}</h4>
+                          </div>
+                          <span className={`status-badge status-${status}`}>
+                            {status === "success" ? "✓" : status === "warning" ? "⚠" : "✗"}
+                          </span>
+                        </div>
+                        <div className="tse-metrics">
+                          <div className="tse-metric">
+                            <span className="metric-label">Open:</span>
+                            <span className={`metric-value ${totalOpen > THRESHOLDS.MAX_OPEN_SOFT ? "metric-error" : ""}`}>
+                              {totalOpen}
+                            </span>
+                          </div>
+                          <div className="tse-metric">
+                            <span className="metric-label">Actionable Snoozed:</span>
+                            <span className={`metric-value ${totalActionableSnoozed > THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT ? "metric-error" : ""}`}>
+                              {totalActionableSnoozed}
+                            </span>
+                          </div>
+                          <div className="tse-metric">
+                            <span className="metric-label">Waiting on Customer:</span>
+                            <span className="metric-value">{tse.customerWaitSnoozed || 0}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
           })}
-        </div>
         </div>
       )}
 
@@ -1130,6 +1396,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
 
 // Alerts Dropdown Component
 function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
+  const [expandedRegions, setExpandedRegions] = useState(new Set(['UK', 'NY', 'SF', 'Other'])); // All expanded by default
   const [expandedTSEs, setExpandedTSEs] = useState(new Set());
   const [expandedAlertTypes, setExpandedAlertTypes] = useState(new Set());
   const [showAllTSEs, setShowAllTSEs] = useState(false);
@@ -1152,13 +1419,21 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
     };
   }, [isOpen, onClose]);
 
-  // Group alerts by TSE
-  const alertsByTSE = useMemo(() => {
-    const grouped = {};
+  // Group alerts by region, then by TSE
+  const alertsByRegion = useMemo(() => {
+    const regionGroups = {
+      'UK': [],
+      'NY': [],
+      'SF': [],
+      'Other': []
+    };
+
+    // First group by TSE
+    const tseGroups = {};
     (alerts || []).forEach(alert => {
       const tseKey = alert.tseId || alert.tseName;
-      if (!grouped[tseKey]) {
-        grouped[tseKey] = {
+      if (!tseGroups[tseKey]) {
+        tseGroups[tseKey] = {
           tseId: alert.tseId,
           tseName: alert.tseName,
           openAlerts: [],
@@ -1167,16 +1442,46 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
       }
       
       if (alert.type === "open_threshold") {
-        grouped[tseKey].openAlerts.push(alert);
+        tseGroups[tseKey].openAlerts.push(alert);
       } else if (alert.type === "actionable_snoozed_threshold") {
-        grouped[tseKey].snoozedAlerts.push(alert);
+        tseGroups[tseKey].snoozedAlerts.push(alert);
       }
     });
-    return Object.values(grouped).sort((a, b) => a.tseName.localeCompare(b.tseName));
+
+    // Then group TSEs by region
+    Object.values(tseGroups).forEach(tseGroup => {
+      const region = getTSERegion(tseGroup.tseName);
+      if (regionGroups[region]) {
+        regionGroups[region].push(tseGroup);
+      } else {
+        regionGroups['Other'].push(tseGroup);
+      }
+    });
+
+    // Sort TSEs within each region
+    Object.keys(regionGroups).forEach(region => {
+      regionGroups[region].sort((a, b) => a.tseName.localeCompare(b.tseName));
+    });
+
+    return regionGroups;
   }, [alerts]);
 
-  const visibleTSEs = showAllTSEs ? alertsByTSE : alertsByTSE.slice(0, 5);
-  const remainingCount = alertsByTSE.length - 5;
+  const allTSEs = useMemo(() => {
+    return Object.values(alertsByRegion).flat();
+  }, [alertsByRegion]);
+
+  const visibleTSEs = showAllTSEs ? allTSEs : allTSEs.slice(0, 5);
+  const remainingCount = allTSEs.length - 5;
+
+  const toggleRegion = (region) => {
+    const newExpanded = new Set(expandedRegions);
+    if (newExpanded.has(region)) {
+      newExpanded.delete(region);
+    } else {
+      newExpanded.add(region);
+    }
+    setExpandedRegions(newExpanded);
+  };
 
   const toggleTSE = (tseKey) => {
     const newExpanded = new Set(expandedTSEs);
@@ -1235,80 +1540,115 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
               </div>
             ) : (
               <>
-                {visibleTSEs.map((tseGroup) => {
-                  const tseKey = `${tseGroup.tseId}-${tseGroup.tseName}`;
-                  const isTSEExpanded = expandedTSEs.has(tseKey);
-                  const hasOpenAlerts = tseGroup.openAlerts.length > 0;
-                  const hasSnoozedAlerts = tseGroup.snoozedAlerts.length > 0;
+                {['UK', 'NY', 'SF', 'Other'].map(region => {
+                  const regionTSEs = alertsByRegion[region] || [];
+                  if (regionTSEs.length === 0) return null;
+
+                  const isRegionExpanded = expandedRegions.has(region);
+                  const regionLabels = {
+                    'UK': 'UK 🇬🇧',
+                    'NY': 'New York 🗽',
+                    'SF': 'San Francisco 🌉',
+                    'Other': 'Other'
+                  };
+
+                  // Calculate total alerts for this region
+                  const regionAlertCount = regionTSEs.reduce((sum, tse) => 
+                    sum + tse.openAlerts.length + tse.snoozedAlerts.length, 0
+                  );
 
                   return (
-                    <div key={tseKey} className="tse-alert-group">
+                    <div key={region} className="region-alert-group">
                       <div 
-                        className="tse-alert-header" 
-                        onClick={() => toggleTSE(tseKey)}
+                        className="region-alert-header" 
+                        onClick={() => toggleRegion(region)}
                       >
-                        <span className="tse-expand-icon">{isTSEExpanded ? '▼' : '▶'}</span>
-                        <span className="tse-name">{tseGroup.tseName}</span>
-                        <span className="tse-alert-count">
-                          ({tseGroup.openAlerts.length + tseGroup.snoozedAlerts.length})
-                        </span>
+                        <span className="region-expand-icon">{isRegionExpanded ? '▼' : '▶'}</span>
+                        <span className="region-name">{regionLabels[region]}</span>
+                        <span className="region-alert-count">({regionAlertCount})</span>
                       </div>
                       
-                      {isTSEExpanded && (
-                        <div className="tse-alert-types">
-                          {hasOpenAlerts && (
-                            <div className="alert-type-group">
-                              <div 
-                                className="alert-type-header"
-                                onClick={() => toggleAlertType(`${tseKey}-open`)}
-                              >
-                                <span className="alert-type-expand-icon">
-                                  {expandedAlertTypes.has(`${tseKey}-open`) ? '▼' : '▶'}
-                                </span>
-                                <span className="alert-type-label">Open Chat Alerts</span>
-                                <span className="alert-type-count">({tseGroup.openAlerts.length})</span>
-                              </div>
-                              {expandedAlertTypes.has(`${tseKey}-open`) && (
-                                <div className="alert-type-items">
-                                  {tseGroup.openAlerts.map((alert, idx) => (
-                                    <div key={idx} className="alert-item">
-                                      <span className="alert-severity">
-                                        {alert.severity === "high" ? "🔴" : "🟡"}
-                                      </span>
-                                      <span className="alert-message">{alert.message}</span>
-                                    </div>
-                                  ))}
+                      {isRegionExpanded && (
+                        <div className="region-tse-list">
+                          {regionTSEs.map((tseGroup) => {
+                            const tseKey = `${tseGroup.tseId}-${tseGroup.tseName}`;
+                            const isTSEExpanded = expandedTSEs.has(tseKey);
+                            const hasOpenAlerts = tseGroup.openAlerts.length > 0;
+                            const hasSnoozedAlerts = tseGroup.snoozedAlerts.length > 0;
+
+                            return (
+                              <div key={tseKey} className="tse-alert-group">
+                                <div 
+                                  className="tse-alert-header" 
+                                  onClick={() => toggleTSE(tseKey)}
+                                >
+                                  <span className="tse-expand-icon">{isTSEExpanded ? '▼' : '▶'}</span>
+                                  <span className="tse-name">{tseGroup.tseName}</span>
+                                  <span className="tse-alert-count">
+                                    ({tseGroup.openAlerts.length + tseGroup.snoozedAlerts.length})
+                                  </span>
                                 </div>
-                              )}
-                            </div>
-                          )}
-                          
-                          {hasSnoozedAlerts && (
-                            <div className="alert-type-group">
-                              <div 
-                                className="alert-type-header"
-                                onClick={() => toggleAlertType(`${tseKey}-snoozed`)}
-                              >
-                                <span className="alert-type-expand-icon">
-                                  {expandedAlertTypes.has(`${tseKey}-snoozed`) ? '▼' : '▶'}
-                                </span>
-                                <span className="alert-type-label">Snoozed Alerts</span>
-                                <span className="alert-type-count">({tseGroup.snoozedAlerts.length})</span>
+                                
+                                {isTSEExpanded && (
+                                  <div className="tse-alert-types">
+                                    {hasOpenAlerts && (
+                                      <div className="alert-type-group">
+                                        <div 
+                                          className="alert-type-header"
+                                          onClick={() => toggleAlertType(`${tseKey}-open`)}
+                                        >
+                                          <span className="alert-type-expand-icon">
+                                            {expandedAlertTypes.has(`${tseKey}-open`) ? '▼' : '▶'}
+                                          </span>
+                                          <span className="alert-type-label">Open Chat Alerts</span>
+                                          <span className="alert-type-count">({tseGroup.openAlerts.length})</span>
+                                        </div>
+                                        {expandedAlertTypes.has(`${tseKey}-open`) && (
+                                          <div className="alert-type-items">
+                                            {tseGroup.openAlerts.map((alert, idx) => (
+                                              <div key={idx} className="alert-item">
+                                                <span className="alert-severity">
+                                                  {alert.severity === "high" ? "🔴" : "🟡"}
+                                                </span>
+                                                <span className="alert-message">{alert.message}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                    
+                                    {hasSnoozedAlerts && (
+                                      <div className="alert-type-group">
+                                        <div 
+                                          className="alert-type-header"
+                                          onClick={() => toggleAlertType(`${tseKey}-snoozed`)}
+                                        >
+                                          <span className="alert-type-expand-icon">
+                                            {expandedAlertTypes.has(`${tseKey}-snoozed`) ? '▼' : '▶'}
+                                          </span>
+                                          <span className="alert-type-label">Snoozed Alerts</span>
+                                          <span className="alert-type-count">({tseGroup.snoozedAlerts.length})</span>
+                                        </div>
+                                        {expandedAlertTypes.has(`${tseKey}-snoozed`) && (
+                                          <div className="alert-type-items">
+                                            {tseGroup.snoozedAlerts.map((alert, idx) => (
+                                              <div key={idx} className="alert-item">
+                                                <span className="alert-severity">
+                                                  {alert.severity === "high" ? "🔴" : "🟡"}
+                                                </span>
+                                                <span className="alert-message">{alert.message}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                              {expandedAlertTypes.has(`${tseKey}-snoozed`) && (
-                                <div className="alert-type-items">
-                                  {tseGroup.snoozedAlerts.map((alert, idx) => (
-                                    <div key={idx} className="alert-item">
-                                      <span className="alert-severity">
-                                        {alert.severity === "high" ? "🔴" : "🟡"}
-                                      </span>
-                                      <span className="alert-message">{alert.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -1324,7 +1664,7 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
                   </div>
                 )}
                 
-                {showAllTSEs && alertsByTSE.length > 5 && (
+                {showAllTSEs && allTSEs.length > 5 && (
                   <div 
                     className="show-less-tse" 
                     onClick={() => setShowAllTSEs(false)}

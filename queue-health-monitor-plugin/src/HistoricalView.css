@@ -115,9 +115,58 @@
 .tse-checkbox-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   max-height: 150px;
   overflow-y: auto;
+}
+
+.tse-region-filter-group {
+  margin-bottom: 4px;
+}
+
+.tse-region-filter-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+  font-weight: 600;
+  font-size: 12px;
+  color: #292929;
+}
+
+.tse-region-filter-header:hover {
+  background: #e8e8e8;
+}
+
+.region-expand-icon {
+  font-size: 11px;
+  color: #666;
+  width: 14px;
+  text-align: center;
+}
+
+.region-filter-name {
+  flex: 1;
+  font-size: 13px;
+}
+
+.region-filter-count {
+  color: #666;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tse-region-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 22px;
+  margin-top: 4px;
 }
 
 .tse-checkbox-label {
