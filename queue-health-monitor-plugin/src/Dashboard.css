@@ -24,7 +24,7 @@
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .alerts-dropdown-container {
@@ -286,17 +286,21 @@
 
 .refresh-section {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
+  justify-content: center;
 }
 
 .last-updated {
   font-size: 11px;
+  order: 2;
   color: #666;
   font-style: italic;
 }
 
 .view-tabs {
+  margin-right: 24px;
   display: flex;
   gap: 4px;
   background: #e0e0e0;
@@ -422,14 +426,16 @@
 }
 
 .filter-button.clear-button {
-  background: #666;
-  border-color: #666;
+  background: white;
+  border-color: #35a1b4;
+  color: #35a1b4;
   margin-top: 7px;
 }
 
 .filter-button.clear-button:hover {
-  background: #555;
-  border-color: #555;
+  background: #f0f9fa;
+  border-color: #2a7f8f;
+  color: #2a7f8f;
 }
 
 .count-badge {
@@ -1082,6 +1088,7 @@
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
+  order: 1;
 }
 
 .refresh-button:hover {

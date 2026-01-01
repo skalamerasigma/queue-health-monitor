@@ -1058,9 +1058,25 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             <select value={filterTSE} onChange={(e) => setFilterTSE(e.target.value)} className="filter-select">
               <option value="all">All TSEs</option>
               <option value="unassigned">Unassigned</option>
-              {tseList.map(tse => (
-                <option key={tse.id} value={tse.id}>{tse.name}</option>
-              ))}
+              {['UK', 'NY', 'SF', 'Other'].map(region => {
+                const regionTSEs = tseByRegion[region] || [];
+                if (regionTSEs.length === 0) return null;
+                
+                const regionLabels = {
+                  'UK': 'UK 🇬🇧',
+                  'NY': 'New York 🗽',
+                  'SF': 'San Francisco 🌉',
+                  'Other': 'Other'
+                };
+                
+                return (
+                  <optgroup key={region} label={regionLabels[region]}>
+                    {regionTSEs.map(tse => (
+                      <option key={tse.id} value={tse.id}>{tse.name}</option>
+                    ))}
+                  </optgroup>
+                );
+              })}
             </select>
           </div>
           <div className="filter-group">
@@ -1396,10 +1412,9 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
 
 // Alerts Dropdown Component
 function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
-  const [expandedRegions, setExpandedRegions] = useState(new Set(['UK', 'NY', 'SF', 'Other'])); // All expanded by default
+  const [expandedRegions, setExpandedRegions] = useState(new Set()); // All collapsed by default
   const [expandedTSEs, setExpandedTSEs] = useState(new Set());
   const [expandedAlertTypes, setExpandedAlertTypes] = useState(new Set());
-  const [showAllTSEs, setShowAllTSEs] = useState(false);
   const dropdownRef = useRef(null);
 
   // Close dropdown when clicking outside
@@ -1470,8 +1485,17 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
     return Object.values(alertsByRegion).flat();
   }, [alertsByRegion]);
 
-  const visibleTSEs = showAllTSEs ? allTSEs : allTSEs.slice(0, 5);
-  const remainingCount = allTSEs.length - 5;
+  // Get TSEs from expanded regions only
+  const expandedRegionTSEs = useMemo(() => {
+    return ['UK', 'NY', 'SF', 'Other']
+      .filter(region => expandedRegions.has(region))
+      .flatMap(region => alertsByRegion[region] || []);
+  }, [expandedRegions, alertsByRegion]);
+  
+  // Create a Set of TSE keys from expanded regions for quick lookup
+  const visibleTSEKeys = useMemo(() => {
+    return new Set(expandedRegionTSEs.map(tse => `${tse.tseId}-${tse.tseName}`));
+  }, [expandedRegionTSEs]);
 
   const toggleRegion = (region) => {
     const newExpanded = new Set(expandedRegions);
@@ -1654,24 +1678,6 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
                     </div>
                   );
                 })}
-                
-                {!showAllTSEs && remainingCount > 0 && (
-                  <div 
-                    className="show-more-tse" 
-                    onClick={() => setShowAllTSEs(true)}
-                  >
-                    Show {remainingCount} more TSE{remainingCount !== 1 ? 's' : ''} ▼
-                  </div>
-                )}
-                
-                {showAllTSEs && allTSEs.length > 5 && (
-                  <div 
-                    className="show-less-tse" 
-                    onClick={() => setShowAllTSEs(false)}
-                  >
-                    Show less ▲
-                  </div>
-                )}
               </>
             )}
           </div>
