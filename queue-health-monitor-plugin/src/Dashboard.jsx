@@ -874,8 +874,8 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         <div className="loading-content">
           <img 
             src={showCompletion 
-              ? "https://res.cloudinary.com/doznvxtja/image/upload/v1767180044/loading_complete_uvvhiz.gif"
-              : "https://res.cloudinary.com/doznvxtja/image/upload/v1767179531/loading_kgv5kg.gif"
+              ? "https://res.cloudinary.com/doznvxtja/image/upload/v1767208870/loading_complete_n2gpbl.gif"
+              : "https://res.cloudinary.com/doznvxtja/image/upload/v1767208765/loading_qoxx0x.gif"
             } 
             alt={showCompletion ? "Complete" : "Loading..."} 
             className="loading-gif"
@@ -1098,7 +1098,9 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       {activeView === "conversations" && (
         <div className="conversations-view">
           <h3 className="section-title">
-            {filterTag === "all" && "All Conversations"}
+            {filterTSE === "unassigned" && "Unassigned Conversations"}
+            {filterTag === "open" && filterTSE !== "unassigned" && "Open Conversations"}
+            {filterTag === "all" && filterTSE !== "unassigned" && "All Conversations"}
             {filterTag === "snoozed" && "Snoozed Conversations"}
             {filterTag === "investigation" && "#Snooze.Investigation Conversations"}
             {filterTag === "customerwait" && "#Snooze.CustomerWait Conversations"}

@@ -157,12 +157,12 @@ export default async function handler(req, res) {
       }
     });
 
-    // Create snapshot - use ET date (yesterday)
-    // When cron runs at 10:00 PM ET (3:00 AM UTC next day), we want snapshot for that ET day
+    // Create snapshot - use ET date for the day the cron runs
+    // When cron runs at 10:30 PM ET (3:30 AM UTC next day), we want snapshot for that ET day
     const now = new Date();
     
-    // Get the current date in ET timezone, then subtract 1 day to get yesterday
-    // (since cron runs at 3:00 AM UTC = 10:00 PM ET previous day)
+    // Get the current date in ET timezone
+    // If cron runs at 3:42 UTC on Jan 1, that's 10:42 PM ET on Dec 31, so we want Dec 31
     const etDateStr = now.toLocaleString('en-CA', { 
       timeZone: 'America/New_York',
       year: 'numeric',
@@ -170,16 +170,9 @@ export default async function handler(req, res) {
       day: '2-digit'
     });
     
-    // Parse the ET date and subtract 1 day
-    const [year, month, day] = etDateStr.split('-').map(Number);
-    const etDate = new Date(year, month - 1, day);
-    etDate.setDate(etDate.getDate() - 1); // Yesterday
-    
+    // Use the ET date directly (no subtraction needed)
     // Format as YYYY-MM-DD
-    const snapshotYear = etDate.getFullYear();
-    const snapshotMonth = String(etDate.getMonth() + 1).padStart(2, '0');
-    const snapshotDay = String(etDate.getDate()).padStart(2, '0');
-    const snapshotDate = `${snapshotYear}-${snapshotMonth}-${snapshotDay}`;
+    const snapshotDate = etDateStr; // Already in YYYY-MM-DD format from toLocaleString
 
     const snapshot = {
       date: snapshotDate,

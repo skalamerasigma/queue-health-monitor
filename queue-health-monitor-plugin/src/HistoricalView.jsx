@@ -593,26 +593,50 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       return { avgPercentage: 0, totalCount: 0, trend: 'no-data', change: 0 };
     }
     
+    // Sort metrics by date to ensure chronological order
+    const sortedMetrics = [...responseTimeMetrics].sort((a, b) => {
+      return new Date(a.date) - new Date(b.date);
+    });
+    
     const avgPercentage = Math.round(
-      responseTimeMetrics.reduce((sum, m) => sum + (m.percentage10PlusMin || 0), 0) / responseTimeMetrics.length
+      sortedMetrics.reduce((sum, m) => sum + (m.percentage10PlusMin || 0), 0) / sortedMetrics.length
     );
     
-    const totalCount = responseTimeMetrics.reduce((sum, m) => sum + (m.count10PlusMin || 0), 0);
+    const totalCount = sortedMetrics.reduce((sum, m) => sum + (m.count10PlusMin || 0), 0);
     
-    // Calculate trend (comparing first half vs second half)
-    const midPoint = Math.floor(responseTimeMetrics.length / 2);
-    const firstHalf = responseTimeMetrics.slice(0, midPoint);
-    const secondHalf = responseTimeMetrics.slice(midPoint);
+    // Calculate trend (comparing last 7 days vs previous 7 days)
+    // If we have 14+ data points, compare last 7 vs previous 7
+    // Otherwise, compare last half vs first half
+    let previousPeriodAvg = 0;
+    let lastPeriodAvg = 0;
     
-    const firstHalfAvg = firstHalf.length > 0 
-      ? firstHalf.reduce((sum, m) => sum + (m.percentage10PlusMin || 0), 0) / firstHalf.length 
-      : 0;
-    const secondHalfAvg = secondHalf.length > 0 
-      ? secondHalf.reduce((sum, m) => sum + (m.percentage10PlusMin || 0), 0) / secondHalf.length 
-      : 0;
+    if (sortedMetrics.length >= 14) {
+      // Last 7 days vs previous 7 days
+      const last7Days = sortedMetrics.slice(-7);
+      const previous7Days = sortedMetrics.slice(-14, -7);
+      
+      previousPeriodAvg = previous7Days.length > 0 
+        ? previous7Days.reduce((sum, m) => sum + (m.percentage10PlusMin || 0), 0) / previous7Days.length 
+        : 0;
+      lastPeriodAvg = last7Days.length > 0 
+        ? last7Days.reduce((sum, m) => sum + (m.percentage10PlusMin || 0), 0) / last7Days.length 
+        : 0;
+    } else if (sortedMetrics.length >= 2) {
+      // Fallback: compare last half vs first half
+      const midPoint = Math.floor(sortedMetrics.length / 2);
+      const firstHalf = sortedMetrics.slice(0, midPoint);
+      const secondHalf = sortedMetrics.slice(midPoint);
+      
+      previousPeriodAvg = firstHalf.length > 0 
+        ? firstHalf.reduce((sum, m) => sum + (m.percentage10PlusMin || 0), 0) / firstHalf.length 
+        : 0;
+      lastPeriodAvg = secondHalf.length > 0 
+        ? secondHalf.reduce((sum, m) => sum + (m.percentage10PlusMin || 0), 0) / secondHalf.length 
+        : 0;
+    }
     
-    const trend = secondHalfAvg < firstHalfAvg ? 'improving' : secondHalfAvg > firstHalfAvg ? 'worsening' : 'stable';
-    const change = Math.round(secondHalfAvg - firstHalfAvg);
+    const trend = lastPeriodAvg < previousPeriodAvg ? 'improving' : lastPeriodAvg > previousPeriodAvg ? 'worsening' : 'stable';
+    const change = Math.round(previousPeriodAvg - lastPeriodAvg); // Positive change means improvement (reduction)
     
     return { avgPercentage, totalCount, trend, change };
   }, [responseTimeMetrics]);
