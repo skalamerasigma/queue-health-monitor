@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import HistoricalView from "./HistoricalView";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts';
 import "./Dashboard.css";
 
 // TSE Region mapping
@@ -1754,6 +1754,169 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       .slice(-7); // Last 7 days
   }, [responseTimeMetrics]);
 
+  // Calculate region breakdown
+  const regionBreakdown = useMemo(() => {
+    if (!historicalSnapshots || historicalSnapshots.length === 0) return null;
+    
+    const latestSnapshot = historicalSnapshots[historicalSnapshots.length - 1];
+    const tseData = latestSnapshot.tse_data || latestSnapshot.tseData || [];
+    
+    const regionStats = { 'UK': { total: 0, compliant: 0 }, 'NY': { total: 0, compliant: 0 }, 'SF': { total: 0, compliant: 0 }, 'Other': { total: 0, compliant: 0 } };
+    
+    tseData.forEach(tse => {
+      const region = getTSERegion(tse.name);
+      const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
+      const totalActionableSnoozed = (tse.actionableSnoozed || 0) + (tse.investigationSnoozed || 0);
+      const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+      
+      regionStats[region].total++;
+      if (meetsOpen && meetsSnoozed) regionStats[region].compliant++;
+    });
+    
+    return Object.entries(regionStats).map(([region, stats]) => ({
+      region,
+      compliance: stats.total > 0 ? Math.round((stats.compliant / stats.total) * 100) : 0,
+      total: stats.total,
+      compliant: stats.compliant
+    })).filter(r => r.total > 0);
+  }, [historicalSnapshots]);
+
+  // Calculate today vs yesterday comparison
+  const todayVsYesterday = useMemo(() => {
+    if (!complianceTrendData || complianceTrendData.length < 2) return null;
+    
+    const today = complianceTrendData[complianceTrendData.length - 1];
+    const yesterday = complianceTrendData[complianceTrendData.length - 2];
+    
+    const complianceChange = today.compliance - yesterday.compliance;
+    
+    // Get response time comparison
+    let responseTimeChange = null;
+    if (responseTimeTrendData && responseTimeTrendData.length >= 2) {
+      const todayRT = responseTimeTrendData[responseTimeTrendData.length - 1];
+      const yesterdayRT = responseTimeTrendData[responseTimeTrendData.length - 2];
+      responseTimeChange = todayRT.percentage - yesterdayRT.percentage;
+    }
+    
+    return {
+      compliance: {
+        today: today.compliance,
+        yesterday: yesterday.compliance,
+        change: complianceChange,
+        direction: complianceChange > 0 ? 'up' : complianceChange < 0 ? 'down' : 'stable'
+      },
+      responseTime: responseTimeChange !== null ? {
+        today: responseTimeTrendData[responseTimeTrendData.length - 1].percentage,
+        yesterday: responseTimeTrendData[responseTimeTrendData.length - 2].percentage,
+        change: responseTimeChange,
+        direction: responseTimeChange < 0 ? 'up' : responseTimeChange > 0 ? 'down' : 'stable' // Lower is better
+      } : null
+    };
+  }, [complianceTrendData, responseTimeTrendData]);
+
+  // Calculate week-over-week comparison
+  const weekOverWeek = useMemo(() => {
+    if (!complianceTrendData || complianceTrendData.length < 7) return null;
+    
+    const thisWeek = complianceTrendData.slice(-7);
+    const lastWeek = complianceTrendData.slice(-14, -7);
+    
+    if (lastWeek.length === 0) return null;
+    
+    const thisWeekAvg = thisWeek.reduce((sum, d) => sum + d.compliance, 0) / thisWeek.length;
+    const lastWeekAvg = lastWeek.reduce((sum, d) => sum + d.compliance, 0) / lastWeek.length;
+    const complianceChange = thisWeekAvg - lastWeekAvg;
+    
+    // Response time week-over-week
+    let responseTimeChange = null;
+    let thisWeekAvgRT = null;
+    let lastWeekAvgRT = null;
+    if (responseTimeTrendData && responseTimeTrendData.length >= 14) {
+      const thisWeekRT = responseTimeTrendData.slice(-7);
+      const lastWeekRT = responseTimeTrendData.slice(-14, -7);
+      thisWeekAvgRT = thisWeekRT.reduce((sum, d) => sum + d.percentage, 0) / thisWeekRT.length;
+      lastWeekAvgRT = lastWeekRT.reduce((sum, d) => sum + d.percentage, 0) / lastWeekRT.length;
+      responseTimeChange = thisWeekAvgRT - lastWeekAvgRT;
+    }
+    
+    return {
+      compliance: {
+        thisWeek: Math.round(thisWeekAvg),
+        lastWeek: Math.round(lastWeekAvg),
+        change: Math.round(complianceChange),
+        direction: complianceChange > 0 ? 'up' : complianceChange < 0 ? 'down' : 'stable'
+      },
+      responseTime: responseTimeChange !== null && thisWeekAvgRT !== null && lastWeekAvgRT !== null ? {
+        thisWeek: Math.round(thisWeekAvgRT * 10) / 10,
+        lastWeek: Math.round(lastWeekAvgRT * 10) / 10,
+        change: Math.round(responseTimeChange * 10) / 10,
+        direction: responseTimeChange < 0 ? 'up' : responseTimeChange > 0 ? 'down' : 'stable'
+      } : null
+    };
+  }, [complianceTrendData, responseTimeTrendData]);
+
+  // Calculate best/worst day in last 7 days
+  const bestWorstDay = useMemo(() => {
+    if (!complianceTrendData || complianceTrendData.length === 0) return null;
+    
+    const sorted = [...complianceTrendData].sort((a, b) => b.compliance - a.compliance);
+    const best = sorted[0];
+    const worst = sorted[sorted.length - 1];
+    
+    return {
+      best: {
+        date: best.displayLabel,
+        compliance: best.compliance
+      },
+      worst: {
+        date: worst.displayLabel,
+        compliance: worst.compliance
+      }
+    };
+  }, [complianceTrendData]);
+
+  // Calculate volatility
+  const volatility = useMemo(() => {
+    if (!complianceTrendData || complianceTrendData.length < 2) return null;
+    
+    const values = complianceTrendData.map(d => d.compliance);
+    const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
+    const variance = values.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / values.length;
+    const stdDev = Math.round(Math.sqrt(variance));
+    
+    return {
+      value: stdDev,
+      interpretation: stdDev < 5 ? 'stable' : stdDev < 10 ? 'moderate' : 'volatile'
+    };
+  }, [complianceTrendData]);
+
+  // Calculate moving averages for charts
+  const complianceTrendWithMovingAvg = useMemo(() => {
+    if (!complianceTrendData || complianceTrendData.length === 0) return [];
+    
+    return complianceTrendData.map((item, index) => {
+      if (index < 2) {
+        return { ...item, movingAvg: item.compliance };
+      }
+      const window = complianceTrendData.slice(Math.max(0, index - 2), index + 1);
+      const avg = window.reduce((sum, d) => sum + d.compliance, 0) / window.length;
+      return { ...item, movingAvg: Math.round(avg) };
+    });
+  }, [complianceTrendData]);
+
+  const responseTimeTrendWithMovingAvg = useMemo(() => {
+    if (!responseTimeTrendData || responseTimeTrendData.length === 0) return [];
+    
+    return responseTimeTrendData.map((item, index) => {
+      if (index < 2) {
+        return { ...item, movingAvg: item.percentage };
+      }
+      const window = responseTimeTrendData.slice(Math.max(0, index - 2), index + 1);
+      const avg = window.reduce((sum, d) => sum + d.percentage, 0) / window.length;
+      return { ...item, movingAvg: Math.round(avg * 10) / 10 };
+    });
+  }, [responseTimeTrendData]);
+
   // Calculate current response time percentage (most recent day)
   const currentResponseTimePct = useMemo(() => {
     if (responseTimeTrendData.length === 0) return 0;
@@ -1799,6 +1962,160 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
 
   return (
     <div className="modern-overview">
+      {/* Quick Insights Section */}
+      <div className="overview-insights">
+        {/* Today vs Yesterday */}
+        {todayVsYesterday && (
+          <div className="insight-card">
+            <h4 className="insight-title">Today vs Yesterday</h4>
+            <div className="insight-content">
+              <div className="insight-metric">
+                <span className="insight-label">Compliance</span>
+                <div className="insight-comparison">
+                  <span className="insight-value">{todayVsYesterday.compliance.today}%</span>
+                  <span className="insight-arrow">→</span>
+                  <span className={`insight-value ${todayVsYesterday.compliance.direction === 'up' ? 'positive' : todayVsYesterday.compliance.direction === 'down' ? 'negative' : ''}`}>
+                    {todayVsYesterday.compliance.yesterday}%
+                  </span>
+                  <span className={`insight-change ${todayVsYesterday.compliance.direction}`}>
+                    {todayVsYesterday.compliance.change > 0 ? '+' : ''}{todayVsYesterday.compliance.change}%
+                  </span>
+                </div>
+              </div>
+              {todayVsYesterday.responseTime && (
+                <div className="insight-metric">
+                  <span className="insight-label">Response Time</span>
+                  <div className="insight-comparison">
+                    <span className="insight-value">{todayVsYesterday.responseTime.today.toFixed(1)}%</span>
+                    <span className="insight-arrow">→</span>
+                    <span className={`insight-value ${todayVsYesterday.responseTime.direction === 'up' ? 'positive' : todayVsYesterday.responseTime.direction === 'down' ? 'negative' : ''}`}>
+                      {todayVsYesterday.responseTime.yesterday.toFixed(1)}%
+                    </span>
+                    <span className={`insight-change ${todayVsYesterday.responseTime.direction}`}>
+                      {todayVsYesterday.responseTime.change > 0 ? '+' : ''}{todayVsYesterday.responseTime.change.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Week-over-Week */}
+        {weekOverWeek && (
+          <div className="insight-card">
+            <h4 className="insight-title">This Week vs Last Week</h4>
+            <div className="insight-content">
+              <div className="insight-metric">
+                <span className="insight-label">Compliance</span>
+                <div className="insight-comparison">
+                  <span className="insight-value">{weekOverWeek.compliance.thisWeek}%</span>
+                  <span className="insight-arrow">→</span>
+                  <span className={`insight-value ${weekOverWeek.compliance.direction === 'up' ? 'positive' : weekOverWeek.compliance.direction === 'down' ? 'negative' : ''}`}>
+                    {weekOverWeek.compliance.lastWeek}%
+                  </span>
+                  <span className={`insight-change ${weekOverWeek.compliance.direction}`}>
+                    {weekOverWeek.compliance.change > 0 ? '+' : ''}{weekOverWeek.compliance.change}%
+                  </span>
+                </div>
+              </div>
+              {weekOverWeek.responseTime && (
+                <div className="insight-metric">
+                  <span className="insight-label">Response Time</span>
+                  <div className="insight-comparison">
+                    <span className="insight-value">{weekOverWeek.responseTime.thisWeek}%</span>
+                    <span className="insight-arrow">→</span>
+                    <span className={`insight-value ${weekOverWeek.responseTime.direction === 'up' ? 'positive' : weekOverWeek.responseTime.direction === 'down' ? 'negative' : ''}`}>
+                      {weekOverWeek.responseTime.lastWeek}%
+                    </span>
+                    <span className={`insight-change ${weekOverWeek.responseTime.direction}`}>
+                      {weekOverWeek.responseTime.change > 0 ? '+' : ''}{weekOverWeek.responseTime.change}%
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Best/Worst Day */}
+        {bestWorstDay && (
+          <div className="insight-card">
+            <h4 className="insight-title">Last 7 Days</h4>
+            <div className="insight-content">
+              <div className="insight-metric">
+                <span className="insight-label">Best Day</span>
+                <div className="insight-single">
+                  <span className="insight-date">{bestWorstDay.best.date}</span>
+                  <span className="insight-value positive">{bestWorstDay.best.compliance}%</span>
+                </div>
+              </div>
+              <div className="insight-metric">
+                <span className="insight-label">Worst Day</span>
+                <div className="insight-single">
+                  <span className="insight-date">{bestWorstDay.worst.date}</span>
+                  <span className="insight-value negative">{bestWorstDay.worst.compliance}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Volatility */}
+        {volatility && (
+          <div className="insight-card">
+            <h4 className="insight-title">Volatility</h4>
+            <div className="insight-content">
+              <div className="insight-metric">
+                <span className="insight-label">Stability</span>
+                <div className="insight-single">
+                  <span className={`insight-value ${volatility.interpretation === 'stable' ? 'positive' : volatility.interpretation === 'moderate' ? 'warning' : 'negative'}`}>
+                    {volatility.interpretation === 'stable' ? 'Stable' : volatility.interpretation === 'moderate' ? 'Moderate' : 'Volatile'}
+                  </span>
+                  <span className="insight-subtext">±{volatility.value}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Alerts Summary */}
+        {metrics.alerts && metrics.alerts.length > 0 && (
+          <div className="insight-card alert-summary">
+            <h4 className="insight-title">Active Alerts</h4>
+            <div className="insight-content">
+              <div className="insight-metric">
+                <span className="insight-label">Total Alerts</span>
+                <div className="insight-single">
+                  <span className="insight-value negative">{metrics.alerts.length}</span>
+                  <span className="insight-subtext">Requires attention</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Region Breakdown */}
+        {regionBreakdown && regionBreakdown.length > 0 && (
+          <div className="insight-card region-breakdown">
+            <h4 className="insight-title">Region Compliance</h4>
+            <div className="insight-content">
+              {regionBreakdown.map(region => (
+                <div key={region.region} className="insight-metric">
+                  <span className="insight-label">{region.region}</span>
+                  <div className="insight-single">
+                    <span className={`insight-value ${region.compliance >= 80 ? 'positive' : region.compliance >= 60 ? 'warning' : 'negative'}`}>
+                      {region.compliance}%
+                    </span>
+                    <span className="insight-subtext">{region.compliant}/{region.total} TSEs</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Key KPIs - Organized by Realtime vs Historical */}
       <div className="overview-kpis">
         {/* Realtime Metrics Section */}
@@ -1869,9 +2186,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             <h4>Compliance Trend</h4>
             <span className="trend-period">7 days</span>
           </div>
-          {complianceTrendData.length > 0 ? (
+          {complianceTrendWithMovingAvg.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={complianceTrendData} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
+              <AreaChart data={complianceTrendWithMovingAvg} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
                 <defs>
                   <linearGradient id="complianceGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#35a1b4" stopOpacity={0.3}/>
@@ -1903,7 +2220,16 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   stroke="#35a1b4" 
                   strokeWidth={2}
                   fill="url(#complianceGradient)"
-                  label={createHolidayLabel(complianceTrendData)}
+                  label={createHolidayLabel(complianceTrendWithMovingAvg)}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="movingAvg" 
+                  stroke="#4cec8c" 
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="3-Day Moving Avg"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -1920,9 +2246,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             <h4>Response Time Trend</h4>
             <span className="trend-period">7 days</span>
           </div>
-          {responseTimeTrendData.length > 0 ? (
+          {responseTimeTrendWithMovingAvg.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={responseTimeTrendData} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
+              <AreaChart data={responseTimeTrendWithMovingAvg} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
                 <defs>
                   <linearGradient id="responseGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#fd8789" stopOpacity={0.3}/>
@@ -1954,7 +2280,16 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   stroke="#fd8789" 
                   strokeWidth={2}
                   fill="url(#responseGradient)"
-                  label={createHolidayLabel(responseTimeTrendData)}
+                  label={createHolidayLabel(responseTimeTrendWithMovingAvg)}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="movingAvg" 
+                  stroke="#ff9a74" 
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="3-Day Moving Avg"
                 />
               </AreaChart>
             </ResponsiveContainer>

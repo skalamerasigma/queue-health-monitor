@@ -1280,6 +1280,125 @@
   margin-bottom: 32px;
 }
 
+.overview-insights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.insight-card {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  border-left: 4px solid #35a1b4;
+}
+
+.insight-card.alert-summary {
+  border-left-color: #fd8789;
+}
+
+.insight-card.region-breakdown {
+  border-left-color: #4cec8c;
+}
+
+.insight-title {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #292929;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.insight-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.insight-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.insight-label {
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.insight-comparison {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.insight-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #292929;
+}
+
+.insight-value.positive {
+  color: #4cec8c;
+}
+
+.insight-value.negative {
+  color: #fd8789;
+}
+
+.insight-value.warning {
+  color: #fbbf24;
+}
+
+.insight-arrow {
+  font-size: 16px;
+  color: #35a1b4;
+}
+
+.insight-change {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.insight-change.up {
+  color: #4cec8c;
+  background: rgba(76, 236, 140, 0.1);
+}
+
+.insight-change.down {
+  color: #fd8789;
+  background: rgba(253, 135, 137, 0.1);
+}
+
+.insight-change.stable {
+  color: #666;
+  background: rgba(102, 102, 102, 0.1);
+}
+
+.insight-single {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.insight-date {
+  font-size: 12px;
+  color: #666;
+}
+
+.insight-subtext {
+  font-size: 11px;
+  color: #999;
+}
+
 .trend-card {
   background: white;
   border-radius: 12px;

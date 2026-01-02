@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ScatterChart, Scatter, Cell } from 'recharts';
 import './HistoricalView.css';
 
 // TSE Region mapping
@@ -321,6 +321,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     return grouped;
   }, [availableTSEs]);
 
+
   const toggleRegion = (region) => {
     const newExpanded = new Set(expandedRegions);
     if (newExpanded.has(region)) {
@@ -477,6 +478,164 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       }))
       .sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [snapshots, selectedTSEs]);
+
+  // Day-of-week analysis
+  const dayOfWeekAnalysis = useMemo(() => {
+    if (!chartData.length) return null;
+    
+    const dayStats = {
+      'Monday': { count: 0, overall: 0, open: 0, snoozed: 0 },
+      'Tuesday': { count: 0, overall: 0, open: 0, snoozed: 0 },
+      'Wednesday': { count: 0, overall: 0, open: 0, snoozed: 0 },
+      'Thursday': { count: 0, overall: 0, open: 0, snoozed: 0 },
+      'Friday': { count: 0, overall: 0, open: 0, snoozed: 0 }
+    };
+    
+    chartData.forEach(d => {
+      const [year, month, day] = d.date.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      if (dayStats[dayName]) {
+        dayStats[dayName].count++;
+        dayStats[dayName].overall += d.overallCompliance;
+        dayStats[dayName].open += d.openCompliance;
+        dayStats[dayName].snoozed += d.snoozedCompliance;
+      }
+    });
+    
+    return Object.entries(dayStats).map(([day, stats]) => ({
+      day: day.substring(0, 3), // Mon, Tue, etc.
+      fullDay: day,
+      overallCompliance: stats.count > 0 ? Math.round(stats.overall / stats.count) : 0,
+      openCompliance: stats.count > 0 ? Math.round(stats.open / stats.count) : 0,
+      snoozedCompliance: stats.count > 0 ? Math.round(stats.snoozed / stats.count) : 0,
+      count: stats.count
+    })).filter(d => d.count > 0);
+  }, [chartData]);
+
+  // Best/worst days analysis
+  const bestWorstDays = useMemo(() => {
+    if (!chartData.length) return null;
+    
+    const sorted = [...chartData].sort((a, b) => b.overallCompliance - a.overallCompliance);
+    const best = sorted[0];
+    const worst = sorted[sorted.length - 1];
+    
+    const [bestYear, bestMonth, bestDay] = best.date.split('-').map(Number);
+    const [worstYear, worstMonth, worstDay] = worst.date.split('-').map(Number);
+    const bestDate = new Date(bestYear, bestMonth - 1, bestDay);
+    const worstDate = new Date(worstYear, worstMonth - 1, worstDay);
+    
+    return {
+      best: {
+        date: best.date,
+        displayDate: `${bestDate.getMonth() + 1}/${bestDate.getDate()}`,
+        overall: best.overallCompliance,
+        open: best.openCompliance,
+        snoozed: best.snoozedCompliance
+      },
+      worst: {
+        date: worst.date,
+        displayDate: `${worstDate.getMonth() + 1}/${worstDate.getDate()}`,
+        overall: worst.overallCompliance,
+        open: worst.openCompliance,
+        snoozed: worst.snoozedCompliance
+      }
+    };
+  }, [chartData]);
+
+  // Threshold violation breakdown
+  const thresholdViolations = useMemo(() => {
+    if (!chartData.length) return null;
+    
+    let openViolations = 0;
+    let snoozedViolations = 0;
+    let bothViolations = 0;
+    let bothCompliant = 0;
+    
+    chartData.forEach(d => {
+      const openViolated = d.openCompliance < 100;
+      const snoozedViolated = d.snoozedCompliance < 100;
+      
+      if (openViolated && snoozedViolated) bothViolations++;
+      else if (openViolated) openViolations++;
+      else if (snoozedViolated) snoozedViolations++;
+      else bothCompliant++;
+    });
+    
+    return {
+      openOnly: openViolations,
+      snoozedOnly: snoozedViolations,
+      both: bothViolations,
+      compliant: bothCompliant,
+      total: chartData.length
+    };
+  }, [chartData]);
+
+  // Region comparison
+  const regionComparison = useMemo(() => {
+    if (!snapshots.length || !selectedTSEs.length) return null;
+    
+    const regionStats = { 'UK': [], 'NY': [], 'SF': [], 'Other': [] };
+    
+    snapshots.forEach(snapshot => {
+      const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+      let tseData = snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)));
+      tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      
+      const regionCompliance = { 'UK': { total: 0, compliant: 0 }, 'NY': { total: 0, compliant: 0 }, 'SF': { total: 0, compliant: 0 }, 'Other': { total: 0, compliant: 0 } };
+      
+      tseData.forEach(tse => {
+        const region = getTSERegion(tse.name);
+        const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
+        const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
+        const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        
+        regionCompliance[region].total++;
+        if (meetsOpen && meetsSnoozed) regionCompliance[region].compliant++;
+      });
+      
+      Object.keys(regionCompliance).forEach(region => {
+        if (regionCompliance[region].total > 0) {
+          const compliance = Math.round((regionCompliance[region].compliant / regionCompliance[region].total) * 100);
+          regionStats[region].push(compliance);
+        }
+      });
+    });
+    
+    return Object.entries(regionStats).map(([region, values]) => {
+      if (values.length === 0) return null;
+      const avg = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+      return { region, average: avg, count: values.length };
+    }).filter(r => r !== null);
+  }, [snapshots, selectedTSEs]);
+
+  // Trend analysis with moving averages
+  const trendAnalysis = useMemo(() => {
+    if (!chartData.length || chartData.length < 2) return null;
+    
+    const firstHalf = chartData.slice(0, Math.ceil(chartData.length / 2));
+    const secondHalf = chartData.slice(Math.ceil(chartData.length / 2));
+    
+    const firstAvg = Math.round((firstHalf.reduce((sum, d) => sum + d.overallCompliance, 0) / firstHalf.length) * 100) / 100;
+    const secondAvg = Math.round((secondHalf.reduce((sum, d) => sum + d.overallCompliance, 0) / secondHalf.length) * 100) / 100;
+    const change = Math.round((secondAvg - firstAvg) * 100) / 100;
+    
+    // Calculate volatility (standard deviation)
+    const avg = chartData.reduce((sum, d) => sum + d.overallCompliance, 0) / chartData.length;
+    const variance = chartData.reduce((sum, d) => sum + Math.pow(d.overallCompliance - avg, 2), 0) / chartData.length;
+    const volatility = Math.round(Math.sqrt(variance) * 100) / 100;
+    
+    return {
+      firstHalfAvg: firstAvg,
+      secondHalfAvg: secondAvg,
+      change,
+      trend: change > 2 ? 'improving' : change < -2 ? 'worsening' : 'stable',
+      volatility,
+      currentAvg: Math.round(avg * 100) / 100
+    };
+  }, [chartData]);
 
   // Calculate average compliance per TSE across selected date range
   const tseAverageCompliance = useMemo(() => {
@@ -789,6 +948,216 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       });
   }, [responseTimeMetrics, responseTimeSortConfig]);
 
+  // Day-of-week analysis for response time
+  const responseTimeDayOfWeek = useMemo(() => {
+    if (!responseTimeChartData.length) return null;
+    
+    const dayStats = {
+      'Monday': { count: 0, percentage: 0, totalConversations: 0, slowConversations: 0 },
+      'Tuesday': { count: 0, percentage: 0, totalConversations: 0, slowConversations: 0 },
+      'Wednesday': { count: 0, percentage: 0, totalConversations: 0, slowConversations: 0 },
+      'Thursday': { count: 0, percentage: 0, totalConversations: 0, slowConversations: 0 },
+      'Friday': { count: 0, percentage: 0, totalConversations: 0, slowConversations: 0 }
+    };
+    
+    responseTimeChartData.forEach(d => {
+      const [year, month, day] = d.date.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      if (dayStats[dayName]) {
+        dayStats[dayName].count++;
+        dayStats[dayName].percentage += d.percentage10PlusMin;
+        dayStats[dayName].totalConversations += d.totalConversations;
+        dayStats[dayName].slowConversations += d.count10PlusMin;
+      }
+    });
+    
+    return Object.entries(dayStats).map(([day, stats]) => ({
+      day: day.substring(0, 3),
+      fullDay: day,
+      avgPercentage: stats.count > 0 ? Math.round((stats.percentage / stats.count) * 100) / 100 : 0,
+      avgTotalConversations: stats.count > 0 ? Math.round(stats.totalConversations / stats.count) : 0,
+      avgSlowConversations: stats.count > 0 ? Math.round(stats.slowConversations / stats.count) : 0,
+      count: stats.count
+    })).filter(d => d.count > 0);
+  }, [responseTimeChartData]);
+
+  // Best/worst days for response time
+  const responseTimeBestWorst = useMemo(() => {
+    if (!responseTimeChartData.length) return null;
+    
+    const sortedByPercentage = [...responseTimeChartData].sort((a, b) => b.percentage10PlusMin - a.percentage10PlusMin);
+    const sortedByCount = [...responseTimeChartData].sort((a, b) => b.count10PlusMin - a.count10PlusMin);
+    
+    const worstPercentage = sortedByPercentage[0];
+    const bestPercentage = sortedByPercentage[sortedByPercentage.length - 1];
+    const worstCount = sortedByCount[0];
+    const bestCount = sortedByCount[sortedByCount.length - 1];
+    
+    const formatDate = (dateStr) => {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      return `${date.getMonth() + 1}/${date.getDate()}`;
+    };
+    
+    return {
+      worstPercentage: {
+        date: worstPercentage.date,
+        displayDate: formatDate(worstPercentage.date),
+        percentage: worstPercentage.percentage10PlusMin,
+        count: worstPercentage.count10PlusMin,
+        total: worstPercentage.totalConversations
+      },
+      bestPercentage: {
+        date: bestPercentage.date,
+        displayDate: formatDate(bestPercentage.date),
+        percentage: bestPercentage.percentage10PlusMin,
+        count: bestPercentage.count10PlusMin,
+        total: bestPercentage.totalConversations
+      },
+      worstCount: {
+        date: worstCount.date,
+        displayDate: formatDate(worstCount.date),
+        percentage: worstCount.percentage10PlusMin,
+        count: worstCount.count10PlusMin,
+        total: worstCount.totalConversations
+      },
+      bestCount: {
+        date: bestCount.date,
+        displayDate: formatDate(bestCount.date),
+        percentage: bestCount.percentage10PlusMin,
+        count: bestCount.count10PlusMin,
+        total: bestCount.totalConversations
+      }
+    };
+  }, [responseTimeChartData]);
+
+  // Volume vs performance correlation
+  const volumePerformanceData = useMemo(() => {
+    if (!responseTimeChartData.length) return null;
+    
+    return responseTimeChartData.map(d => ({
+      totalConversations: d.totalConversations,
+      percentage: d.percentage10PlusMin,
+      date: d.displayLabel
+    }));
+  }, [responseTimeChartData]);
+
+  // Calculate correlation coefficient
+  const volumeCorrelation = useMemo(() => {
+    if (!volumePerformanceData || volumePerformanceData.length < 2) return null;
+    
+    const n = volumePerformanceData.length;
+    const sumX = volumePerformanceData.reduce((sum, d) => sum + d.totalConversations, 0);
+    const sumY = volumePerformanceData.reduce((sum, d) => sum + d.percentage, 0);
+    const sumXY = volumePerformanceData.reduce((sum, d) => sum + d.totalConversations * d.percentage, 0);
+    const sumX2 = volumePerformanceData.reduce((sum, d) => sum + d.totalConversations * d.totalConversations, 0);
+    const sumY2 = volumePerformanceData.reduce((sum, d) => sum + d.percentage * d.percentage, 0);
+    
+    const numerator = n * sumXY - sumX * sumY;
+    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+    
+    const correlation = denominator !== 0 ? numerator / denominator : 0;
+    
+    return {
+      correlation: Math.round(correlation * 100) / 100,
+      interpretation: Math.abs(correlation) < 0.3 ? 'weak' : Math.abs(correlation) < 0.7 ? 'moderate' : 'strong',
+      direction: correlation > 0 ? 'positive' : 'negative'
+    };
+  }, [volumePerformanceData]);
+
+  // Trend analysis with moving averages
+  const responseTimeTrendAnalysis = useMemo(() => {
+    if (!responseTimeChartData.length || responseTimeChartData.length < 2) return null;
+    
+    const sorted = [...responseTimeChartData].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const firstHalf = sorted.slice(0, Math.ceil(sorted.length / 2));
+    const secondHalf = sorted.slice(Math.ceil(sorted.length / 2));
+    
+    const firstAvg = Math.round((firstHalf.reduce((sum, d) => sum + d.percentage10PlusMin, 0) / firstHalf.length) * 100) / 100;
+    const secondAvg = Math.round((secondHalf.reduce((sum, d) => sum + d.percentage10PlusMin, 0) / secondHalf.length) * 100) / 100;
+    const change = Math.round((secondAvg - firstAvg) * 100) / 100;
+    
+    // Calculate volatility (standard deviation)
+    const avg = sorted.reduce((sum, d) => sum + d.percentage10PlusMin, 0) / sorted.length;
+    const variance = sorted.reduce((sum, d) => sum + Math.pow(d.percentage10PlusMin - avg, 2), 0) / sorted.length;
+    const volatility = Math.round(Math.sqrt(variance) * 100) / 100;
+    
+    // Calculate moving average (7-day if enough data)
+    const movingAvg = sorted.length >= 7 ? sorted.slice(-7).reduce((sum, d) => sum + d.percentage10PlusMin, 0) / 7 : avg;
+    
+    return {
+      firstHalfAvg: firstAvg,
+      secondHalfAvg: secondAvg,
+      change,
+      trend: change < -1 ? 'improving' : change > 1 ? 'worsening' : 'stable',
+      volatility,
+      currentAvg: Math.round(avg * 100) / 100,
+      movingAvg: Math.round(movingAvg * 100) / 100
+    };
+  }, [responseTimeChartData]);
+
+  // Peak detection (outlier days)
+  const responseTimePeaks = useMemo(() => {
+    if (!responseTimeChartData.length) return null;
+    
+    const percentages = responseTimeChartData.map(d => d.percentage10PlusMin);
+    const avg = percentages.reduce((sum, p) => sum + p, 0) / percentages.length;
+    const variance = percentages.reduce((sum, p) => sum + Math.pow(p - avg, 2), 0) / percentages.length;
+    const stdDev = Math.sqrt(variance);
+    
+    const threshold = avg + (2 * stdDev); // 2 standard deviations
+    
+    const outliers = responseTimeChartData
+      .filter(d => d.percentage10PlusMin >= threshold)
+      .map(d => {
+        const [year, month, day] = d.date.split('-').map(Number);
+        const date = new Date(year, month - 1, day);
+        return {
+          date: d.date,
+          displayDate: `${date.getMonth() + 1}/${date.getDate()}`,
+          percentage: Math.round(d.percentage10PlusMin * 100) / 100,
+          count: d.count10PlusMin,
+          total: d.totalConversations,
+          deviation: Math.round((d.percentage10PlusMin - avg) / stdDev * 100) / 100
+        };
+      })
+      .sort((a, b) => b.percentage - a.percentage);
+    
+    return {
+      outliers,
+      threshold: Math.round(threshold * 100) / 100,
+      average: Math.round(avg * 100) / 100
+    };
+  }, [responseTimeChartData]);
+
+  // Comparison metrics (current vs previous period)
+  const responseTimeComparison = useMemo(() => {
+    if (!responseTimeChartData.length || responseTimeChartData.length < 2) return null;
+    
+    const sorted = [...responseTimeChartData].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const currentPeriod = sorted.slice(-7); // Last 7 days
+    const previousPeriod = sorted.slice(-14, -7); // Previous 7 days before that
+    
+    if (previousPeriod.length === 0) return null;
+    
+    const currentAvg = currentPeriod.reduce((sum, d) => sum + d.percentage10PlusMin, 0) / currentPeriod.length;
+    const previousAvg = previousPeriod.reduce((sum, d) => sum + d.percentage10PlusMin, 0) / previousPeriod.length;
+    const change = currentAvg - previousAvg;
+    
+    const allTimeAvg = sorted.reduce((sum, d) => sum + d.percentage10PlusMin, 0) / sorted.length;
+    
+    return {
+      currentPeriodAvg: Math.round(currentAvg * 100) / 100,
+      previousPeriodAvg: Math.round(previousAvg * 100) / 100,
+      change: Math.round(change * 100) / 100,
+      changePercent: Math.round((change / previousAvg) * 100 * 100) / 100,
+      allTimeAvg: Math.round(allTimeAvg * 100) / 100,
+      vsAllTime: Math.round((currentAvg - allTimeAvg) * 100) / 100
+    };
+  }, [responseTimeChartData]);
+
   // Calculate response time summary metrics
   const responseTimeSummary = useMemo(() => {
     if (responseTimeMetrics.length === 0) {
@@ -1079,6 +1448,175 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
             </ResponsiveContainer>
           </div>
 
+          {/* Average Compliance Summary */}
+          <div className="historical-summary">
+            <div className="summary-card">
+              <h4>Overall Compliance</h4>
+              <div className="summary-value-large">
+                {Math.round(chartData.reduce((sum, d) => sum + d.overallCompliance, 0) / chartData.length)}%
+              </div>
+            </div>
+            <div className="summary-card">
+              <h4>Open Compliance</h4>
+              <div className="summary-value-large">
+                {Math.round(chartData.reduce((sum, d) => sum + d.openCompliance, 0) / chartData.length)}%
+              </div>
+            </div>
+            <div className="summary-card">
+              <h4>Snoozed Compliance</h4>
+              <div className="summary-value-large">
+                {Math.round(chartData.reduce((sum, d) => sum + d.snoozedCompliance, 0) / chartData.length)}%
+              </div>
+            </div>
+          </div>
+
+          {/* Insights Section */}
+          <div className="insights-section">
+            {/* Trend Analysis & Best/Worst Days */}
+            {trendAnalysis && bestWorstDays && (
+              <div className="insights-row">
+                <div className="summary-card trend-card">
+                  <h4>Trend Analysis</h4>
+                  <div className="trend-content">
+                    <div className="trend-comparison">
+                      <div className="trend-period">
+                        <span className="trend-label">First Half</span>
+                        <span className="trend-value">{trendAnalysis.firstHalfAvg}%</span>
+                      </div>
+                      <div className="trend-arrow">→</div>
+                      <div className="trend-period">
+                        <span className="trend-label">Second Half</span>
+                        <span className="trend-value">{trendAnalysis.secondHalfAvg}%</span>
+                      </div>
+                    </div>
+                    <div className={`trend-indicator ${trendAnalysis.trend}`}>
+                      {trendAnalysis.trend === 'improving' && '↓'}
+                      {trendAnalysis.trend === 'worsening' && '↑'}
+                      {trendAnalysis.trend === 'stable' && '→'}
+                      {Math.abs(trendAnalysis.change)}% {trendAnalysis.trend === 'improving' ? 'improvement' : trendAnalysis.trend === 'worsening' ? 'decline' : 'stable'}
+                    </div>
+                    <div className="volatility-metric">
+                      <span className="volatility-label">Volatility</span>
+                      <span className="volatility-value">±{trendAnalysis.volatility}%</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="summary-card best-worst-card">
+                  <h4>Best Day</h4>
+                  <div className="best-worst-content">
+                    <div className="best-worst-date">{bestWorstDays.best.displayDate}</div>
+                    <div className="best-worst-value">{bestWorstDays.best.overall}%</div>
+                    <div className="best-worst-breakdown">
+                      Open: {bestWorstDays.best.open}% | Snoozed: {bestWorstDays.best.snoozed}%
+                    </div>
+                  </div>
+                </div>
+                <div className="summary-card best-worst-card worst">
+                  <h4>Worst Day</h4>
+                  <div className="best-worst-content">
+                    <div className="best-worst-date">{bestWorstDays.worst.displayDate}</div>
+                    <div className="best-worst-value">{bestWorstDays.worst.overall}%</div>
+                    <div className="best-worst-breakdown">
+                      Open: {bestWorstDays.worst.open}% | Snoozed: {bestWorstDays.worst.snoozed}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Day-of-Week Analysis */}
+            {dayOfWeekAnalysis && dayOfWeekAnalysis.length > 0 && (
+              <div className="chart-container">
+                <h3 className="chart-title">Day-of-Week Compliance Patterns</h3>
+                <p className="chart-subtitle">Average compliance by weekday</p>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={dayOfWeekAnalysis} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                    <XAxis 
+                      dataKey="day" 
+                      stroke="#292929"
+                      tick={{ fill: '#292929', fontSize: 12 }}
+                    />
+                    <YAxis 
+                      stroke="#292929"
+                      tick={{ fill: '#292929', fontSize: 12 }}
+                      domain={[0, 100]}
+                      label={{ value: 'Compliance %', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+                      formatter={(value) => [`${value}%`, '']}
+                    />
+                    <Legend />
+                    <Bar dataKey="overallCompliance" fill="#4cec8c" name="Overall Compliance" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="openCompliance" fill="#35a1b4" name="Open Compliance" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="snoozedCompliance" fill="#ff9a74" name="Snoozed Compliance" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Threshold Violations */}
+            {thresholdViolations && (
+              <div className="insights-row">
+                <div className="summary-card violations-card">
+                  <h4>Threshold Violations</h4>
+                  <div className="violations-content">
+                    <div className="violation-item compliant">
+                      <span className="violation-label">Fully Compliant</span>
+                      <span className="violation-value">{thresholdViolations.compliant}</span>
+                      <span className="violation-pct">{Math.round((thresholdViolations.compliant / thresholdViolations.total) * 100)}%</span>
+                    </div>
+                    <div className="violation-item">
+                      <span className="violation-label">Open Only</span>
+                      <span className="violation-value">{thresholdViolations.openOnly}</span>
+                      <span className="violation-pct">{Math.round((thresholdViolations.openOnly / thresholdViolations.total) * 100)}%</span>
+                    </div>
+                    <div className="violation-item">
+                      <span className="violation-label">Snoozed Only</span>
+                      <span className="violation-value">{thresholdViolations.snoozedOnly}</span>
+                      <span className="violation-pct">{Math.round((thresholdViolations.snoozedOnly / thresholdViolations.total) * 100)}%</span>
+                    </div>
+                    <div className="violation-item">
+                      <span className="violation-label">Both Violated</span>
+                      <span className="violation-value">{thresholdViolations.both}</span>
+                      <span className="violation-pct">{Math.round((thresholdViolations.both / thresholdViolations.total) * 100)}%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Region Comparison */}
+            {regionComparison && regionComparison.length > 0 && (
+              <div className="chart-container">
+                <h3 className="chart-title">Region Comparison</h3>
+                <p className="chart-subtitle">Average compliance by region</p>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={regionComparison} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                    <XAxis 
+                      dataKey="region" 
+                      stroke="#292929"
+                      tick={{ fill: '#292929', fontSize: 12 }}
+                    />
+                    <YAxis 
+                      stroke="#292929"
+                      tick={{ fill: '#292929', fontSize: 12 }}
+                      domain={[0, 100]}
+                      label={{ value: 'Compliance %', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+                      formatter={(value) => [`${value}%`, '']}
+                    />
+                    <Bar dataKey="average" fill="#35a1b4" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
           {/* TSE Average Compliance Chart */}
           {tseAverageCompliance.length > 0 && (
             <div className="chart-container">
@@ -1141,27 +1679,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               </ResponsiveContainer>
             </div>
           )}
-
-          <div className="historical-summary">
-            <div className="summary-card">
-              <h4>Overall Compliance</h4>
-              <div className="summary-value-large">
-                {Math.round(chartData.reduce((sum, d) => sum + d.overallCompliance, 0) / chartData.length)}%
-              </div>
-            </div>
-            <div className="summary-card">
-              <h4>Open Compliance</h4>
-              <div className="summary-value-large">
-                {Math.round(chartData.reduce((sum, d) => sum + d.openCompliance, 0) / chartData.length)}%
-              </div>
-            </div>
-            <div className="summary-card">
-              <h4>Snoozed Compliance</h4>
-              <div className="summary-value-large">
-                {Math.round(chartData.reduce((sum, d) => sum + d.snoozedCompliance, 0) / chartData.length)}%
-              </div>
-            </div>
-          </div>
 
           <div className="historical-table-section">
             <h3 className="section-title">Historical Data</h3>
@@ -1455,6 +1972,213 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+
+              {/* Response Time Insights Section */}
+              <div className="insights-section">
+                {/* Trend Analysis & Best/Worst Days */}
+                {responseTimeTrendAnalysis && responseTimeBestWorst && (
+                  <div className="insights-row">
+                    <div className="summary-card trend-card">
+                      <h4>Trend Analysis</h4>
+                      <div className="trend-content">
+                        <div className="trend-comparison">
+                          <div className="trend-period">
+                            <span className="trend-label">First Half</span>
+                            <span className="trend-value">{responseTimeTrendAnalysis.firstHalfAvg}%</span>
+                          </div>
+                          <div className="trend-arrow">→</div>
+                          <div className="trend-period">
+                            <span className="trend-label">Second Half</span>
+                            <span className="trend-value">{responseTimeTrendAnalysis.secondHalfAvg}%</span>
+                          </div>
+                        </div>
+                        <div className={`trend-indicator ${responseTimeTrendAnalysis.trend}`}>
+                          {responseTimeTrendAnalysis.trend === 'improving' && '↓'}
+                          {responseTimeTrendAnalysis.trend === 'worsening' && '↑'}
+                          {responseTimeTrendAnalysis.trend === 'stable' && '→'}
+                          {Math.abs(responseTimeTrendAnalysis.change)}% {responseTimeTrendAnalysis.trend === 'improving' ? 'improvement' : responseTimeTrendAnalysis.trend === 'worsening' ? 'increase' : 'stable'}
+                        </div>
+                        <div className="volatility-metric">
+                          <span className="volatility-label">Volatility</span>
+                          <span className="volatility-value">±{responseTimeTrendAnalysis.volatility}%</span>
+                        </div>
+                        <div className="volatility-metric">
+                          <span className="volatility-label">7-Day Moving Avg</span>
+                          <span className="volatility-value">{responseTimeTrendAnalysis.movingAvg}%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="summary-card best-worst-card">
+                      <h4>Best Day (Lowest %)</h4>
+                      <div className="best-worst-content">
+                        <div className="best-worst-date">{responseTimeBestWorst.bestPercentage.displayDate}</div>
+                        <div className="best-worst-value">{responseTimeBestWorst.bestPercentage.percentage}%</div>
+                        <div className="best-worst-breakdown">
+                          {responseTimeBestWorst.bestPercentage.count} slow / {responseTimeBestWorst.bestPercentage.total} total
+                        </div>
+                      </div>
+                    </div>
+                    <div className="summary-card best-worst-card worst">
+                      <h4>Worst Day (Highest %)</h4>
+                      <div className="best-worst-content">
+                        <div className="best-worst-date">{responseTimeBestWorst.worstPercentage.displayDate}</div>
+                        <div className="best-worst-value">{responseTimeBestWorst.worstPercentage.percentage}%</div>
+                        <div className="best-worst-breakdown">
+                          {responseTimeBestWorst.worstPercentage.count} slow / {responseTimeBestWorst.worstPercentage.total} total
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Comparison Metrics */}
+                {responseTimeComparison && (
+                  <div className="insights-row">
+                    <div className="summary-card trend-card">
+                      <h4>Period Comparison</h4>
+                      <div className="trend-content">
+                        <div className="trend-comparison">
+                          <div className="trend-period">
+                            <span className="trend-label">Previous 7 Days</span>
+                            <span className="trend-value">{responseTimeComparison.previousPeriodAvg}%</span>
+                          </div>
+                          <div className="trend-arrow">→</div>
+                          <div className="trend-period">
+                            <span className="trend-label">Current 7 Days</span>
+                            <span className="trend-value">{responseTimeComparison.currentPeriodAvg}%</span>
+                          </div>
+                        </div>
+                        <div className={`trend-indicator ${responseTimeComparison.change < 0 ? 'improving' : responseTimeComparison.change > 0 ? 'worsening' : 'stable'}`}>
+                          {responseTimeComparison.change < 0 && '↓'}
+                          {responseTimeComparison.change > 0 && '↑'}
+                          {responseTimeComparison.change === 0 && '→'}
+                          {Math.abs(responseTimeComparison.change)}% ({Math.abs(responseTimeComparison.changePercent)}%)
+                        </div>
+                        <div className="volatility-metric">
+                          <span className="volatility-label">All-Time Average</span>
+                          <span className="volatility-value">{responseTimeComparison.allTimeAvg}%</span>
+                        </div>
+                        <div className="volatility-metric">
+                          <span className="volatility-label">vs All-Time</span>
+                          <span className={`volatility-value ${responseTimeComparison.vsAllTime < 0 ? 'improving' : responseTimeComparison.vsAllTime > 0 ? 'worsening' : 'stable'}`}>
+                            {responseTimeComparison.vsAllTime > 0 ? '+' : ''}{responseTimeComparison.vsAllTime}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Day-of-Week Analysis */}
+                {responseTimeDayOfWeek && responseTimeDayOfWeek.length > 0 && (
+                  <div className="chart-container">
+                    <h3 className="chart-title">Day-of-Week Response Time Patterns</h3>
+                    <p className="chart-subtitle">Average percentage and slow conversation count by weekday</p>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={responseTimeDayOfWeek} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                        <XAxis 
+                          dataKey="day" 
+                          stroke="#292929"
+                          tick={{ fill: '#292929', fontSize: 12 }}
+                        />
+                        <YAxis 
+                          yAxisId="left"
+                          stroke="#292929"
+                          tick={{ fill: '#292929', fontSize: 12 }}
+                          label={{ value: 'Percentage %', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                        />
+                        <YAxis 
+                          yAxisId="right"
+                          orientation="right"
+                          stroke="#292929"
+                          tick={{ fill: '#292929', fontSize: 12 }}
+                          label={{ value: 'Avg Slow Conversations', angle: 90, position: 'insideRight', fill: '#292929' }}
+                        />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+                          formatter={(value, name) => {
+                            if (name === 'avgPercentage') return [`${value}%`, 'Avg Percentage'];
+                            if (name === 'avgSlowConversations') return [value, 'Avg Slow Conversations'];
+                            return [value, name];
+                          }}
+                        />
+                        <Legend />
+                        <Bar yAxisId="left" dataKey="avgPercentage" fill="#35a1b4" name="Avg Percentage" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="right" dataKey="avgSlowConversations" fill="#ff9a74" name="Avg Slow Conversations" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Volume vs Performance Correlation */}
+                {volumePerformanceData && volumeCorrelation && (
+                  <div className="chart-container">
+                    <h3 className="chart-title">Volume vs Performance Correlation</h3>
+                    <p className="chart-subtitle">
+                      {volumeCorrelation.interpretation === 'weak' ? 'Weak' : volumeCorrelation.interpretation === 'moderate' ? 'Moderate' : 'Strong'} 
+                      {' '}{volumeCorrelation.direction} correlation ({volumeCorrelation.correlation})
+                      {volumeCorrelation.direction === 'positive' ? ' - Higher volume correlates with worse performance' : ' - Higher volume correlates with better performance'}
+                    </p>
+                    <ResponsiveContainer width="100%" height={400}>
+                      <ScatterChart data={volumePerformanceData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                        <XAxis 
+                          type="number"
+                          dataKey="totalConversations"
+                          name="Total Conversations"
+                          stroke="#292929"
+                          tick={{ fill: '#292929', fontSize: 12 }}
+                          label={{ value: 'Total Conversations', position: 'insideBottom', offset: -5, fill: '#292929' }}
+                        />
+                        <YAxis 
+                          type="number"
+                          dataKey="percentage"
+                          name="Percentage 10+ Min"
+                          stroke="#292929"
+                          tick={{ fill: '#292929', fontSize: 12 }}
+                          label={{ value: 'Percentage 10+ Min', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                        />
+                        <Tooltip 
+                          cursor={{ strokeDasharray: '3 3' }}
+                          contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+                          formatter={(value, name) => {
+                            if (name === 'percentage') return [`${value}%`, 'Percentage'];
+                            return [value, name];
+                          }}
+                        />
+                        <Scatter name="Data Points" data={volumePerformanceData} fill="#35a1b4">
+                          {volumePerformanceData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill="#35a1b4" />
+                          ))}
+                        </Scatter>
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Peak Detection */}
+                {responseTimePeaks && responseTimePeaks.outliers.length > 0 && (
+                  <div className="chart-container">
+                    <h3 className="chart-title">Outlier Days Requiring Investigation</h3>
+                    <p className="chart-subtitle">
+                      Days with percentage ≥ {responseTimePeaks.threshold}% (2+ standard deviations above average of {responseTimePeaks.average}%)
+                    </p>
+                    <div className="outliers-list">
+                      {responseTimePeaks.outliers.map((outlier, idx) => (
+                        <div key={idx} className="outlier-item">
+                          <div className="outlier-date">{outlier.displayDate}</div>
+                          <div className="outlier-metrics">
+                            <span className="outlier-percentage">{outlier.percentage}%</span>
+                            <span className="outlier-count">{outlier.count} slow conversations</span>
+                            <span className="outlier-deviation">({outlier.deviation}σ above avg)</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Detailed Table */}

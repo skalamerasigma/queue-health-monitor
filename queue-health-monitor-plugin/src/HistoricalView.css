@@ -290,6 +290,244 @@
   color: #666;
 }
 
+.insights-section {
+  margin-bottom: 24px;
+}
+
+.insights-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.outliers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.outlier-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #fff5f5;
+  border-left: 4px solid #fd8789;
+  border-radius: 4px;
+}
+
+.outlier-date {
+  font-weight: 600;
+  font-size: 14px;
+  color: #292929;
+  min-width: 80px;
+}
+
+.outlier-metrics {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.outlier-percentage {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fd8789;
+}
+
+.outlier-count {
+  font-size: 13px;
+  color: #666;
+}
+
+.outlier-deviation {
+  font-size: 12px;
+  color: #999;
+  font-style: italic;
+}
+
+@media (max-width: 768px) {
+  .insights-row {
+    grid-template-columns: 1fr;
+  }
+  
+  .trend-comparison {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .trend-arrow {
+    transform: rotate(90deg);
+    margin: 8px 0;
+  }
+  
+  .outlier-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .outlier-metrics {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
+
+.trend-card {
+  border-left-color: #4cec8c;
+}
+
+.trend-content {
+  width: 100%;
+}
+
+.trend-comparison {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.trend-period {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.trend-label {
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.trend-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #292929;
+}
+
+.trend-arrow {
+  font-size: 20px;
+  color: #35a1b4;
+  margin: 0 12px;
+}
+
+.volatility-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.volatility-label {
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.volatility-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #292929;
+}
+
+.best-worst-card {
+  border-left-color: #35a1b4;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.best-worst-card.worst {
+  border-left-color: #ff9a74;
+}
+
+.best-worst-content {
+  width: 100%;
+}
+
+.best-worst-date {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.best-worst-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #292929;
+  margin-bottom: 8px;
+}
+
+.best-worst-breakdown {
+  font-size: 11px;
+  color: #666;
+  line-height: 1.4;
+}
+
+.violations-card {
+  border-left-color: #35a1b4;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.violations-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.violation-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.violation-item:last-child {
+  border-bottom: none;
+}
+
+.violation-item.compliant {
+  border-bottom: 2px solid #4cec8c;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+}
+
+.violation-label {
+  font-size: 12px;
+  color: #292929;
+  flex: 1;
+}
+
+.violation-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #292929;
+  margin-right: 12px;
+  min-width: 30px;
+  text-align: right;
+}
+
+.violation-pct {
+  font-size: 11px;
+  color: #666;
+  min-width: 40px;
+  text-align: right;
+}
+
+
 .historical-tabs {
   display: flex;
   gap: 8px;
