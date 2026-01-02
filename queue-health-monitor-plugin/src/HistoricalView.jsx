@@ -1681,7 +1681,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           )}
 
           <div className="historical-table-section">
-            <h3 className="section-title">Historical Data</h3>
+            <h3 className="section-title">Historical Compliance Data</h3>
             <div className="table-container">
               <table className="historical-table grouped-table">
                 <thead>
