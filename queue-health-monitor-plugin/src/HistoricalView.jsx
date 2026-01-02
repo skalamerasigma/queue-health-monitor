@@ -1215,7 +1215,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   return (
     <div className="historical-view">
       <div className="historical-header">
-        <h2>Historical Analytics</h2>
+        <h2>Analytics</h2>
         <div className="header-buttons">
           {activeTab === 'response-time' && (
             <button 
