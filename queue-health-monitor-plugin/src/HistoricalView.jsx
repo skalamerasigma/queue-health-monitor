@@ -2183,7 +2183,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
               {/* Detailed Table */}
               <div className="historical-table-section">
-                <h3 className="section-title">Response Time Metrics</h3>
+                <h3 className="section-title">Historical Response Time Metrics</h3>
                 <div className="table-container">
                   <table className="historical-table">
                     <thead>
