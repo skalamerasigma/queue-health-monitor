@@ -1024,7 +1024,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
               className={activeView === "historical" ? "active" : ""}
               onClick={() => setActiveView("historical")}
             >
-              Historical
+              Analytics
             </button>
           </div>
           <div className="refresh-section">
