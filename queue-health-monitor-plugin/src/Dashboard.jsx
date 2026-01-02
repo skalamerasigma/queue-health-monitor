@@ -2445,19 +2445,26 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
           
           return (
             <div key={convId || idx} className="modal-conversation-item">
-              <div className="modal-conv-header">
-                <a 
-                  href={`${INTERCOM_BASE_URL}${convId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="modal-conv-id-link"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {convId}
-                </a>
-                <span className="modal-conv-date">{created}</span>
+              <img 
+                src="https://res.cloudinary.com/doznvxtja/image/upload/v1767370490/Untitled_design_14_wkkhe3.svg"
+                alt="Intercom"
+                className="modal-conv-icon"
+              />
+              <div className="modal-conv-content">
+                <div className="modal-conv-header">
+                  <a 
+                    href={`${INTERCOM_BASE_URL}${convId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="modal-conv-id-link"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {convId}
+                  </a>
+                  <span className="modal-conv-date">{created}</span>
+                </div>
+                <div className="modal-conv-email">{authorEmail}</div>
               </div>
-              <div className="modal-conv-email">{authorEmail}</div>
             </div>
           );
         })}

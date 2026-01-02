@@ -1898,11 +1898,26 @@
   border-radius: 6px;
   border: 1px solid #e0e0e0;
   transition: background 0.2s, border-color 0.2s;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 .modal-conversation-item:hover {
   background: #f5f5f5;
   border-color: #35a1b4;
+}
+
+.modal-conv-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.modal-conv-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .modal-conv-header {
