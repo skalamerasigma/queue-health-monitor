@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import './HistoricalView.css';
 
@@ -210,6 +210,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const [complianceSortConfig, setComplianceSortConfig] = useState({ key: null, direction: 'asc' });
   const [responseTimeSortConfig, setResponseTimeSortConfig] = useState({ key: null, direction: 'asc' });
   const [expandedRegions, setExpandedRegions] = useState(new Set()); // All collapsed by default
+  const [hasManuallyCleared, setHasManuallyCleared] = useState(false); // Track if user manually cleared selection
 
   // Calculate default date range (last 7 weekdays)
   const getLast7Weekdays = () => {
@@ -244,7 +245,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
   useEffect(() => {
     fetchSnapshots();
-  }, [startDate, endDate, selectedTSEs]);
+  }, [startDate, endDate]); // Removed selectedTSEs - we always fetch all snapshots
 
   useEffect(() => {
     fetchResponseTimeMetrics();
@@ -279,12 +280,32 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     setAvailableTSEs(newAvailableTSEs);
   }, [snapshots]);
 
-  // Select all TSEs by default when they first become available
+  // Select all TSEs by default when they first become available (only if not manually cleared)
+  // Use a ref to track if we've already done the initial selection
+  const hasInitialSelectionRef = useRef(false);
+  const hasManuallyClearedRef = useRef(false);
+  
+  // Keep ref in sync with state
   useEffect(() => {
-    if (availableTSEs.length > 0 && selectedTSEs.length === 0) {
+    hasManuallyClearedRef.current = hasManuallyCleared;
+  }, [hasManuallyCleared]);
+  
+  useEffect(() => {
+    // Only auto-select if:
+    // 1. We have TSEs available
+    // 2. We haven't done the initial selection yet
+    // 3. selectedTSEs is empty (user hasn't selected anything)
+    // 4. User hasn't manually cleared the selection (check ref for immediate value)
+    if (
+      availableTSEs.length > 0 && 
+      !hasInitialSelectionRef.current && 
+      selectedTSEs.length === 0 &&
+      !hasManuallyClearedRef.current
+    ) {
       setSelectedTSEs(availableTSEs.map(tse => String(tse.id)));
+      hasInitialSelectionRef.current = true;
     }
-  }, [availableTSEs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [availableTSEs.length, selectedTSEs.length]);
 
   // Group TSEs by region
   const tseByRegion = useMemo(() => {
@@ -316,9 +337,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       const params = new URLSearchParams();
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
-      if (selectedTSEs.length > 0) {
-        selectedTSEs.forEach(id => params.append('tseIds', id));
-      }
+      // Removed selectedTSEs filtering - we always fetch all snapshots
+      // The filtering happens in the useMemo hooks for chart calculations
 
       // In development, use production API URL since local dev server doesn't have API routes
       const url = process.env.NODE_ENV === 'production'
@@ -458,6 +478,61 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       .sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [snapshots, selectedTSEs]);
 
+  // Calculate average compliance per TSE across selected date range
+  const tseAverageCompliance = useMemo(() => {
+    if (!snapshots.length) return [];
+
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+    const tseStats = {};
+    
+    snapshots.forEach(snapshot => {
+      let tseData = selectedTSEs.length > 0
+        ? snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)))
+        : snapshot.tseData;
+      
+      // Filter out excluded TSEs
+      tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+
+      tseData.forEach(tse => {
+        if (!tseStats[tse.id]) {
+          tseStats[tse.id] = {
+            id: tse.id,
+            name: tse.name,
+            daysCounted: 0,
+            openCompliantDays: 0,
+            snoozedCompliantDays: 0,
+            overallCompliantDays: 0
+          };
+        }
+
+        const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
+        const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
+        const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        const meetsBoth = meetsOpen && meetsSnoozed;
+
+        tseStats[tse.id].daysCounted++;
+        if (meetsOpen) tseStats[tse.id].openCompliantDays++;
+        if (meetsSnoozed) tseStats[tse.id].snoozedCompliantDays++;
+        if (meetsBoth) tseStats[tse.id].overallCompliantDays++;
+      });
+    });
+
+    return Object.values(tseStats)
+      .map(tse => ({
+        name: tse.name,
+        openCompliance: tse.daysCounted > 0 
+          ? Math.round((tse.openCompliantDays / tse.daysCounted) * 100) 
+          : 0,
+        snoozedCompliance: tse.daysCounted > 0 
+          ? Math.round((tse.snoozedCompliantDays / tse.daysCounted) * 100) 
+          : 0,
+        overallCompliance: tse.daysCounted > 0 
+          ? Math.round((tse.overallCompliantDays / tse.daysCounted) * 100) 
+          : 0
+      }))
+      .sort((a, b) => b.overallCompliance - a.overallCompliance); // Sort by overall compliance descending
+  }, [snapshots, selectedTSEs]);
+
   // Prepare table data grouped by date
   const groupedTableData = useMemo(() => {
     if (!snapshots.length) return [];
@@ -591,19 +666,53 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   };
 
   const handleTSEChange = (tseId, checked) => {
-    if (checked) {
-      setSelectedTSEs([...selectedTSEs, String(tseId)]);
-    } else {
-      setSelectedTSEs(selectedTSEs.filter(id => id !== String(tseId)));
-    }
+    const tseIdString = String(tseId);
+    // Update both state and ref immediately to prevent race conditions
+    setHasManuallyCleared(true);
+    hasManuallyClearedRef.current = true;
+    
+    setSelectedTSEs(prev => {
+      if (checked) {
+        // Add TSE if not already in the list
+        if (prev.includes(tseIdString)) {
+          return prev; // Already selected, don't change
+        }
+        return [...prev, tseIdString];
+      } else {
+        // Remove TSE from the list
+        return prev.filter(id => id !== tseIdString);
+      }
+    });
   };
 
   const selectAllTSEs = () => {
     setSelectedTSEs(availableTSEs.map(tse => String(tse.id)));
+    setHasManuallyCleared(false); // Reset flag when selecting all
   };
 
   const clearTSEs = () => {
     setSelectedTSEs([]);
+    setHasManuallyCleared(true);
+    hasManuallyClearedRef.current = true;
+  };
+
+  const selectRegionTSEs = (region) => {
+    const regionTSEs = tseByRegion[region] || [];
+    const regionTSEIds = regionTSEs.map(tse => String(tse.id));
+    
+    setHasManuallyCleared(true);
+    hasManuallyClearedRef.current = true;
+    
+    setSelectedTSEs(prev => {
+      // Add all region TSEs that aren't already selected
+      const newSelection = [...prev];
+      regionTSEIds.forEach(id => {
+        if (!newSelection.includes(id)) {
+          newSelection.push(id);
+        }
+      });
+      return newSelection;
+    });
   };
 
   // Prepare response time chart data
@@ -792,7 +901,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           className={activeTab === 'compliance' ? 'active' : ''}
           onClick={() => setActiveTab('compliance')}
         >
-          Compliance Trends
+          Daily Compliance Trends
         </button>
         <button 
           className={activeTab === 'response-time' ? 'active' : ''}
@@ -841,7 +950,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
             <label>Filter by TSE:</label>
             <div className="tse-checkboxes">
               <button onClick={selectAllTSEs} className="select-all-button">Select All</button>
-              <button onClick={clearTSEs} className="clear-button">Clear</button>
+              <button onClick={clearTSEs} className="clear-button">Unselect All</button>
               <div className="tse-checkbox-list">
                 {['UK', 'NY', 'SF', 'Other'].map(region => {
                   const regionTSEs = tseByRegion[region] || [];
@@ -855,6 +964,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     'Other': 'Other'
                   };
 
+                  const allRegionTSEsSelected = regionTSEs.every(tse => selectedTSEs.includes(String(tse.id)));
+                  
                   return (
                     <div key={region} className="tse-region-filter-group">
                       <div 
@@ -864,6 +975,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                         <span className="region-expand-icon">{isRegionExpanded ? '▼' : '▶'}</span>
                         <span className="region-filter-name">{regionLabels[region]}</span>
                         <span className="region-filter-count">({regionTSEs.length})</span>
+                        <button
+                          className="region-select-all-button"
+                          onClick={(e) => {
+                            e.stopPropagation(); // Prevent region toggle
+                            selectRegionTSEs(region);
+                          }}
+                          title={allRegionTSEsSelected ? "All TSEs in this region are selected" : "Select all TSEs in this region"}
+                        >
+                          {allRegionTSEsSelected ? '✓ All' : 'Select All'}
+                        </button>
                       </div>
                       {isRegionExpanded && (
                         <div className="tse-region-checkbox-list">
@@ -898,7 +1019,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           {!loading && chartData.length > 0 && (
         <>
           <div className="chart-container">
-            <h3 className="chart-title">Compliance Trends</h3>
+            <h3 className="chart-title">Team Daily Compliance Percentage Trends</h3>
             <ResponsiveContainer width="100%" height={400}>
               <LineChart data={chartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
@@ -957,6 +1078,69 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               </LineChart>
             </ResponsiveContainer>
           </div>
+
+          {/* TSE Average Compliance Chart */}
+          {tseAverageCompliance.length > 0 && (
+            <div className="chart-container">
+              <h3 className="chart-title">TSE Average Compliance</h3>
+              <p className="chart-subtitle">Average compliance percentage over selected date range</p>
+              <ResponsiveContainer width="100%" height={Math.min(800, Math.max(400, tseAverageCompliance.length * 35))}>
+                <BarChart 
+                  data={tseAverageCompliance} 
+                  margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                  layout="vertical"
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <XAxis 
+                    type="number"
+                    domain={[0, 100]}
+                    stroke="#292929"
+                    tick={{ fill: '#292929', fontSize: 11 }}
+                    label={{ value: 'Compliance %', position: 'insideBottom', offset: -5, fill: '#292929' }}
+                  />
+                  <YAxis 
+                    type="category"
+                    dataKey="name"
+                    stroke="#292929"
+                    tick={{ fill: '#292929', fontSize: 11 }}
+                    width={150}
+                  />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'white', 
+                      border: '1px solid #35a1b4', 
+                      borderRadius: '4px',
+                      padding: '8px 12px'
+                    }}
+                    formatter={(value, name) => [`${value}%`, name]}
+                    labelStyle={{ fontWeight: 600, marginBottom: '4px' }}
+                  />
+                  <Legend 
+                    wrapperStyle={{ paddingTop: '10px' }}
+                    iconType="rect"
+                  />
+                  <Bar 
+                    dataKey="overallCompliance" 
+                    fill="#4cec8c" 
+                    name="Overall Compliance"
+                    radius={[0, 4, 4, 0]}
+                  />
+                  <Bar 
+                    dataKey="openCompliance" 
+                    fill="#35a1b4" 
+                    name="Open Compliance"
+                    radius={[0, 4, 4, 0]}
+                  />
+                  <Bar 
+                    dataKey="snoozedCompliance" 
+                    fill="#ff9a74" 
+                    name="Snoozed Compliance"
+                    radius={[0, 4, 4, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           <div className="historical-summary">
             <div className="summary-card">

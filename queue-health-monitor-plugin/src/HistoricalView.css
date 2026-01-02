@@ -161,6 +161,24 @@
   font-weight: 500;
 }
 
+.region-select-all-button {
+  padding: 2px 8px;
+  border: 1px solid #35a1b4;
+  border-radius: 3px;
+  background: white;
+  color: #35a1b4;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.region-select-all-button:hover {
+  background: #35a1b4;
+  color: white;
+}
+
 .tse-region-checkbox-list {
   display: flex;
   flex-direction: column;
@@ -199,10 +217,17 @@
 }
 
 .chart-title {
-  margin: 0 0 20px 0;
+  margin: 0 0 8px 0;
   font-size: 18px;
   font-weight: 600;
   color: #292929;
+}
+
+.chart-subtitle {
+  margin: 0 0 20px 0;
+  font-size: 13px;
+  color: #666;
+  font-style: italic;
 }
 
 .historical-summary {
