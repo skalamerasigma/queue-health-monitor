@@ -247,6 +247,8 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   const [historicalSnapshots, setHistoricalSnapshots] = useState([]);
   const [responseTimeMetrics, setResponseTimeMetrics] = useState([]);
   const [loadingHistorical, setLoadingHistorical] = useState(false);
+  const [selectedTSE, setSelectedTSE] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [alertsDropdownOpen, setAlertsDropdownOpen] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [wasLoading, setWasLoading] = useState(false);
@@ -929,6 +931,64 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     return grouped;
   }, [metrics.byTSE]);
 
+  // Get conversations for a specific TSE by category
+  const getTSEConversations = (tseId) => {
+    if (!conversations || !tseId) return { open: [], actionableSnoozed: [], customerWait: [] };
+    
+    const open = [];
+    const actionableSnoozed = [];
+    const customerWait = [];
+    
+    conversations.forEach((conv) => {
+      const convTseId = conv.admin_assignee_id || 
+                        (conv.admin_assignee && typeof conv.admin_assignee === "object" ? conv.admin_assignee.id : null);
+      
+      if (String(convTseId) !== String(tseId)) return;
+      
+      const assigneeName = conv.admin_assignee?.name || 
+                          (typeof conv.admin_assignee === "string" ? conv.admin_assignee : null);
+      if (assigneeName && EXCLUDED_TSE_NAMES.includes(assigneeName)) return;
+      
+      const isSnoozed = conv.state === "snoozed" || 
+                       conv.state === "Snoozed" ||
+                       conv.snoozed_until || 
+                       (conv.statistics && conv.statistics.state === "snoozed");
+      const tags = conv.tags || [];
+      const hasInvestigationTag = tags.some(t => 
+        t.name === "#Snooze.Investigation" || 
+        (typeof t === "string" && t.includes("Investigation"))
+      );
+      const hasCustomerWaitTag = tags.some(t => 
+        t.name === "#Snooze.CustomerWait" || 
+        (typeof t === "string" && t.includes("CustomerWait"))
+      );
+      
+      if (conv.state === "open" && !isSnoozed) {
+        open.push(conv);
+      } else if (isSnoozed) {
+        if (hasCustomerWaitTag) {
+          customerWait.push(conv);
+        } else if (!hasInvestigationTag) {
+          actionableSnoozed.push(conv);
+        }
+      }
+    });
+    
+    return { open, actionableSnoozed, customerWait };
+  };
+
+  // Handle TSE card click
+  const handleTSECardClick = (tse) => {
+    setSelectedTSE(tse);
+    setIsModalOpen(true);
+  };
+
+  // Close modal
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedTSE(null);
+  };
+
   // Track loading state changes to show completion animation
   useEffect(() => {
     if (loading) {
@@ -1337,7 +1397,11 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                     const avatarUrl = getTSEAvatar(tse.name);
 
                     return (
-                      <div key={tse.id} className={`tse-card tse-${status}`}>
+                      <div 
+                        key={tse.id} 
+                        className={`tse-card tse-${status} tse-card-clickable`}
+                        onClick={() => handleTSECardClick(tse)}
+                      >
                         <div className="tse-header">
                           <div className="tse-header-left">
                             {avatarUrl && (
@@ -1408,6 +1472,15 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         <HistoricalView 
           onSaveSnapshot={handleSaveSnapshot} 
           refreshTrigger={lastUpdated}
+        />
+      )}
+
+      {/* TSE Details Modal */}
+      {isModalOpen && selectedTSE && (
+        <TSEDetailsModal
+          tse={selectedTSE}
+          conversations={getTSEConversations(selectedTSE.id)}
+          onClose={handleCloseModal}
         />
       )}
     </div>
@@ -2318,6 +2391,134 @@ function MetricCard({ title, value, target, status = "info" }) {
       {target !== undefined && (
         <div className="metric-target">Target: {target}</div>
       )}
+    </div>
+  );
+}
+
+// TSE Details Modal Component
+function TSEDetailsModal({ tse, conversations, onClose }) {
+  const { open, actionableSnoozed, customerWait } = conversations;
+  const avatarUrl = getTSEAvatar(tse.name);
+  const region = getTSERegion(tse.name);
+  const regionLabels = {
+    'UK': { text: 'UK', emoji: '🇬🇧' },
+    'NY': { text: 'New York', emoji: '🗽' },
+    'SF': { text: 'San Francisco', emoji: '🌉' },
+    'Other': { text: 'Other', emoji: '' }
+  };
+  const regionLabel = regionLabels[region] || regionLabels['Other'];
+  const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return "-";
+    const date = typeof timestamp === "number" ? new Date(timestamp * 1000) : new Date(timestamp);
+    return date.toLocaleString('en-US', { 
+      timeZone: 'UTC', 
+      year: 'numeric', 
+      month: '2-digit', 
+      day: '2-digit', 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: false 
+    }) + ' UTC';
+  };
+
+  const getAuthorEmail = (conv) => {
+    return conv.source?.author?.email || 
+           conv.source?.email || 
+           conv.author?.email ||
+           conv.conversation_message?.author?.email ||
+           "-";
+  };
+
+  const renderConversationList = (convs, category) => {
+    if (!convs || convs.length === 0) {
+      return <div className="modal-empty-state">No conversations</div>;
+    }
+
+    return (
+      <div className="modal-conversation-list">
+        {convs.map((conv, idx) => {
+          const convId = conv.id || conv.cid || conv.conversation_id;
+          const authorEmail = getAuthorEmail(conv);
+          const created = formatDate(conv.created_at || conv.createdAt || conv.first_opened_at);
+          
+          return (
+            <div key={convId || idx} className="modal-conversation-item">
+              <div className="modal-conv-header">
+                <a 
+                  href={`${INTERCOM_BASE_URL}${convId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="modal-conv-id-link"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {convId}
+                </a>
+                <span className="modal-conv-date">{created}</span>
+              </div>
+              <div className="modal-conv-email">{authorEmail}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-header-left">
+            {avatarUrl && (
+              <img 
+                src={avatarUrl} 
+                alt={tse.name}
+                className="modal-avatar"
+              />
+            )}
+            <div className="modal-header-info">
+              <h2 className="modal-title">{tse.name}</h2>
+              <div className="modal-region">
+                {regionLabel.emoji && <span className="modal-region-emoji">{regionLabel.emoji}</span>}
+                <span className="modal-region-text">{regionLabel.text}</span>
+              </div>
+            </div>
+          </div>
+          <button className="modal-close-button" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <div className="modal-body">
+          {/* Open Conversations */}
+          <div className="modal-section">
+            <h3 className="modal-section-title">
+              Open Conversations
+              <span className="modal-section-count">({open.length})</span>
+            </h3>
+            {renderConversationList(open, 'open')}
+          </div>
+
+          {/* Actionable Snoozed Conversations */}
+          <div className="modal-section">
+            <h3 className="modal-section-title">
+              Actionable Snoozed Conversations
+              <span className="modal-section-count">({actionableSnoozed.length})</span>
+            </h3>
+            {renderConversationList(actionableSnoozed, 'actionable')}
+          </div>
+
+          {/* Waiting on Customer Conversations */}
+          <div className="modal-section">
+            <h3 className="modal-section-title">
+              Waiting on Customer Conversations
+              <span className="modal-section-count">({customerWait.length})</span>
+            </h3>
+            {renderConversationList(customerWait, 'customerWait')}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
