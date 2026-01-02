@@ -1003,24 +1003,28 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           />
           <div className="view-tabs">
             <button 
+              type="button"
               className={activeView === "overview" ? "active" : ""}
               onClick={() => setActiveView("overview")}
             >
               Overview
             </button>
             <button 
+              type="button"
               className={activeView === "tse" ? "active" : ""}
               onClick={() => setActiveView("tse")}
             >
               TSE View
             </button>
             <button 
+              type="button"
               className={activeView === "conversations" ? "active" : ""}
               onClick={() => setActiveView("conversations")}
             >
               Conversations
             </button>
             <button 
+              type="button"
               className={activeView === "historical" ? "active" : ""}
               onClick={() => setActiveView("historical")}
             >
