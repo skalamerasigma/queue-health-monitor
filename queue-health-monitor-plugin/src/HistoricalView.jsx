@@ -131,15 +131,46 @@ const getHolidayIcon = (dateStr) => {
 };
 
 // Custom label function to render holiday icons
-const createHolidayLabel = (data, isBarChart = false) => (props) => {
+// Only renders on the first line (dataKey='overallCompliance') to avoid duplicates for multi-line charts
+// For single-line charts, renders on that line
+// Positions icon above the highest data point across all series
+const createHolidayLabel = (data, isBarChart = false, dataKey = null) => (props) => {
   const { x, y, index, width } = props;
   if (index === undefined || !data || !data[index]) return null;
+  
+  // For multi-line charts (compliance trends), only render on overallCompliance line
+  // For single-line charts (response time), render on that line
+  if (dataKey && dataKey !== 'overallCompliance' && dataKey !== 'percentage10PlusMin' && dataKey !== 'count10PlusMin') return null;
   
   const dataPoint = data[index];
   const dateStr = dataPoint.date || dataPoint.displayLabel;
   
   const iconUrl = getHolidayIcon(dateStr);
   if (!iconUrl) return null;
+  
+  // For multi-line charts, find the highest value across all data series
+  // For single-line charts, use the current line's value
+  let maxValue;
+  let finalY;
+  
+  if (dataPoint.overallCompliance !== undefined) {
+    // Multi-line chart (compliance trends)
+    maxValue = Math.max(
+      dataPoint.overallCompliance || 0,
+      dataPoint.openCompliance || 0,
+      dataPoint.snoozedCompliance || 0
+    );
+    
+    // Calculate the y position for the highest value
+    // Chart height is 400px, margin top is 70px, so usable height is ~330px
+    const chartUsableHeight = 330;
+    const marginTop = 70;
+    const maxValueY = marginTop + (chartUsableHeight - (maxValue / 100) * chartUsableHeight);
+    finalY = maxValueY > 0 && maxValueY < 450 ? maxValueY : y;
+  } else {
+    // Single-line chart (response time)
+    finalY = y;
+  }
   
   // For bar charts, center the icon horizontally within the bar
   // For line/area charts, center on the data point
@@ -150,7 +181,7 @@ const createHolidayLabel = (data, isBarChart = false) => (props) => {
       <image
         href={iconUrl}
         x={iconX}
-        y={y - 45}
+        y={finalY - 60}
         width="30"
         height="30"
       />
@@ -178,7 +209,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const [expandedResponseTimeDates, setExpandedResponseTimeDates] = useState(new Set());
   const [complianceSortConfig, setComplianceSortConfig] = useState({ key: null, direction: 'asc' });
   const [responseTimeSortConfig, setResponseTimeSortConfig] = useState({ key: null, direction: 'asc' });
-  const [expandedRegions, setExpandedRegions] = useState(new Set(['UK', 'NY', 'SF', 'Other'])); // All expanded by default
+  const [expandedRegions, setExpandedRegions] = useState(new Set()); // All collapsed by default
 
   // Calculate default date range (last 7 weekdays)
   const getLast7Weekdays = () => {
@@ -244,8 +275,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         }
       });
     });
-    setAvailableTSEs(Array.from(tseSet).map(s => JSON.parse(s)));
+    const newAvailableTSEs = Array.from(tseSet).map(s => JSON.parse(s));
+    setAvailableTSEs(newAvailableTSEs);
   }, [snapshots]);
+
+  // Select all TSEs by default when they first become available
+  useEffect(() => {
+    if (availableTSEs.length > 0 && selectedTSEs.length === 0) {
+      setSelectedTSEs(availableTSEs.map(tse => String(tse.id)));
+    }
+  }, [availableTSEs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Group TSEs by region
   const tseByRegion = useMemo(() => {
@@ -861,7 +900,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           <div className="chart-container">
             <h3 className="chart-title">Compliance Trends</h3>
             <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={chartData} margin={{ top: 50, right: 30, left: 20, bottom: 5 }}>
+              <LineChart data={chartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
                 <XAxis 
                   dataKey="date" 
@@ -897,7 +936,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   strokeWidth={3}
                   dot={{ fill: '#4cec8c', r: 4 }}
                   name="Overall Compliance"
-                  label={createHolidayLabel(chartData)}
+                  label={createHolidayLabel(chartData, false, 'overallCompliance')}
                 />
                 <Line 
                   type="monotone" 
@@ -906,7 +945,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   strokeWidth={2}
                   dot={{ fill: '#35a1b4', r: 3 }}
                   name="Open Compliance"
-                  label={createHolidayLabel(chartData)}
                 />
                 <Line 
                   type="monotone" 
@@ -915,7 +953,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   strokeWidth={2}
                   dot={{ fill: '#ff9a74', r: 3 }}
                   name="Snoozed Compliance"
-                  label={createHolidayLabel(chartData)}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -1170,7 +1207,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               <div className="chart-container">
                 <h3 className="chart-title">Percentage of Conversations with 10+ Minute Wait Time</h3>
                 <ResponsiveContainer width="100%" height={400}>
-                  <LineChart data={responseTimeChartData} margin={{ top: 50, right: 30, left: 20, bottom: 5 }}>
+                  <LineChart data={responseTimeChartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
                     <XAxis 
                       dataKey="displayLabel" 
@@ -1197,7 +1234,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                       strokeWidth={2}
                       name="10+ Min Wait %"
                       dot={{ r: 4 }}
-                      label={createHolidayLabel(responseTimeChartData)}
+                      label={createHolidayLabel(responseTimeChartData, false, 'percentage10PlusMin')}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -1207,7 +1244,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               <div className="chart-container">
                 <h3 className="chart-title">Count of Conversations with 10+ Minute Wait Time</h3>
                 <ResponsiveContainer width="100%" height={400}>
-                  <BarChart data={responseTimeChartData} margin={{ top: 50, right: 30, left: 20, bottom: 5 }}>
+                  <BarChart data={responseTimeChartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
                     <XAxis 
                       dataKey="displayLabel" 
@@ -1230,7 +1267,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                       dataKey="count10PlusMin" 
                       fill="#35a1b4"
                       name="10+ Min Waits"
-                      label={createHolidayLabel(responseTimeChartData, true)}
+                      label={createHolidayLabel(responseTimeChartData, true, 'count10PlusMin')}
                     />
                   </BarChart>
                 </ResponsiveContainer>

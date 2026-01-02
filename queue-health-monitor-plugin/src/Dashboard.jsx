@@ -201,7 +201,7 @@ const createHolidayLabel = (data, isBarChart = false) => (props) => {
       <image
         href={iconUrl}
         x={iconX}
-        y={y - 45}
+        y={y - 60}
         width="30"
         height="30"
       />
@@ -1871,7 +1871,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           </div>
           {complianceTrendData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={complianceTrendData} margin={{ top: 50, right: 10, left: 0, bottom: 5 }}>
+              <AreaChart data={complianceTrendData} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
                 <defs>
                   <linearGradient id="complianceGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#35a1b4" stopOpacity={0.3}/>
@@ -1922,7 +1922,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           </div>
           {responseTimeTrendData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={responseTimeTrendData} margin={{ top: 50, right: 10, left: 0, bottom: 5 }}>
+              <AreaChart data={responseTimeTrendData} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
                 <defs>
                   <linearGradient id="responseGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#fd8789" stopOpacity={0.3}/>
