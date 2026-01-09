@@ -4,9 +4,9 @@ import './HistoricalView.css';
 
 // TSE Region mapping
 const TSE_REGIONS = {
-  'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson'],
-  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Priyanshi Singh', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker'],
-  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh']
+  'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson', 'Somachi Ngoka'],
+  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Priyanshi Singh', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker', 'Stephen Skalamera'],
+  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre']
 };
 
 // Helper function to get region for a TSE name
@@ -203,8 +203,13 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [dateRange, setDateRange] = useState('7days');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [availableTSEs, setAvailableTSEs] = useState([]);
-  const [activeTab, setActiveTab] = useState('compliance'); // 'compliance' or 'response-time'
+  const [activeTab, setActiveTab] = useState('compliance'); // 'compliance', 'response-time', or 'results'
+  const [resultsData, setResultsData] = useState(null);
+  const [loadingResults, setLoadingResults] = useState(false);
+  const [resultsDateRange, setResultsDateRange] = useState('30'); // days: 7, 14, 30, 60, 90
   const [expandedDates, setExpandedDates] = useState(new Set());
   const [expandedResponseTimeDates, setExpandedResponseTimeDates] = useState(new Set());
   const [complianceSortConfig, setComplianceSortConfig] = useState({ key: null, direction: 'asc' });
@@ -244,12 +249,233 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   }, []);
 
   useEffect(() => {
-    fetchSnapshots();
-  }, [startDate, endDate]); // Removed selectedTSEs - we always fetch all snapshots
+    // Auto-fetch when dates change, but only if not in custom mode
+    // (custom mode requires clicking Apply button)
+    if (dateRange !== 'custom' && startDate && endDate) {
+      fetchSnapshots();
+    }
+  }, [startDate, endDate, dateRange]); // Removed selectedTSEs - we always fetch all snapshots
 
   useEffect(() => {
-    fetchResponseTimeMetrics();
-  }, [startDate, endDate]);
+    // Auto-fetch when dates change, but only if not in custom mode
+    // (custom mode requires clicking Apply button)
+    if (dateRange !== 'custom' && startDate && endDate) {
+      fetchResponseTimeMetrics();
+    }
+  }, [startDate, endDate, dateRange]);
+
+  // Fetch results data when results tab is active or when date range changes
+  useEffect(() => {
+    if (activeTab === 'results') {
+      // Clear old data first
+      setResultsData(null);
+      fetchResultsData();
+    }
+  }, [activeTab, resultsDateRange, startDate, endDate, dateRange]);
+
+  // Fetch results data (compliance vs slow first response)
+  const fetchResultsData = async () => {
+    setLoadingResults(true);
+    setResultsData(null); // Clear old data immediately
+    
+    try {
+      let startDateStr, endDateStr;
+      
+      // If custom date range is selected and dates are set, use those
+      if (dateRange === 'custom' && startDate && endDate) {
+        startDateStr = startDate;
+        endDateStr = endDate;
+      } else {
+        // Otherwise use the resultsDateRange dropdown (7, 14, 30, 60, 90 days)
+        const getLastNDays = (days) => {
+          const dates = [];
+          const today = new Date();
+          let daysBack = 0;
+          let weekdaysFound = 0;
+          const targetDays = parseInt(days);
+          
+          while (weekdaysFound < targetDays && daysBack < targetDays * 2) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - daysBack);
+            const dayOfWeek = date.getDay();
+            
+            if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Monday-Friday
+              dates.push(date.toISOString().slice(0, 10));
+              weekdaysFound++;
+            }
+            daysBack++;
+          }
+          return dates.reverse();
+        };
+
+        const weekdays = getLastNDays(resultsDateRange);
+        startDateStr = weekdays.length > 0 ? weekdays[0] : new Date(Date.now() - parseInt(resultsDateRange) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        endDateStr = weekdays.length > 0 ? weekdays[weekdays.length - 1] : new Date().toISOString().slice(0, 10);
+      }
+
+      // Fetch snapshots and response time metrics
+      const snapshotParams = new URLSearchParams();
+      snapshotParams.append('startDate', startDateStr);
+      snapshotParams.append('endDate', endDateStr);
+      
+      const snapshotUrl = process.env.NODE_ENV === 'production'
+        ? `${window.location.origin}/api/snapshots/get?${snapshotParams}`
+        : `https://queue-health-monitor.vercel.app/api/snapshots/get?${snapshotParams}`;
+      
+      const metricParams = new URLSearchParams();
+      metricParams.append('startDate', startDateStr);
+      metricParams.append('endDate', endDateStr);
+      
+      const metricUrl = process.env.NODE_ENV === 'production'
+        ? `${window.location.origin}/api/response-time-metrics/get?${metricParams}`
+        : `https://queue-health-monitor.vercel.app/api/response-time-metrics/get?${metricParams}`;
+
+      const [snapshotRes, metricRes] = await Promise.all([
+        fetch(snapshotUrl).catch(() => ({ ok: false })),
+        fetch(metricUrl).catch(() => ({ ok: false }))
+      ]);
+
+      const snapshots = snapshotRes.ok ? (await snapshotRes.json()).snapshots || [] : [];
+      const metrics = metricRes.ok ? (await metricRes.json()).metrics || [] : [];
+
+      // Process data to correlate compliance with slow first response
+      const correlationData = processComplianceResponseTimeCorrelation(snapshots, metrics);
+      
+      // Only set data if we actually got valid correlation data
+      // If correlationData is null (no data or insufficient data), resultsData stays null
+      setResultsData(correlationData);
+    } catch (error) {
+      console.error('Error fetching results data:', error);
+      setResultsData(null);
+    } finally {
+      setLoadingResults(false);
+    }
+  };
+
+  // Process compliance vs response time correlation
+  const processComplianceResponseTimeCorrelation = (snapshots, responseTimeMetrics) => {
+    if (!snapshots.length || !responseTimeMetrics.length) return null;
+
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+    const COMPLIANCE_THRESHOLDS = {
+      MAX_OPEN_SOFT: 5,
+      MAX_WAITING_ON_TSE_SOFT: 5
+    };
+
+    // Create a map of date -> compliance data
+    const complianceByDate = {};
+    snapshots.forEach(snapshot => {
+      const tseData = snapshot.tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      if (tseData.length === 0) return;
+
+      let compliantCount = 0;
+      let totalCount = 0;
+
+      tseData.forEach(tse => {
+        totalCount++;
+        const meetsOpen = tse.open <= COMPLIANCE_THRESHOLDS.MAX_OPEN_SOFT;
+        // Compliance uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
+        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
+        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
+        const meetsSnoozed = totalWaitingOnTSE <= COMPLIANCE_THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        
+        if (meetsOpen && meetsSnoozed) {
+          compliantCount++;
+        }
+      });
+
+      const compliancePct = totalCount > 0 ? Math.round((compliantCount / totalCount) * 100) : 0;
+      complianceByDate[snapshot.date] = {
+        date: snapshot.date,
+        compliance: compliancePct,
+        compliantCount,
+        totalCount
+      };
+    });
+
+    // Combine with response time metrics
+    const combinedData = responseTimeMetrics
+      .map(metric => {
+        const compliance = complianceByDate[metric.date];
+        if (!compliance) return null;
+
+        return {
+          date: metric.date,
+          compliance: compliance.compliance,
+          slowResponsePct: metric.percentage10PlusMin || 0,
+          slowResponseCount: metric.count10PlusMin || 0,
+          totalConversations: metric.totalConversations || 0
+        };
+      })
+      .filter(d => d !== null)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    if (combinedData.length === 0) return null;
+
+    // Calculate correlation coefficient
+    const avgCompliance = combinedData.reduce((sum, d) => sum + d.compliance, 0) / combinedData.length;
+    const avgSlowResponse = combinedData.reduce((sum, d) => sum + d.slowResponsePct, 0) / combinedData.length;
+
+    let numerator = 0;
+    let sumSqCompliance = 0;
+    let sumSqSlowResponse = 0;
+
+    combinedData.forEach(d => {
+      const complianceDiff = d.compliance - avgCompliance;
+      const slowResponseDiff = d.slowResponsePct - avgSlowResponse;
+      numerator += complianceDiff * slowResponseDiff;
+      sumSqCompliance += complianceDiff * complianceDiff;
+      sumSqSlowResponse += slowResponseDiff * slowResponseDiff;
+    });
+
+    const correlation = sumSqCompliance > 0 && sumSqSlowResponse > 0
+      ? numerator / Math.sqrt(sumSqCompliance * sumSqSlowResponse)
+      : 0;
+
+    // Group by compliance ranges
+    const complianceRanges = {
+      'High (80-100%)': { min: 80, max: 100, data: [] },
+      'Medium (60-79%)': { min: 60, max: 79, data: [] },
+      'Low (0-59%)': { min: 0, max: 59, data: [] }
+    };
+
+    combinedData.forEach(d => {
+      if (d.compliance >= 80) {
+        complianceRanges['High (80-100%)'].data.push(d);
+      } else if (d.compliance >= 60) {
+        complianceRanges['Medium (60-79%)'].data.push(d);
+      } else {
+        complianceRanges['Low (0-59%)'].data.push(d);
+      }
+    });
+
+    const rangeStats = Object.entries(complianceRanges).map(([range, { data }]) => {
+      if (data.length === 0) return null;
+      const avgSlowResponse = data.reduce((sum, d) => sum + d.slowResponsePct, 0) / data.length;
+      const totalSlowResponses = data.reduce((sum, d) => sum + d.slowResponseCount, 0);
+      const totalConversations = data.reduce((sum, d) => sum + d.totalConversations, 0);
+      
+      return {
+        range,
+        count: data.length,
+        avgCompliance: data.reduce((sum, d) => sum + d.compliance, 0) / data.length,
+        avgSlowResponsePct: Math.round(avgSlowResponse * 100) / 100,
+        totalSlowResponses,
+        totalConversations,
+        slowResponseRate: totalConversations > 0 ? Math.round((totalSlowResponses / totalConversations) * 100 * 100) / 100 : 0
+      };
+    }).filter(s => s !== null);
+
+    return {
+      correlation: Math.round(correlation * 1000) / 1000,
+      correlationStrength: Math.abs(correlation) < 0.3 ? 'weak' : Math.abs(correlation) < 0.7 ? 'moderate' : 'strong',
+      correlationDirection: correlation < 0 ? 'negative' : 'positive',
+      dataPoints: combinedData,
+      rangeStats,
+      avgCompliance: Math.round(avgCompliance * 100) / 100,
+      avgSlowResponse: Math.round(avgSlowResponse * 100) / 100
+    };
+  };
 
   // Refresh data when refreshTrigger changes (for auto-refresh)
   // This ensures all data refreshes when conversations are auto-refreshed
@@ -267,16 +493,28 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   useEffect(() => {
     // Extract unique TSEs from snapshots, excluding Prerit Sachdeva
     const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
-    const tseSet = new Set();
+    const tseMap = new Map(); // Use Map to track by name for deduplication
     snapshots.forEach(snapshot => {
       snapshot.tseData?.forEach(tse => {
         // Skip excluded TSEs
         if (!EXCLUDED_TSE_NAMES.includes(tse.name)) {
-          tseSet.add(JSON.stringify({ id: tse.id, name: tse.name }));
+          // Use name as key to handle cases where ID might differ but name is same
+          if (!tseMap.has(tse.name)) {
+            tseMap.set(tse.name, { id: tse.id, name: tse.name });
+          }
         }
       });
     });
-    const newAvailableTSEs = Array.from(tseSet).map(s => JSON.parse(s));
+    
+    // Also ensure all TSEs from TSE_REGIONS are included, even if not in snapshots
+    Object.values(TSE_REGIONS).flat().forEach(tseName => {
+      if (!EXCLUDED_TSE_NAMES.includes(tseName) && !tseMap.has(tseName)) {
+        // Create a placeholder entry with name as ID if no snapshot data exists
+        tseMap.set(tseName, { id: tseName.toLowerCase().replace(/\s+/g, '-'), name: tseName });
+      }
+    });
+    
+    const newAvailableTSEs = Array.from(tseMap.values());
     setAvailableTSEs(newAvailableTSEs);
   }, [snapshots]);
 
@@ -291,21 +529,25 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   }, [hasManuallyCleared]);
   
   useEffect(() => {
-    // Only auto-select if:
-    // 1. We have TSEs available
-    // 2. We haven't done the initial selection yet
-    // 3. selectedTSEs is empty (user hasn't selected anything)
-    // 4. User hasn't manually cleared the selection (check ref for immediate value)
+    // Always select all TSEs by default when they become available
+    // Only skip if user has manually cleared the selection
     if (
       availableTSEs.length > 0 && 
-      !hasInitialSelectionRef.current && 
-      selectedTSEs.length === 0 &&
       !hasManuallyClearedRef.current
     ) {
-      setSelectedTSEs(availableTSEs.map(tse => String(tse.id)));
-      hasInitialSelectionRef.current = true;
+      const allTSEIds = availableTSEs.map(tse => String(tse.id));
+      // Only update if the selection doesn't match all available TSEs
+      const currentIdsSet = new Set(selectedTSEs);
+      const allIdsSet = new Set(allTSEIds);
+      const isSelectionComplete = allTSEIds.length === selectedTSEs.length && 
+                                  allTSEIds.every(id => currentIdsSet.has(id));
+      
+      if (!isSelectionComplete) {
+        setSelectedTSEs(allTSEIds);
+        hasInitialSelectionRef.current = true;
+      }
     }
-  }, [availableTSEs.length, selectedTSEs.length]);
+  }, [availableTSEs]);
 
   // Group TSEs by region
   const tseByRegion = useMemo(() => {
@@ -410,25 +652,59 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         const dates = getLast7Weekdays();
         start = dates[0];
         end = dates[dates.length - 1];
+        setStartDate(start);
+        setEndDate(end);
         break;
       case '30days':
         end = today.toISOString().split('T')[0];
         const thirtyDaysAgo = new Date(today);
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         start = thirtyDaysAgo.toISOString().split('T')[0];
+        setStartDate(start);
+        setEndDate(end);
         break;
       case '90days':
         end = today.toISOString().split('T')[0];
         const ninetyDaysAgo = new Date(today);
         ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
         start = ninetyDaysAgo.toISOString().split('T')[0];
+        setStartDate(start);
+        setEndDate(end);
+        break;
+      case 'custom':
+        // Initialize custom dates with current start/end dates if they exist
+        if (startDate && endDate) {
+          setCustomStartDate(startDate);
+          setCustomEndDate(endDate);
+        } else {
+          // Default to last 7 weekdays
+          const defaultDates = getLast7Weekdays();
+          if (defaultDates.length > 0) {
+            setCustomStartDate(defaultDates[0]);
+            setCustomEndDate(defaultDates[defaultDates.length - 1]);
+          }
+        }
         break;
       default:
         return;
     }
+  };
+
+  const handleApplyCustomDateRange = () => {
+    if (!customStartDate || !customEndDate) {
+      alert('Please select both start and end dates');
+      return;
+    }
     
-    setStartDate(start);
-    setEndDate(end);
+    if (new Date(customStartDate) > new Date(customEndDate)) {
+      alert('Start date must be before end date');
+      return;
+    }
+    
+    setStartDate(customStartDate);
+    setEndDate(customEndDate);
+    fetchSnapshots();
+    fetchResponseTimeMetrics();
   };
 
   // Calculate compliance metrics for chart
@@ -460,8 +736,10 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       tseData.forEach(tse => {
         dataByDate[date].totalTSEs++;
         const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
-        const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        // Compliance uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
+        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
+        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
+        const meetsSnoozed = totalWaitingOnTSE <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
         
         if (meetsOpen) dataByDate[date].compliantOpen++;
         if (meetsSnoozed) dataByDate[date].compliantSnoozed++;
@@ -545,34 +823,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     };
   }, [chartData]);
 
-  // Threshold violation breakdown
-  const thresholdViolations = useMemo(() => {
-    if (!chartData.length) return null;
-    
-    let openViolations = 0;
-    let snoozedViolations = 0;
-    let bothViolations = 0;
-    let bothCompliant = 0;
-    
-    chartData.forEach(d => {
-      const openViolated = d.openCompliance < 100;
-      const snoozedViolated = d.snoozedCompliance < 100;
-      
-      if (openViolated && snoozedViolated) bothViolations++;
-      else if (openViolated) openViolations++;
-      else if (snoozedViolated) snoozedViolations++;
-      else bothCompliant++;
-    });
-    
-    return {
-      openOnly: openViolations,
-      snoozedOnly: snoozedViolations,
-      both: bothViolations,
-      compliant: bothCompliant,
-      total: chartData.length
-    };
-  }, [chartData]);
-
   // Region comparison
   const regionComparison = useMemo(() => {
     if (!snapshots.length || !selectedTSEs.length) return null;
@@ -589,8 +839,10 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       tseData.forEach(tse => {
         const region = getTSERegion(tse.name);
         const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
-        const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        // Compliance uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
+        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
+        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
+        const meetsSnoozed = totalWaitingOnTSE <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
         
         regionCompliance[region].total++;
         if (meetsOpen && meetsSnoozed) regionCompliance[region].compliant++;
@@ -608,7 +860,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       if (values.length === 0) return null;
       const avg = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
       return { region, average: avg, count: values.length };
-    }).filter(r => r !== null);
+    }).filter(r => r !== null && r.region !== 'Other');
   }, [snapshots, selectedTSEs]);
 
   // Trend analysis with moving averages
@@ -665,8 +917,10 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         }
 
         const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
-        const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        // Compliance uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
+        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
+        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
+        const meetsSnoozed = totalWaitingOnTSE <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
         const meetsBoth = meetsOpen && meetsSnoozed;
 
         tseStats[tse.id].daysCounted++;
@@ -720,14 +974,15 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
       tseData.forEach(tse => {
         const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
-        const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        // Compliance uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
+        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
+        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
+        const meetsSnoozed = totalWaitingOnTSE <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
         
         groupedByDate[snapshot.date].tses.push({
           tseName: tse.name,
           open: tse.open,
           actionableSnoozed: tse.actionableSnoozed,
-          investigationSnoozed: tse.investigationSnoozed,
           customerWaitSnoozed: tse.customerWaitSnoozed,
           totalSnoozed: tse.totalSnoozed || 0,
           openCompliant: meetsOpen,
@@ -1278,6 +1533,12 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         >
           Response Time Metrics
         </button>
+        <button 
+          className={activeTab === 'results' ? 'active' : ''}
+          onClick={() => setActiveTab('results')}
+        >
+          Impact
+        </button>
       </div>
 
       <div className="historical-filters">
@@ -1297,19 +1558,30 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               <label>Start Date:</label>
               <input
                 type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
                 className="date-input"
+                max={customEndDate || undefined}
               />
             </div>
             <div className="filter-group">
               <label>End Date:</label>
               <input
                 type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
                 className="date-input"
+                min={customStartDate || undefined}
               />
+            </div>
+            <div className="filter-group">
+              <button 
+                onClick={handleApplyCustomDateRange}
+                className="apply-date-button"
+                disabled={!customStartDate || !customEndDate}
+              >
+                Apply Date Range
+              </button>
             </div>
           </>
         )}
@@ -1387,6 +1659,28 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
           {!loading && chartData.length > 0 && (
         <>
+          {/* Average Compliance Summary */}
+          <div className="historical-summary">
+            <div className="summary-card">
+              <h4>Overall Compliance</h4>
+              <div className="summary-value-large">
+                {Math.round(chartData.reduce((sum, d) => sum + d.overallCompliance, 0) / chartData.length)}%
+              </div>
+            </div>
+            <div className="summary-card">
+              <h4>Open Compliance</h4>
+              <div className="summary-value-large">
+                {Math.round(chartData.reduce((sum, d) => sum + d.openCompliance, 0) / chartData.length)}%
+              </div>
+            </div>
+            <div className="summary-card">
+              <h4>Snoozed Compliance</h4>
+              <div className="summary-value-large">
+                {Math.round(chartData.reduce((sum, d) => sum + d.snoozedCompliance, 0) / chartData.length)}%
+              </div>
+            </div>
+          </div>
+
           <div className="chart-container">
             <h3 className="chart-title">Team Daily Compliance Percentage Trends</h3>
             <ResponsiveContainer width="100%" height={400}>
@@ -1448,28 +1742,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
             </ResponsiveContainer>
           </div>
 
-          {/* Average Compliance Summary */}
-          <div className="historical-summary">
-            <div className="summary-card">
-              <h4>Overall Compliance</h4>
-              <div className="summary-value-large">
-                {Math.round(chartData.reduce((sum, d) => sum + d.overallCompliance, 0) / chartData.length)}%
-              </div>
-            </div>
-            <div className="summary-card">
-              <h4>Open Compliance</h4>
-              <div className="summary-value-large">
-                {Math.round(chartData.reduce((sum, d) => sum + d.openCompliance, 0) / chartData.length)}%
-              </div>
-            </div>
-            <div className="summary-card">
-              <h4>Snoozed Compliance</h4>
-              <div className="summary-value-large">
-                {Math.round(chartData.reduce((sum, d) => sum + d.snoozedCompliance, 0) / chartData.length)}%
-              </div>
-            </div>
-          </div>
-
           {/* Insights Section */}
           <div className="insights-section">
             {/* Trend Analysis & Best/Worst Days */}
@@ -1490,8 +1762,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                       </div>
                     </div>
                     <div className={`trend-indicator ${trendAnalysis.trend}`}>
-                      {trendAnalysis.trend === 'improving' && '↓'}
-                      {trendAnalysis.trend === 'worsening' && '↑'}
+                      {trendAnalysis.trend === 'improving' && '↑'}
+                      {trendAnalysis.trend === 'worsening' && '↓'}
                       {trendAnalysis.trend === 'stable' && '→'}
                       {Math.abs(trendAnalysis.change)}% {trendAnalysis.trend === 'improving' ? 'improvement' : trendAnalysis.trend === 'worsening' ? 'decline' : 'stable'}
                     </div>
@@ -1556,37 +1828,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               </div>
             )}
 
-            {/* Threshold Violations */}
-            {thresholdViolations && (
-              <div className="insights-row">
-                <div className="summary-card violations-card">
-                  <h4>Threshold Violations</h4>
-                  <div className="violations-content">
-                    <div className="violation-item compliant">
-                      <span className="violation-label">Fully Compliant</span>
-                      <span className="violation-value">{thresholdViolations.compliant}</span>
-                      <span className="violation-pct">{Math.round((thresholdViolations.compliant / thresholdViolations.total) * 100)}%</span>
-                    </div>
-                    <div className="violation-item">
-                      <span className="violation-label">Open Only</span>
-                      <span className="violation-value">{thresholdViolations.openOnly}</span>
-                      <span className="violation-pct">{Math.round((thresholdViolations.openOnly / thresholdViolations.total) * 100)}%</span>
-                    </div>
-                    <div className="violation-item">
-                      <span className="violation-label">Snoozed Only</span>
-                      <span className="violation-value">{thresholdViolations.snoozedOnly}</span>
-                      <span className="violation-pct">{Math.round((thresholdViolations.snoozedOnly / thresholdViolations.total) * 100)}%</span>
-                    </div>
-                    <div className="violation-item">
-                      <span className="violation-label">Both Violated</span>
-                      <span className="violation-value">{thresholdViolations.both}</span>
-                      <span className="violation-pct">{Math.round((thresholdViolations.both / thresholdViolations.total) * 100)}%</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Region Comparison */}
             {regionComparison && regionComparison.length > 0 && (
               <div className="chart-container">
@@ -1610,7 +1851,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                       contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
                       formatter={(value) => [`${value}%`, '']}
                     />
-                    <Bar dataKey="average" fill="#35a1b4" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="average" radius={[4, 4, 0, 0]}>
+                      {regionComparison.map((entry, index) => {
+                        const regionColors = {
+                          'UK': '#4cec8c',
+                          'NY': '#35a1b4',
+                          'SF': '#ff9a74'
+                        };
+                        return <Cell key={`cell-${index}`} fill={regionColors[entry.region] || '#35a1b4'} />;
+                      })}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1644,14 +1894,30 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     width={150}
                   />
                   <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'white', 
-                      border: '1px solid #35a1b4', 
-                      borderRadius: '4px',
-                      padding: '8px 12px'
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const tseName = payload[0].payload?.name || '';
+                        return (
+                          <div style={{ 
+                            backgroundColor: 'white', 
+                            border: '1px solid #35a1b4', 
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                          }}>
+                            <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px', color: '#292929' }}>
+                              {tseName}
+                            </div>
+                            {payload.map((entry, index) => (
+                              <div key={index} style={{ color: entry.color, marginBottom: '4px', fontSize: '12px' }}>
+                                {entry.name}: {entry.value}%
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+                      return null;
                     }}
-                    formatter={(value, name) => [`${value}%`, name]}
-                    labelStyle={{ fontWeight: 600, marginBottom: '4px' }}
                   />
                   <Legend 
                     wrapperStyle={{ paddingTop: '10px' }}
@@ -1798,9 +2064,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                                     <tr>
                                       <th>TSE</th>
                                       <th>Open</th>
-                                      <th>Actionable Snoozed</th>
-                                      <th>#Investigation</th>
-                                      <th>#CustomerWait</th>
+                                      <th>Snoozed - Waiting On TSE</th>
+                                      <th>Snoozed - Waiting On Customer</th>
                                       <th>Total Snoozed</th>
                                       <th>Open Compliant</th>
                                       <th>Snoozed Compliant</th>
@@ -1813,7 +2078,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                                         <td>{tse.tseName}</td>
                                         <td>{tse.open}</td>
                                         <td>{tse.actionableSnoozed}</td>
-                                        <td>{tse.investigationSnoozed}</td>
                                         <td>{tse.customerWaitSnoozed}</td>
                                         <td>{tse.totalSnoozed}</td>
                                         <td>
@@ -2074,7 +2338,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 {responseTimeDayOfWeek && responseTimeDayOfWeek.length > 0 && (
                   <div className="chart-container">
                     <h3 className="chart-title">Day-of-Week Response Time Patterns</h3>
-                    <p className="chart-subtitle">Average percentage and slow conversation count by weekday</p>
+                    <p className="chart-subtitle">10+ Min Wait Times: Average Count and Percentage of Total Chats by day of week</p>
                     <ResponsiveContainer width="100%" height={300}>
                       <BarChart data={responseTimeDayOfWeek} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
@@ -2094,19 +2358,19 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                           orientation="right"
                           stroke="#292929"
                           tick={{ fill: '#292929', fontSize: 12 }}
-                          label={{ value: 'Avg Slow Conversations', angle: 90, position: 'insideRight', fill: '#292929' }}
+                          label={{ value: 'Count', angle: 90, position: 'insideRight', fill: '#292929' }}
                         />
                         <Tooltip 
                           contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
                           formatter={(value, name) => {
                             if (name === 'avgPercentage') return [`${value}%`, 'Avg Percentage'];
-                            if (name === 'avgSlowConversations') return [value, 'Avg Slow Conversations'];
+                            if (name === 'avgSlowConversations') return [value, 'Avg Slow First Response Chat Count (10+ min)'];
                             return [value, name];
                           }}
                         />
                         <Legend />
                         <Bar yAxisId="left" dataKey="avgPercentage" fill="#35a1b4" name="Avg Percentage" radius={[4, 4, 0, 0]} />
-                        <Bar yAxisId="right" dataKey="avgSlowConversations" fill="#ff9a74" name="Avg Slow Conversations" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="right" dataKey="avgSlowConversations" fill="#ff9a74" name="Avg Slow First Response Chat Count (10+ min)" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -2158,27 +2422,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   </div>
                 )}
 
-                {/* Peak Detection */}
-                {responseTimePeaks && responseTimePeaks.outliers.length > 0 && (
-                  <div className="chart-container">
-                    <h3 className="chart-title">Outlier Days Requiring Investigation</h3>
-                    <p className="chart-subtitle">
-                      Days with percentage ≥ {responseTimePeaks.threshold}% (2+ standard deviations above average of {responseTimePeaks.average}%)
-                    </p>
-                    <div className="outliers-list">
-                      {responseTimePeaks.outliers.map((outlier, idx) => (
-                        <div key={idx} className="outlier-item">
-                          <div className="outlier-date">{outlier.displayDate}</div>
-                          <div className="outlier-metrics">
-                            <span className="outlier-percentage">{outlier.percentage}%</span>
-                            <span className="outlier-count">{outlier.count} slow conversations</span>
-                            <span className="outlier-deviation">({outlier.deviation}σ above avg)</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Detailed Table */}
@@ -2317,6 +2560,256 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               )}
         </>
       )}
+
+      {/* Results Tab */}
+      {activeTab === 'results' && (
+        <ResultsView 
+          data={resultsData}
+          loading={loadingResults}
+          dateRange={dateRange === 'custom' ? 'custom' : resultsDateRange}
+          customStartDate={startDate}
+          customEndDate={endDate}
+        />
+      )}
+    </div>
+  );
+}
+
+// Results View Component
+function ResultsView({ data, loading, dateRange, customStartDate, customEndDate }) {
+  if (loading) {
+    return (
+      <div className="results-view">
+        <div className="loading-state">Loading compliance correlation data...</div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="results-view">
+        <div className="no-data">
+          <p>No data available for analysis.</p>
+          <p className="no-data-subtext">Historical data is required to analyze compliance impact on response times.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // For this analysis, negative correlation is GOOD (higher compliance → lower slow response)
+  // Positive correlation is BAD (higher compliance → higher slow response)
+  const isGoodCorrelation = data.correlationDirection === 'negative';
+  const correlationColor = isGoodCorrelation ? '#4cec8c' : '#fd8789';
+  const correlationLabel = isGoodCorrelation
+    ? 'Higher compliance correlates with lower slow response rates (desired outcome)' 
+    : 'Higher compliance correlates with higher slow response rates (concerning)';
+
+  return (
+    <div className="results-view">
+      <div className="results-header">
+        <h2 className="results-title">Compliance Impact on Slow First Response Times</h2>
+        <p className="results-subtitle">
+          Analyzing how TSE compliance affects 10+ minute first response conversation rates
+        </p>
+      </div>
+
+
+      {/* Key Insights */}
+      <div className="results-insights">
+        <div className="insight-card results-correlation">
+          <div className="insight-header">
+            <h3>Correlation Analysis</h3>
+          </div>
+          <div className="correlation-content">
+            <div className="correlation-value" style={{ color: correlationColor }}>
+              {data.correlation > 0 ? '+' : ''}{data.correlation.toFixed(2)}
+            </div>
+            <div className="correlation-label">
+              {data.correlationStrength.charAt(0).toUpperCase() + data.correlationStrength.slice(1)} {data.correlationDirection} correlation
+              {isGoodCorrelation ? ' (desired)' : ' (concerning)'}
+            </div>
+            <div className="correlation-description">
+              {correlationLabel}
+            </div>
+          </div>
+        </div>
+
+        <div className="insight-card results-summary">
+          <div className="insight-header">
+            <h3>Overall Averages</h3>
+          </div>
+          <div className="summary-content">
+            <div className="summary-item">
+              <span className="summary-label">Average Compliance</span>
+              <span className="summary-value">{data.avgCompliance.toFixed(2)}%</span>
+            </div>
+            <div className="summary-item">
+              <span className="summary-label">Average Slow Response Rate</span>
+              <span className="summary-value">{data.avgSlowResponse.toFixed(2)}%</span>
+            </div>
+            <div className="summary-item">
+              <span className="summary-label">Data Points</span>
+              <span className="summary-value">{data.dataPoints.length} days</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Scatter Plot: Compliance vs Slow Response */}
+      <div className="results-chart-container">
+        <h3 className="chart-title">Compliance vs Slow First Response Rate</h3>
+        <p className="chart-subtitle">Each point represents one day's compliance percentage and slow response rate</p>
+        <ResponsiveContainer width="100%" height={400}>
+          <ScatterChart data={data.dataPoints} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+            <XAxis 
+              type="number"
+              dataKey="compliance"
+              name="Compliance %"
+              domain={[0, 100]}
+              stroke="#292929"
+              tick={{ fill: '#292929', fontSize: 12 }}
+              label={{ value: 'Compliance %', position: 'insideBottom', offset: -5, fill: '#292929' }}
+              tickFormatter={(value) => value.toFixed(2)}
+            />
+            <YAxis 
+              type="number"
+              dataKey="slowResponsePct"
+              name="Slow Response %"
+              domain={[0, 'dataMax + 5']}
+              stroke="#292929"
+              tick={{ fill: '#292929', fontSize: 12 }}
+              label={{ value: 'Slow First Response Rate (%)', angle: -90, position: 'insideLeft', fill: '#292929' }}
+              tickFormatter={(value) => value.toFixed(2)}
+            />
+            <Tooltip 
+              contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+              formatter={(value, name) => {
+                if (name === 'compliance') return [`${value.toFixed(2)}%`, 'Compliance'];
+                if (name === 'slowResponsePct') return [`${value.toFixed(2)}%`, 'Slow Response Rate'];
+                return [value, name];
+              }}
+              labelFormatter={(label) => `Date: ${label}`}
+            />
+            <Scatter 
+              name="Compliance vs Slow Response" 
+              data={data.dataPoints} 
+              fill="#35a1b4"
+            >
+              {data.dataPoints.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill="#35a1b4" opacity={0.6} />
+              ))}
+            </Scatter>
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Compliance Range Analysis */}
+      <div className="results-range-analysis">
+        <h3 className="section-title">Performance by Compliance Range</h3>
+        <div className="range-stats-grid">
+          {data.rangeStats.map((range, index) => {
+            const colors = ['#4cec8c', '#fbbf24', '#fd8789'];
+            return (
+              <div key={index} className="range-stat-card">
+                <div className="range-stat-header" style={{ borderLeftColor: colors[index] }}>
+                  <h4>{range.range}</h4>
+                  <span className="range-count">{range.count} days</span>
+                </div>
+                <div className="range-stat-content">
+                  <div className="range-stat-item">
+                    <span className="range-stat-label">Avg Compliance</span>
+                    <span className="range-stat-value">{range.avgCompliance.toFixed(2)}%</span>
+                  </div>
+                  <div className="range-stat-item">
+                    <span className="range-stat-label">Avg Slow Response Rate</span>
+                    <span className="range-stat-value">{range.avgSlowResponsePct.toFixed(2)}%</span>
+                  </div>
+                  <div className="range-stat-item">
+                    <span className="range-stat-label">Total Slow Responses</span>
+                    <span className="range-stat-value">{range.totalSlowResponses}</span>
+                  </div>
+                  <div className="range-stat-item">
+                    <span className="range-stat-label">Total Conversations</span>
+                    <span className="range-stat-value">{range.totalConversations}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Trend Over Time */}
+      <div className="results-chart-container">
+        <h3 className="chart-title">Compliance and Slow Response Trends Over Time</h3>
+        <p className="chart-subtitle">Dual-axis chart showing both metrics over the analysis period</p>
+        <ResponsiveContainer width="100%" height={400}>
+          <LineChart data={data.dataPoints} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+            <XAxis 
+              dataKey="date"
+              stroke="#292929"
+              tick={{ fill: '#292929', fontSize: 11 }}
+              angle={-45}
+              textAnchor="end"
+              height={80}
+              tickFormatter={(value) => {
+                const [year, month, day] = value.split('-').map(Number);
+                return `${month}/${day}`;
+              }}
+            />
+            <YAxis 
+              yAxisId="left"
+              stroke="#292929"
+              tick={{ fill: '#292929', fontSize: 12 }}
+              domain={[0, 100]}
+              label={{ value: 'Compliance %', angle: -90, position: 'insideLeft', fill: '#292929' }}
+              tickFormatter={(value) => value.toFixed(2)}
+            />
+            <YAxis 
+              yAxisId="right"
+              orientation="right"
+              stroke="#292929"
+              tick={{ fill: '#292929', fontSize: 12 }}
+              domain={[0, 'dataMax + 5']}
+              label={{ value: 'Slow Response Rate %', angle: 90, position: 'insideRight', fill: '#292929' }}
+              tickFormatter={(value) => value.toFixed(2)}
+            />
+            <Tooltip 
+              contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+              formatter={(value, name) => {
+                if (name === 'compliance') return [`${value.toFixed(2)}%`, 'Compliance'];
+                if (name === 'slowResponsePct') return [`${value.toFixed(2)}%`, 'Slow Response Rate'];
+                return [value, name];
+              }}
+              labelFormatter={(value) => {
+                const [year, month, day] = value.split('-').map(Number);
+                return new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+              }}
+            />
+            <Legend />
+            <Line 
+              yAxisId="left"
+              type="monotone" 
+              dataKey="compliance" 
+              stroke="#4cec8c" 
+              strokeWidth={3}
+              dot={{ fill: '#4cec8c', r: 4 }}
+              name="Compliance %"
+            />
+            <Line 
+              yAxisId="right"
+              type="monotone" 
+              dataKey="slowResponsePct" 
+              stroke="#fd8789" 
+              strokeWidth={2}
+              dot={{ fill: '#fd8789', r: 3 }}
+              name="Slow Response Rate %"
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }

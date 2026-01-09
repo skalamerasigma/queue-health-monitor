@@ -78,6 +78,33 @@
   min-width: 150px;
 }
 
+.apply-date-button {
+  background: #35a1b4;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 24px;
+  height: 35px;
+  min-width: 150px;
+}
+
+.apply-date-button:hover:not(:disabled) {
+  background: #2a7f8f;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(53, 161, 180, 0.3);
+}
+
+.apply-date-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .tse-selector {
   flex: 1;
   min-width: 300px;

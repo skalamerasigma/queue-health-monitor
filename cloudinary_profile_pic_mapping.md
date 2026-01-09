@@ -20,7 +20,7 @@
 | Siddhi | `https://res.cloudinary.com/doznvxtja/image/upload/v1765232392/6_f3d2qt.svg` |
 | Swapnil | `https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/11_xrb9qj.svg` |
 
-## San Francisco (13 members)
+## San Francisco (14 members)
 
 | TSE | Avatar URL |
 |-----|------------|
@@ -37,8 +37,9 @@
 | Abhijeet | `https://res.cloudinary.com/doznvxtja/image/upload/v1765310522/Untitled_design_16_jffaql.svg` |
 | Ratna | `https://res.cloudinary.com/doznvxtja/image/upload/v1765311039/Untitled_design_17_lchaky.svg` |
 | Sahibeer | `https://res.cloudinary.com/doznvxtja/image/upload/v1767268642/sahibeer_g0bk1n.svg` |
+| Vruddhi | `https://res.cloudinary.com/doznvxtja/image/upload/v1767886566/Untitled_design_18_ecqjdf.svg` |
 
-## London (5 members)
+## London (6 members)
 
 | TSE | Avatar URL |
 |-----|------------|
@@ -47,5 +48,6 @@
 | Kabilan | `https://res.cloudinary.com/doznvxtja/image/upload/v1765232387/16_hgphrw.svg` |
 | Salman | `https://res.cloudinary.com/doznvxtja/image/upload/v1765232386/20_ukjqlc.svg` |
 | Erin | `https://res.cloudinary.com/doznvxtja/image/upload/v1765232386/19_q54uo5.svg` |
+| Somachi | `https://res.cloudinary.com/doznvxtja/image/upload/v1767886159/Untitled_design_17_zhhc3u.svg` |
 
 ---

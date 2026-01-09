@@ -1,13 +1,13 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import HistoricalView from "./HistoricalView";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend, ScatterChart, Scatter, BarChart, Bar, Cell } from 'recharts';
 import "./Dashboard.css";
 
 // TSE Region mapping
 const TSE_REGIONS = {
-  'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson'],
-  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Priyanshi Singh', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker'],
-  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh']
+  'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson', 'Somachi Ngoka'],
+  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Priyanshi Singh', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker', 'Stephen Skalamera'],
+  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre']
 };
 
 // Helper function to get region for a TSE name
@@ -38,6 +38,7 @@ const TSE_AVATARS = {
   'Priyanshi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/12_avm2xl.svg',
   'Siddhi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232392/6_f3d2qt.svg',
   'Swapnil': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/11_xrb9qj.svg',
+  'Stephen': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767811907/Untitled_design_15_cvscw6.svg',
   // San Francisco
   'Sanyam': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765382789/Untitled_design_10_kzcja0.svg',
   'Hem': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765318686/Untitled_design_22_uydf2h.svg',
@@ -52,12 +53,14 @@ const TSE_AVATARS = {
   'Abhijeet': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765310522/Untitled_design_16_jffaql.svg',
   'Ratna': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765311039/Untitled_design_17_lchaky.svg',
   'Sahibeer': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767268642/sahibeer_g0bk1n.svg',
+  'Vruddhi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767886566/Untitled_design_18_ecqjdf.svg',
   // London/UK
   'Nathan': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232389/13_flxpry.svg',
   'J': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232387/18_yqqjho.svg',
   'Kabilan': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232387/16_hgphrw.svg',
   'Salman': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232386/20_ukjqlc.svg',
-  'Erin': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232386/19_q54uo5.svg'
+  'Erin': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232386/19_q54uo5.svg',
+  'Somachi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767886159/Untitled_design_17_zhhc3u.svg'
 };
 
 // Helper function to get avatar URL for a TSE name
@@ -211,7 +214,6 @@ const createHolidayLabel = (data, isBarChart = false) => (props) => {
 
 // TSEs to exclude from the dashboard
 const EXCLUDED_TSE_NAMES = [
-  "Stephen Skalamera",
   "Zen Junior",
   "Nathan Parrish",
   "Prerit Sachdeva",
@@ -227,16 +229,14 @@ const EXCLUDED_TSE_NAMES = [
   "svc-prd-tse-intercom SVC"
 ];
 
+
 // Thresholds from Accountability Framework
 const THRESHOLDS = {
   MAX_OPEN_IDEAL: 0,
   MAX_OPEN_SOFT: 5,
   MAX_OPEN_ALERT: 6,
-  MAX_ACTIONABLE_SNOOZED_SOFT: 5,
-  MAX_ACTIONABLE_SNOOZED_ALERT: 7,
-  REASSIGNMENT_HOURS: 48,
-  CLOSURE_CHECKIN_HOURS: 24,
-  CLOSURE_WARNING_DAYS: 3
+  MAX_WAITING_ON_TSE_SOFT: 5,
+  MAX_WAITING_ON_TSE_ALERT: 7
 };
 
 function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh, lastUpdated }) {
@@ -249,6 +249,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   const [loadingHistorical, setLoadingHistorical] = useState(false);
   const [selectedTSE, setSelectedTSE] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [alertsDropdownOpen, setAlertsDropdownOpen] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [wasLoading, setWasLoading] = useState(false);
@@ -261,6 +262,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       fetchOverviewHistoricalData();
     }
   }, [activeView]);
+
 
   // Refresh historical data when conversations are refreshed (for auto-refresh)
   // This ensures Overview tab data refreshes automatically
@@ -369,7 +371,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     try {
       // Calculate current TSE metrics
       const EXCLUDED_TSE_NAMES = [
-        "Stephen Skalamera", "Zen Junior", "Nathan Parrish", "Leticia Esparza",
+        "Zen Junior", "Nathan Parrish", "Leticia Esparza",
         "Rob Woollen", "Brett Bedevian", "Viswa Jeyaraman", "Brandon Yee",
         "Holly Coxon", "Chetana Shinde", "Matt Morgenroth", "Grace Sanford",
         "Prerit Sachdeva", "svc-prd-tse-intercom SVC"
@@ -383,9 +385,8 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             id: tseId,
             name: admin.name || admin.email?.split("@")[0] || `TSE ${tseId}`,
             open: 0,
-            actionableSnoozed: 0,
-            investigationSnoozed: 0,
-            customerWaitSnoozed: 0,
+            waitingOnTSE: 0,
+            waitingOnCustomer: 0,
             totalSnoozed: 0
           };
         }
@@ -410,23 +411,21 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
 
         const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
         const tags = conv.tags || [];
-        const hasInvestigationTag = tags.some(t => 
-          t.name === "#Snooze.Investigation" || 
-          (typeof t === "string" && t.includes("Investigation"))
+        const hasWaitingOnTSETag = tags.some(t => 
+          (t.name && t.name.toLowerCase() === "snooze.waiting-on-tse") || 
+          (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-tse")
         );
-        const hasCustomerWaitTag = tags.some(t => 
-          t.name === "#Snooze.CustomerWait" || 
-          (typeof t === "string" && t.includes("CustomerWait"))
+        const hasWaitingOnCustomerTag = tags.some(t => 
+          (t.name && (t.name.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved")) || 
+          (typeof t === "string" && (t.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.toLowerCase() === "snooze.waiting-on-customer-unresolved"))
         );
 
         if (isSnoozed) {
           byTSE[tseId].totalSnoozed = (byTSE[tseId].totalSnoozed || 0) + 1;
-          if (hasInvestigationTag) {
-            byTSE[tseId].investigationSnoozed++;
-          } else if (hasCustomerWaitTag) {
-            byTSE[tseId].customerWaitSnoozed++;
-          } else {
-            byTSE[tseId].actionableSnoozed++;
+          if (hasWaitingOnTSETag) {
+            byTSE[tseId].waitingOnTSE++;
+          } else if (hasWaitingOnCustomerTag) {
+            byTSE[tseId].waitingOnCustomer++;
           }
         }
 
@@ -442,9 +441,8 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           id: tse.id,
           name: tse.name,
           open: tse.open,
-          actionableSnoozed: tse.actionableSnoozed,
-          investigationSnoozed: tse.investigationSnoozed,
-          customerWaitSnoozed: tse.customerWaitSnoozed,
+          waitingOnTSE: tse.waitingOnTSE,
+          waitingOnCustomer: tse.waitingOnCustomer,
           totalSnoozed: tse.totalSnoozed || 0
         }))
       };
@@ -481,21 +479,37 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     // Create a map of all team members first
     const allTSEsMap = {};
     
+    // DEBUG: Log all team members received from API
+    console.log('=== TSE DEBUG START ===');
+    console.log(`Total team members received: ${teamMembers.length}`);
+    console.log('All team members:', teamMembers.map(m => ({ id: m.id, name: m.name, email: m.email })));
+    
+    // Check specifically for Stephen Skalamera
+    const stephenInTeam = teamMembers.find(m => m.name?.toLowerCase().includes('stephen'));
+    console.log('Stephen in team members?', stephenInTeam ? stephenInTeam : 'NOT FOUND');
+    
     // Add all team members to the map (even if they have 0 conversations)
     teamMembers.forEach(admin => {
       const tseId = admin.id;
-      if (tseId && !EXCLUDED_TSE_NAMES.includes(admin.name)) {
+      const isExcluded = EXCLUDED_TSE_NAMES.includes(admin.name);
+      console.log(`Processing: ${admin.name} (ID: ${tseId}) - Excluded: ${isExcluded}`);
+      
+      if (tseId && !isExcluded) {
         allTSEsMap[tseId] = {
           id: tseId,
           name: admin.name || admin.email?.split("@")[0] || `TSE ${tseId}`,
           open: 0,
           totalSnoozed: 0,
-          actionableSnoozed: 0,
-          investigationSnoozed: 0,
-          customerWaitSnoozed: 0
+          waitingOnTSE: 0,
+          waitingOnCustomer: 0,
+          awayModeEnabled: admin.away_mode_enabled || false
         };
       }
     });
+    
+    console.log(`TSEs after filtering: ${Object.keys(allTSEsMap).length}`);
+    console.log('Filtered TSEs:', Object.values(allTSEsMap).map(t => ({ name: t.name, away: t.awayModeEnabled })));
+    console.log('=== TSE DEBUG END ===');
     
     // Track unassigned conversations separately
     const unassignedConversations = {
@@ -509,21 +523,15 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         totalSnoozed: 0,
         byTSE: Object.values(allTSEsMap), // Return all team members even with 0 conversations
         unassignedConversations: { total: 0, waitTimes: [], medianWaitTime: 0 },
-        actionableSnoozed: [],
-        investigationSnoozed: [],
-        customerWaitSnoozed: [],
-        reassignmentCandidates: [],
-        closureCandidates: [],
+        waitingOnTSE: [],
+        waitingOnCustomer: [],
         alerts: []
       };
     }
 
     const byTSE = { ...allTSEsMap }; // Start with all team members
-    const actionableSnoozed = [];
-    const investigationSnoozed = [];
-    const customerWaitSnoozed = [];
-    const reassignmentCandidates = [];
-    const closureCandidates = [];
+    const waitingOnTSEConvs = [];
+    const waitingOnCustomerConvs = [];
     const alerts = [];
 
     const now = Date.now() / 1000; // Unix timestamp in seconds
@@ -606,14 +614,16 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           }
         }
         
+        // Look up away status from teamMembers if available
+        const teamMember = teamMembers.find(m => String(m.id) === String(tseId));
         byTSE[tseId] = {
           id: tseId,
           name: tseName,
           open: 0,
           totalSnoozed: 0,
-          actionableSnoozed: 0,
-          investigationSnoozed: 0,
-          customerWaitSnoozed: 0
+          waitingOnTSE: 0,
+          waitingOnCustomer: 0,
+          awayModeEnabled: teamMember?.away_mode_enabled || false
         };
       } else {
         // Update name if we find a better one (if current is "Unassigned" or "TSE X")
@@ -643,13 +653,16 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                        (conv.source && conv.source.type === "snoozed") ||
                        (conv.conversation_parts && conv.conversation_parts.some(part => part.state === "snoozed"));
       const tags = conv.tags || [];
-      const hasInvestigationTag = tags.some(t => 
-        t.name === "#Snooze.Investigation" || 
-        (typeof t === "string" && t.includes("Investigation"))
+      
+      // New tag detection: snooze.waiting-on-tse
+      const hasWaitingOnTSETag = tags.some(t => 
+        (t.name && t.name.toLowerCase() === "snooze.waiting-on-tse") || 
+        (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-tse")
       );
-      const hasCustomerWaitTag = tags.some(t => 
-        t.name === "#Snooze.CustomerWait" || 
-        (typeof t === "string" && t.includes("CustomerWait"))
+      // New tag detection: snooze.waiting-on-customer-resolved OR snooze.waiting-on-customer-unresolved
+      const hasWaitingOnCustomerTag = tags.some(t => 
+        (t.name && (t.name.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved")) || 
+        (typeof t === "string" && (t.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.toLowerCase() === "snooze.waiting-on-customer-unresolved"))
       );
 
       // Count all snoozed conversations
@@ -662,47 +675,14 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       }
 
       if (isSnoozed) {
-        if (hasInvestigationTag) {
-          byTSE[tseId].investigationSnoozed++;
-          investigationSnoozed.push(conv);
-          
-          // Check for reassignment candidates (48+ hours)
-          const snoozedAt = conv.snoozed_until || conv.updated_at;
-          if (snoozedAt) {
-            const snoozedTimestamp = typeof snoozedAt === "number" ? snoozedAt : new Date(snoozedAt).getTime() / 1000;
-            const hoursSnoozed = (now - snoozedTimestamp) / 3600;
-            if (hoursSnoozed >= THRESHOLDS.REASSIGNMENT_HOURS) {
-              reassignmentCandidates.push({
-                ...conv,
-                hoursSnoozed: Math.round(hoursSnoozed)
-              });
-            }
-          }
-        } else if (hasCustomerWaitTag) {
-          byTSE[tseId].customerWaitSnoozed++;
-          customerWaitSnoozed.push(conv);
-          
-          // Check for closure candidates
-          const lastContacted = conv.last_contacted_at || conv.updated_at;
-          if (lastContacted) {
-            const contactedTimestamp = typeof lastContacted === "number" ? lastContacted : new Date(lastContacted).getTime() / 1000;
-            const hoursSinceContact = (now - contactedTimestamp) / 3600;
-            const daysSinceContact = hoursSinceContact / 24;
-            
-            // 24 hours after check-in OR Day 3 after warning
-            if (hoursSinceContact >= THRESHOLDS.CLOSURE_CHECKIN_HOURS || daysSinceContact >= THRESHOLDS.CLOSURE_WARNING_DAYS) {
-              closureCandidates.push({
-                ...conv,
-                hoursSinceContact: Math.round(hoursSinceContact),
-                daysSinceContact: Math.round(daysSinceContact * 10) / 10
-              });
-            }
-          }
-        } else {
-          // Snoozed but not tagged - count as actionable if not awaiting reply
-          byTSE[tseId].actionableSnoozed++;
-          actionableSnoozed.push(conv);
+        if (hasWaitingOnTSETag) {
+          byTSE[tseId].waitingOnTSE++;
+          waitingOnTSEConvs.push(conv);
+        } else if (hasWaitingOnCustomerTag) {
+          byTSE[tseId].waitingOnCustomer++;
+          waitingOnCustomerConvs.push(conv);
         }
+        // Note: Snoozed conversations without specific tags are only counted in totalSnoozed
       }
 
     });
@@ -717,7 +697,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       }
       
       const totalOpen = tse.open;
-      const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
+      const totalWaitingOnTSE = tse.waitingOnTSE;
       
       if (totalOpen >= THRESHOLDS.MAX_OPEN_ALERT) {
         alerts.push({
@@ -730,14 +710,14 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         });
       }
       
-      if (totalActionableSnoozed >= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_ALERT) {
+      if (totalWaitingOnTSE >= THRESHOLDS.MAX_WAITING_ON_TSE_ALERT) {
         alerts.push({
-          type: "actionable_snoozed_threshold",
+          type: "waiting_on_tse_threshold",
           severity: "high",
           tseId: tse.id,
           tseName: tse.name,
-          message: `${tse.name}: ${totalActionableSnoozed} actionable snoozed (threshold: ${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_ALERT}+)`,
-          count: totalActionableSnoozed
+          message: `${tse.name}: ${totalWaitingOnTSE} waiting on TSE (threshold: ${THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+)`,
+          count: totalWaitingOnTSE
         });
       }
     });
@@ -787,10 +767,9 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     
     filteredByTSE.forEach(tse => {
       const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-      const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
-      const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+      const meetsWaitingOnTSE = tse.waitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
       
-      if (meetsOpen && meetsSnoozed) {
+      if (meetsOpen && meetsWaitingOnTSE) {
         compliantBoth++;
       }
       
@@ -798,7 +777,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       if (meetsOpen) {
         compliantOpen++;
       }
-      if (meetsSnoozed) {
+      if (meetsWaitingOnTSE) {
         compliantSnoozed++;
       }
     });
@@ -832,11 +811,8 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       totalSnoozed: totalSnoozedCount,
       byTSE: Array.isArray(filteredByTSE) ? filteredByTSE : [],
       unassignedConversations,
-      actionableSnoozed: Array.isArray(actionableSnoozed) ? actionableSnoozed : [],
-      investigationSnoozed: Array.isArray(investigationSnoozed) ? investigationSnoozed : [],
-      customerWaitSnoozed: Array.isArray(customerWaitSnoozed) ? customerWaitSnoozed : [],
-      reassignmentCandidates: Array.isArray(reassignmentCandidates) ? reassignmentCandidates : [],
-      closureCandidates: Array.isArray(closureCandidates) ? closureCandidates : [],
+      waitingOnTSE: Array.isArray(waitingOnTSEConvs) ? waitingOnTSEConvs : [],
+      waitingOnCustomer: Array.isArray(waitingOnCustomerConvs) ? waitingOnCustomerConvs : [],
       alerts: Array.isArray(filteredAlerts) ? filteredAlerts : [],
       complianceOverall,
       complianceOpenOnly: complianceOpenOnlyPct,
@@ -868,11 +844,30 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           return conv.state === "open" && !isSnoozed;
         });
       }
-      if (filterTag === "investigation") return metrics.investigationSnoozed || [];
-      if (filterTag === "customerwait") return metrics.customerWaitSnoozed || [];
-      if (filterTag === "actionable") return metrics.actionableSnoozed || [];
-      if (filterTag === "reassignment") return metrics.reassignmentCandidates || [];
-      if (filterTag === "closure") return metrics.closureCandidates || [];
+      if (filterTag === "waitingontse") return metrics.waitingOnTSE || [];
+      if (filterTag === "waitingoncustomer") return metrics.waitingOnCustomer || [];
+      if (filterTag === "waitingoncustomer-resolved") {
+        return conversations.filter(conv => {
+          const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+          if (!isSnoozed) return false;
+          const tags = conv.tags || [];
+          return tags.some(t => 
+            (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
+            (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
+          );
+        });
+      }
+      if (filterTag === "waitingoncustomer-unresolved") {
+        return conversations.filter(conv => {
+          const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+          if (!isSnoozed) return false;
+          const tags = conv.tags || [];
+          return tags.some(t => 
+            (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
+            (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
+          );
+        });
+      }
       return conversations;
     };
     
@@ -885,7 +880,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       return !assigneeName || !EXCLUDED_TSE_NAMES.includes(assigneeName);
     });
     
-    // Filter by TSE if selected
+    // Filter by TSE if selected (apply regardless of filterTag)
     if (filterTSE !== "all") {
       if (filterTSE === "unassigned") {
         tagFiltered = tagFiltered.filter(conv => {
@@ -933,11 +928,12 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
 
   // Get conversations for a specific TSE by category
   const getTSEConversations = (tseId) => {
-    if (!conversations || !tseId) return { open: [], actionableSnoozed: [], customerWait: [] };
+    if (!conversations || !tseId) return { open: [], waitingOnTSE: [], waitingOnCustomer: [], totalSnoozed: [] };
     
     const open = [];
-    const actionableSnoozed = [];
-    const customerWait = [];
+    const waitingOnTSE = [];
+    const waitingOnCustomer = [];
+    const totalSnoozed = [];
     
     conversations.forEach((conv) => {
       const convTseId = conv.admin_assignee_id || 
@@ -954,27 +950,28 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                        conv.snoozed_until || 
                        (conv.statistics && conv.statistics.state === "snoozed");
       const tags = conv.tags || [];
-      const hasInvestigationTag = tags.some(t => 
-        t.name === "#Snooze.Investigation" || 
-        (typeof t === "string" && t.includes("Investigation"))
+      const hasWaitingOnTSETag = tags.some(t => 
+        (t.name && t.name.toLowerCase() === "snooze.waiting-on-tse") || 
+        (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-tse")
       );
-      const hasCustomerWaitTag = tags.some(t => 
-        t.name === "#Snooze.CustomerWait" || 
-        (typeof t === "string" && t.includes("CustomerWait"))
+      const hasWaitingOnCustomerTag = tags.some(t => 
+        (t.name && (t.name.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved")) || 
+        (typeof t === "string" && (t.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.toLowerCase() === "snooze.waiting-on-customer-unresolved"))
       );
       
       if (conv.state === "open" && !isSnoozed) {
         open.push(conv);
       } else if (isSnoozed) {
-        if (hasCustomerWaitTag) {
-          customerWait.push(conv);
-        } else if (!hasInvestigationTag) {
-          actionableSnoozed.push(conv);
+        totalSnoozed.push(conv);
+        if (hasWaitingOnTSETag) {
+          waitingOnTSE.push(conv);
+        } else if (hasWaitingOnCustomerTag) {
+          waitingOnCustomer.push(conv);
         }
       }
     });
     
-    return { open, actionableSnoozed, customerWait };
+    return { open, waitingOnTSE, waitingOnCustomer, totalSnoozed };
   };
 
   // Handle TSE card click
@@ -1055,11 +1052,49 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       <div className="dashboard-header">
         <h2>Support Ops: Queue Health Dashboard</h2>
         <div className="header-actions">
+          <button
+            className="help-icon-button"
+            onClick={() => setIsHelpModalOpen(true)}
+            aria-label="Help"
+            title="Help"
+          >
+            <img 
+              src="https://res.cloudinary.com/doznvxtja/image/upload/v1767909444/Untitled_design_19_wav3tj.svg" 
+              alt="Help" 
+              className="help-icon"
+            />
+          </button>
           <AlertsDropdown 
             alerts={metrics.alerts || []}
             isOpen={alertsDropdownOpen}
             onToggle={() => setAlertsDropdownOpen(!alertsDropdownOpen)}
             onClose={() => setAlertsDropdownOpen(false)}
+            onTSEClick={(tseId, tseName) => {
+              // Find TSE object from metrics
+              const tse = (metrics.byTSE || []).find(t => 
+                String(t.id) === String(tseId) || t.name === tseName
+              );
+              if (tse) {
+                handleTSECardClick(tse);
+                setAlertsDropdownOpen(false); // Close dropdown when opening modal
+              }
+            }}
+            onViewAll={() => {
+              setActiveView("tse");
+              setSelectedColors(new Set(['error'])); // Non-Compliant only
+              setSelectedRegions(new Set(['UK', 'NY', 'SF', 'Other'])); // All regions
+              setAlertsDropdownOpen(false); // Close dropdown
+            }}
+            onViewChats={(tseId, alertType) => {
+              setActiveView("conversations");
+              if (alertType === "open") {
+                setFilterTag("open");
+              } else if (alertType === "snoozed") {
+                setFilterTag("waitingontse");
+              }
+              setFilterTSE(String(tseId));
+              setAlertsDropdownOpen(false); // Close dropdown
+            }}
           />
           <div className="view-tabs">
             <button 
@@ -1106,20 +1141,28 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       {activeView === "conversations" && (
         <div className="filter-bar">
           <div className="filter-group">
-            <label>Filter by Tag:</label>
-            <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} className="filter-select">
+            <label>FILTER BY SNOOZE TYPE</label>
+            <select value={filterTag} onChange={(e) => {
+              const newFilterTag = e.target.value;
+              setFilterTag(newFilterTag);
+              // Clear search when changing filter tag
+              setSearchId("");
+            }} className="filter-select">
               <option value="all">All Conversations</option>
-              <option value="snoozed">Snoozed</option>
-              <option value="investigation">#Snooze.Investigation</option>
-              <option value="customerwait">#Snooze.CustomerWait</option>
-              <option value="actionable">Actionable Snoozed</option>
-              <option value="reassignment">Reassignment Candidates (48+ hrs)</option>
-              <option value="closure">Closure Candidates</option>
+              <option value="snoozed">All Snoozed</option>
+              <option value="waitingontse">Snoozed - Waiting On TSE</option>
+              <option value="waitingoncustomer">Snoozed - Waiting On Customer</option>
+              <option value="waitingoncustomer-resolved">  └ Resolved</option>
+              <option value="waitingoncustomer-unresolved">  └ Unresolved</option>
             </select>
           </div>
           <div className="filter-group">
             <label>Filter by TSE:</label>
-            <select value={filterTSE} onChange={(e) => setFilterTSE(e.target.value)} className="filter-select">
+            <select value={filterTSE} onChange={(e) => {
+              setFilterTSE(e.target.value);
+              // Clear search when changing TSE filter
+              setSearchId("");
+            }} className="filter-select">
               <option value="all">All TSEs</option>
               <option value="unassigned">Unassigned</option>
               {['UK', 'NY', 'SF', 'Other'].map(region => {
@@ -1203,6 +1246,15 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           historicalSnapshots={historicalSnapshots}
           responseTimeMetrics={responseTimeMetrics}
           loadingHistorical={loadingHistorical}
+          onNavigateToConversations={(filterTag) => {
+            setActiveView("conversations");
+            setFilterTag(filterTag);
+          }}
+          onNavigateToTSEView={() => {
+            setActiveView("tse");
+            setSelectedColors(new Set(['error'])); // Non-Compliant only
+            setSelectedRegions(new Set(['UK', 'NY', 'SF', 'Other'])); // All regions
+          }}
         />
       )}
 
@@ -1250,7 +1302,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                   <div className="legend-color legend-success">
                     {selectedColors.has('success') && <span className="legend-checkmark">✓</span>}
                   </div>
-                  <span className="legend-label">Healthy (0 open, ≤{THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT} actionable snoozed)</span>
+                  <span className="legend-label">Compliant</span>
                 </div>
                 <div 
                   className={`legend-item legend-clickable ${selectedColors.has('warning') ? 'legend-selected' : ''}`}
@@ -1267,7 +1319,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                   <div className="legend-color legend-warning">
                     {selectedColors.has('warning') && <span className="legend-checkmark">✓</span>}
                   </div>
-                  <span className="legend-label">Warning (≤{THRESHOLDS.MAX_OPEN_SOFT} open, ≤{THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT} actionable snoozed)</span>
+                  <span className="legend-label">Warning (≤{THRESHOLDS.MAX_OPEN_SOFT} open, ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE)</span>
                 </div>
                 <div 
                   className={`legend-item legend-clickable ${selectedColors.has('error') ? 'legend-selected' : ''}`}
@@ -1284,7 +1336,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                   <div className="legend-color legend-error">
                     {selectedColors.has('error') && <span className="legend-checkmark">✓</span>}
                   </div>
-                  <span className="legend-label">Alert ({'>'}{THRESHOLDS.MAX_OPEN_SOFT} open or {'>'}{THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT} actionable snoozed)</span>
+                  <span className="legend-label">Non-Compliant</span>
                 </div>
               </div>
             </div>
@@ -1358,10 +1410,10 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             // Helper function to get status for a TSE
             const getTSEStatus = (tse) => {
               const totalOpen = tse.open;
-              const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
-              return totalOpen === 0 && totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT
+              const totalWaitingOnTSE = tse.waitingOnTSE || 0;
+              return totalOpen === 0 && totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT
                 ? "success"
-                : totalOpen <= THRESHOLDS.MAX_OPEN_SOFT && totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT
+                : totalOpen <= THRESHOLDS.MAX_OPEN_SOFT && totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT
                 ? "warning"
                 : "error";
             };
@@ -1391,7 +1443,9 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                 <div className="tse-grid">
                   {filteredAndSortedTSEs.map((tse) => {
                     const totalOpen = tse.open;
-                    const totalActionableSnoozed = tse.actionableSnoozed + tse.investigationSnoozed;
+                    const totalWaitingOnTSE = tse.waitingOnTSE || 0;
+                    const totalWaitingOnCustomer = tse.waitingOnCustomer || 0;
+                    const totalSnoozed = tse.totalSnoozed || 0;
                     const status = getTSEStatus(tse);
 
                     const avatarUrl = getTSEAvatar(tse.name);
@@ -1402,20 +1456,28 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                         className={`tse-card tse-${status} tse-card-clickable`}
                         onClick={() => handleTSECardClick(tse)}
                       >
+                        <div className={`tse-card-click-icon status-${status}`}>→</div>
                         <div className="tse-header">
                           <div className="tse-header-left">
-                            {avatarUrl && (
-                              <img 
-                                src={avatarUrl} 
-                                alt={tse.name}
-                                className="tse-avatar"
-                              />
-                            )}
+                            <div className="tse-avatar-container">
+                              {avatarUrl && (
+                                <img 
+                                  src={avatarUrl} 
+                                  alt={tse.name}
+                                  className="tse-avatar"
+                                />
+                              )}
+                              {tse.awayModeEnabled ? (
+                                <span className="avatar-away-indicator" title="Away mode enabled">
+                                  🌙
+                                </span>
+                              ) : (
+                                <span className="avatar-available-indicator" title="Available">
+                                </span>
+                              )}
+                            </div>
                             <h4>{tse.name}</h4>
                           </div>
-                          <span className={`status-badge status-${status}`}>
-                            {status === "success" ? "✓" : status === "warning" ? "⚠" : "✗"}
-                          </span>
                         </div>
                         <div className="tse-metrics">
                           <div className="tse-metric">
@@ -1425,14 +1487,18 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                             </span>
                           </div>
                           <div className="tse-metric">
-                            <span className="metric-label">Actionable Snoozed:</span>
-                            <span className={`metric-value ${totalActionableSnoozed > THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT ? "metric-error" : ""}`}>
-                              {totalActionableSnoozed}
+                            <span className="metric-label">Waiting On TSE:</span>
+                            <span className={`metric-value ${totalWaitingOnTSE > THRESHOLDS.MAX_WAITING_ON_TSE_SOFT ? "metric-error" : ""}`}>
+                              {totalWaitingOnTSE}
                             </span>
                           </div>
                           <div className="tse-metric">
-                            <span className="metric-label">Waiting on Customer:</span>
-                            <span className="metric-value">{tse.customerWaitSnoozed || 0}</span>
+                            <span className="metric-label">Waiting On Customer:</span>
+                            <span className="metric-value">{totalWaitingOnCustomer}</span>
+                          </div>
+                          <div className="tse-metric">
+                            <span className="metric-label">Total Snoozed:</span>
+                            <span className="metric-value">{totalSnoozed}</span>
                           </div>
                         </div>
                       </div>
@@ -1450,18 +1516,16 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           <h3 className="section-title">
             {filterTSE === "unassigned" && "Unassigned Conversations"}
             {filterTag === "open" && filterTSE !== "unassigned" && "Open Conversations"}
-            {filterTag === "all" && filterTSE !== "unassigned" && "All Conversations"}
-            {filterTag === "snoozed" && "Snoozed Conversations"}
-            {filterTag === "investigation" && "#Snooze.Investigation Conversations"}
-            {filterTag === "customerwait" && "#Snooze.CustomerWait Conversations"}
-            {filterTag === "actionable" && "Actionable Snoozed Conversations"}
-            {filterTag === "reassignment" && "Reassignment Candidates (48+ hours)"}
-            {filterTag === "closure" && "Closure Candidates"}
+            {filterTag === "all" && filterTSE !== "unassigned" && "All Open & Snoozed Conversations"}
+            {filterTag === "snoozed" && "Total Snoozed Conversations"}
+            {filterTag === "waitingontse" && "Snoozed - Waiting On TSE"}
+            {filterTag === "waitingoncustomer" && "Snoozed - Waiting On Customer"}
+            {filterTag === "waitingoncustomer-resolved" && "Waiting On Customer - Resolved"}
+            {filterTag === "waitingoncustomer-unresolved" && "Waiting On Customer - Unresolved"}
             <span className="count-badge">({filteredConversations.length})</span>
           </h3>
           <ConversationTable 
             conversations={filteredConversations} 
-            showTimeInfo={filterTag === "reassignment" || filterTag === "closure"}
           />
         </div>
       )}
@@ -1475,6 +1539,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         />
       )}
 
+
       {/* TSE Details Modal */}
       {isModalOpen && selectedTSE && (
         <TSEDetailsModal
@@ -1483,12 +1548,17 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           onClose={handleCloseModal}
         />
       )}
+
+      {/* Help Modal */}
+      {isHelpModalOpen && (
+        <HelpModal onClose={() => setIsHelpModalOpen(false)} />
+      )}
     </div>
   );
 }
 
 // Alerts Dropdown Component
-function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
+function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewAll, onViewChats }) {
   const [expandedRegions, setExpandedRegions] = useState(new Set()); // All collapsed by default
   const [expandedTSEs, setExpandedTSEs] = useState(new Set());
   const [expandedAlertTypes, setExpandedAlertTypes] = useState(new Set());
@@ -1535,7 +1605,7 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
       
       if (alert.type === "open_threshold") {
         tseGroups[tseKey].openAlerts.push(alert);
-      } else if (alert.type === "actionable_snoozed_threshold") {
+      } else if (alert.type === "waiting_on_tse_threshold") {
         tseGroups[tseKey].snoozedAlerts.push(alert);
       }
     });
@@ -1632,7 +1702,17 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
         <div className="alerts-dropdown">
           <div className="alerts-dropdown-header">
             <h3>Active Alerts</h3>
-            <button className="alerts-close-button" onClick={onClose}>×</button>
+            <div className="alerts-dropdown-header-actions">
+              {onViewAll && (
+                <button 
+                  className="alerts-view-all-button" 
+                  onClick={onViewAll}
+                >
+                  View All
+                </button>
+              )}
+              <button className="alerts-close-button" onClick={onClose}>×</button>
+            </div>
           </div>
           <div className="alerts-dropdown-content">
             {alertCount === 0 ? (
@@ -1707,11 +1787,27 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
                                         {expandedAlertTypes.has(`${tseKey}-open`) && (
                                           <div className="alert-type-items">
                                             {tseGroup.openAlerts.map((alert, idx) => (
-                                              <div key={idx} className="alert-item">
+                                              <div 
+                                                key={idx} 
+                                                className="alert-item alert-item-clickable"
+                                                onClick={() => onTSEClick && onTSEClick(tseGroup.tseId, tseGroup.tseName)}
+                                                style={{ cursor: onTSEClick ? 'pointer' : 'default' }}
+                                              >
                                                 <span className="alert-severity">
                                                   {alert.severity === "high" ? "🔴" : "🟡"}
                                                 </span>
                                                 <span className="alert-message">{alert.message}</span>
+                                                {onViewChats && (
+                                                  <button
+                                                    className="alert-view-chats-button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      onViewChats(tseGroup.tseId, "open");
+                                                    }}
+                                                  >
+                                                    View Chats
+                                                  </button>
+                                                )}
                                               </div>
                                             ))}
                                           </div>
@@ -1734,11 +1830,27 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
                                         {expandedAlertTypes.has(`${tseKey}-snoozed`) && (
                                           <div className="alert-type-items">
                                             {tseGroup.snoozedAlerts.map((alert, idx) => (
-                                              <div key={idx} className="alert-item">
+                                              <div 
+                                                key={idx} 
+                                                className="alert-item alert-item-clickable"
+                                                onClick={() => onTSEClick && onTSEClick(tseGroup.tseId, tseGroup.tseName)}
+                                                style={{ cursor: onTSEClick ? 'pointer' : 'default' }}
+                                              >
                                                 <span className="alert-severity">
                                                   {alert.severity === "high" ? "🔴" : "🟡"}
                                                 </span>
                                                 <span className="alert-message">{alert.message}</span>
+                                                {onViewChats && (
+                                                  <button
+                                                    className="alert-view-chats-button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      onViewChats(tseGroup.tseId, "snoozed");
+                                                    }}
+                                                  >
+                                                    View Chats
+                                                  </button>
+                                                )}
                                               </div>
                                             ))}
                                           </div>
@@ -1765,7 +1877,7 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose }) {
 }
 
 // Modern Overview Dashboard Component
-function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical }) {
+function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical, onNavigateToConversations, onNavigateToTSEView }) {
   // Prepare compliance trend data (last 7 days)
   const complianceTrendData = useMemo(() => {
     console.log('Overview: Processing compliance trend data, snapshots:', historicalSnapshots);
@@ -1783,9 +1895,10 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         let compliantBoth = 0;
         tseData.forEach(tse => {
           const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
-          const totalActionableSnoozed = (tse.actionableSnoozed || 0) + (tse.investigationSnoozed || 0);
-          const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
-          if (meetsOpen && meetsSnoozed) compliantBoth++;
+          // Support both old and new field names for backwards compatibility
+          const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+          const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+          if (meetsOpen && meetsWaitingOnTSE) compliantBoth++;
         });
 
         const compliance = totalTSEs > 0 ? Math.round((compliantBoth / totalTSEs) * 100) : 0;
@@ -1803,14 +1916,14 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         };
       })
       .filter(item => item !== null)
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(-7); // Last 7 days
+      .sort((a, b) => a.date.localeCompare(b.date));
+      // Don't limit to 7 days - we need more for week-over-week comparison
     
     console.log('Overview: Processed compliance trend data:', processed);
     return processed;
   }, [historicalSnapshots]);
 
-  // Prepare response time trend data (last 7 days)
+  // Prepare response time trend data
   const responseTimeTrendData = useMemo(() => {
     if (!responseTimeMetrics || responseTimeMetrics.length === 0) return [];
     
@@ -1827,8 +1940,8 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           percentage: parseFloat(metric.percentage10PlusMin || 0)
         };
       })
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(-7); // Last 7 days
+      .sort((a, b) => a.date.localeCompare(b.date));
+      // Don't limit - we need all data for week-over-week comparison
   }, [responseTimeMetrics]);
 
   // Calculate region breakdown
@@ -1838,16 +1951,22 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     const latestSnapshot = historicalSnapshots[historicalSnapshots.length - 1];
     const tseData = latestSnapshot.tse_data || latestSnapshot.tseData || [];
     
-    const regionStats = { 'UK': { total: 0, compliant: 0 }, 'NY': { total: 0, compliant: 0 }, 'SF': { total: 0, compliant: 0 }, 'Other': { total: 0, compliant: 0 } };
+    const regionStats = { 'UK': { total: 0, compliant: 0 }, 'NY': { total: 0, compliant: 0 }, 'SF': { total: 0, compliant: 0 } };
     
     tseData.forEach(tse => {
       const region = getTSERegion(tse.name);
+      // Skip 'Other' region
+      if (region === 'Other' || !regionStats[region]) return;
+      
       const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
-      const totalActionableSnoozed = (tse.actionableSnoozed || 0) + (tse.investigationSnoozed || 0);
-      const meetsSnoozed = totalActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+      // Compliance uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
+      // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
+      // Support both old and new field names for backwards compatibility
+      const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+      const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
       
       regionStats[region].total++;
-      if (meetsOpen && meetsSnoozed) regionStats[region].compliant++;
+      if (meetsOpen && meetsWaitingOnTSE) regionStats[region].compliant++;
     });
     
     return Object.entries(regionStats).map(([region, stats]) => ({
@@ -1855,7 +1974,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       compliance: stats.total > 0 ? Math.round((stats.compliant / stats.total) * 100) : 0,
       total: stats.total,
       compliant: stats.compliant
-    })).filter(r => r.total > 0);
+    })).filter(r => r.total > 0 && r.region !== 'Other');
   }, [historicalSnapshots]);
 
   // Calculate today vs yesterday comparison
@@ -1891,45 +2010,94 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     };
   }, [complianceTrendData, responseTimeTrendData]);
 
-  // Calculate week-over-week comparison
+  // Calculate week-over-week comparison (or most recent period comparison if less data available)
   const weekOverWeek = useMemo(() => {
-    if (!complianceTrendData || complianceTrendData.length < 7) return null;
+    if (!complianceTrendData || complianceTrendData.length < 2) return null;
     
-    const thisWeek = complianceTrendData.slice(-7);
-    const lastWeek = complianceTrendData.slice(-14, -7);
-    
-    if (lastWeek.length === 0) return null;
-    
-    const thisWeekAvg = thisWeek.reduce((sum, d) => sum + d.compliance, 0) / thisWeek.length;
-    const lastWeekAvg = lastWeek.reduce((sum, d) => sum + d.compliance, 0) / lastWeek.length;
-    const complianceChange = thisWeekAvg - lastWeekAvg;
-    
-    // Response time week-over-week
-    let responseTimeChange = null;
-    let thisWeekAvgRT = null;
-    let lastWeekAvgRT = null;
-    if (responseTimeTrendData && responseTimeTrendData.length >= 14) {
-      const thisWeekRT = responseTimeTrendData.slice(-7);
-      const lastWeekRT = responseTimeTrendData.slice(-14, -7);
-      thisWeekAvgRT = thisWeekRT.reduce((sum, d) => sum + d.percentage, 0) / thisWeekRT.length;
-      lastWeekAvgRT = lastWeekRT.reduce((sum, d) => sum + d.percentage, 0) / lastWeekRT.length;
-      responseTimeChange = thisWeekAvgRT - lastWeekAvgRT;
+    // If we have at least 7 days, compare last 7 vs previous 7
+    if (complianceTrendData.length >= 7) {
+      const thisWeek = complianceTrendData.slice(-7);
+      const lastWeek = complianceTrendData.slice(-14, -7);
+      
+      if (lastWeek.length === 0) {
+        // Not enough for full comparison, fall through to shorter comparison
+      } else {
+        const thisWeekAvg = thisWeek.reduce((sum, d) => sum + d.compliance, 0) / thisWeek.length;
+        const lastWeekAvg = lastWeek.reduce((sum, d) => sum + d.compliance, 0) / lastWeek.length;
+        const complianceChange = thisWeekAvg - lastWeekAvg;
+        
+        // Response time week-over-week
+        let responseTimeChange = null;
+        let thisWeekAvgRT = null;
+        let lastWeekAvgRT = null;
+        if (responseTimeTrendData && responseTimeTrendData.length >= 14) {
+          const thisWeekRT = responseTimeTrendData.slice(-7);
+          const lastWeekRT = responseTimeTrendData.slice(-14, -7);
+          thisWeekAvgRT = thisWeekRT.reduce((sum, d) => sum + d.percentage, 0) / thisWeekRT.length;
+          lastWeekAvgRT = lastWeekRT.reduce((sum, d) => sum + d.percentage, 0) / lastWeekRT.length;
+          responseTimeChange = thisWeekAvgRT - lastWeekAvgRT;
+        }
+        
+        return {
+          label: 'Last 7 Days vs Previous 7 Days',
+          compliance: {
+            thisWeek: Math.round(thisWeekAvg),
+            lastWeek: Math.round(lastWeekAvg),
+            change: Math.round(complianceChange),
+            direction: complianceChange > 0 ? 'up' : complianceChange < 0 ? 'down' : 'stable'
+          },
+          responseTime: responseTimeChange !== null && thisWeekAvgRT !== null && lastWeekAvgRT !== null ? {
+            thisWeek: Math.round(thisWeekAvgRT * 10) / 10,
+            lastWeek: Math.round(lastWeekAvgRT * 10) / 10,
+            change: Math.round(responseTimeChange * 10) / 10,
+            direction: responseTimeChange < 0 ? 'up' : responseTimeChange > 0 ? 'down' : 'stable'
+          } : null
+        };
+      }
     }
     
-    return {
-      compliance: {
-        thisWeek: Math.round(thisWeekAvg),
-        lastWeek: Math.round(lastWeekAvg),
-        change: Math.round(complianceChange),
-        direction: complianceChange > 0 ? 'up' : complianceChange < 0 ? 'down' : 'stable'
-      },
-      responseTime: responseTimeChange !== null && thisWeekAvgRT !== null && lastWeekAvgRT !== null ? {
-        thisWeek: Math.round(thisWeekAvgRT * 10) / 10,
-        lastWeek: Math.round(lastWeekAvgRT * 10) / 10,
-        change: Math.round(responseTimeChange * 10) / 10,
-        direction: responseTimeChange < 0 ? 'up' : responseTimeChange > 0 ? 'down' : 'stable'
-      } : null
-    };
+    // Fallback: Compare most recent period vs previous period (at least 2 days needed)
+    if (complianceTrendData.length >= 2) {
+      const availableDays = Math.min(complianceTrendData.length, 7);
+      const recentPeriod = complianceTrendData.slice(-availableDays);
+      const previousPeriod = complianceTrendData.slice(-availableDays * 2, -availableDays);
+      
+      if (previousPeriod.length === 0) return null;
+      
+      const recentAvg = recentPeriod.reduce((sum, d) => sum + d.compliance, 0) / recentPeriod.length;
+      const previousAvg = previousPeriod.reduce((sum, d) => sum + d.compliance, 0) / previousPeriod.length;
+      const complianceChange = recentAvg - previousAvg;
+      
+      // Response time comparison
+      let responseTimeChange = null;
+      let recentAvgRT = null;
+      let previousAvgRT = null;
+      if (responseTimeTrendData && responseTimeTrendData.length >= availableDays * 2) {
+        const recentRT = responseTimeTrendData.slice(-availableDays);
+        const previousRT = responseTimeTrendData.slice(-availableDays * 2, -availableDays);
+        recentAvgRT = recentRT.reduce((sum, d) => sum + d.percentage, 0) / recentRT.length;
+        previousAvgRT = previousRT.reduce((sum, d) => sum + d.percentage, 0) / previousRT.length;
+        responseTimeChange = recentAvgRT - previousAvgRT;
+      }
+      
+      return {
+        label: `Last ${availableDays} Days vs Previous ${availableDays} Days`,
+        compliance: {
+          thisWeek: Math.round(recentAvg),
+          lastWeek: Math.round(previousAvg),
+          change: Math.round(complianceChange),
+          direction: complianceChange > 0 ? 'up' : complianceChange < 0 ? 'down' : 'stable'
+        },
+        responseTime: responseTimeChange !== null && recentAvgRT !== null && previousAvgRT !== null ? {
+          thisWeek: Math.round(recentAvgRT * 10) / 10,
+          lastWeek: Math.round(previousAvgRT * 10) / 10,
+          change: Math.round(responseTimeChange * 10) / 10,
+          direction: responseTimeChange < 0 ? 'up' : responseTimeChange > 0 ? 'down' : 'stable'
+        } : null
+      };
+    }
+    
+    return null;
   }, [complianceTrendData, responseTimeTrendData]);
 
   // Calculate best/worst day in last 7 days
@@ -2041,47 +2209,10 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     <div className="modern-overview">
       {/* Quick Insights Section */}
       <div className="overview-insights">
-        {/* Today vs Yesterday */}
-        {todayVsYesterday && (
-          <div className="insight-card">
-            <h4 className="insight-title">Today vs Yesterday</h4>
-            <div className="insight-content">
-              <div className="insight-metric">
-                <span className="insight-label">Compliance</span>
-                <div className="insight-comparison">
-                  <span className="insight-value">{todayVsYesterday.compliance.today}%</span>
-                  <span className="insight-arrow">→</span>
-                  <span className={`insight-value ${todayVsYesterday.compliance.direction === 'up' ? 'positive' : todayVsYesterday.compliance.direction === 'down' ? 'negative' : ''}`}>
-                    {todayVsYesterday.compliance.yesterday}%
-                  </span>
-                  <span className={`insight-change ${todayVsYesterday.compliance.direction}`}>
-                    {todayVsYesterday.compliance.change > 0 ? '+' : ''}{todayVsYesterday.compliance.change}%
-                  </span>
-                </div>
-              </div>
-              {todayVsYesterday.responseTime && (
-                <div className="insight-metric">
-                  <span className="insight-label">Response Time</span>
-                  <div className="insight-comparison">
-                    <span className="insight-value">{todayVsYesterday.responseTime.today.toFixed(1)}%</span>
-                    <span className="insight-arrow">→</span>
-                    <span className={`insight-value ${todayVsYesterday.responseTime.direction === 'up' ? 'positive' : todayVsYesterday.responseTime.direction === 'down' ? 'negative' : ''}`}>
-                      {todayVsYesterday.responseTime.yesterday.toFixed(1)}%
-                    </span>
-                    <span className={`insight-change ${todayVsYesterday.responseTime.direction}`}>
-                      {todayVsYesterday.responseTime.change > 0 ? '+' : ''}{todayVsYesterday.responseTime.change.toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Week-over-Week */}
+        {/* Last 7 Days vs Previous 7 Days */}
         {weekOverWeek && (
           <div className="insight-card">
-            <h4 className="insight-title">This Week vs Last Week</h4>
+            <h4 className="insight-title">{weekOverWeek.label}</h4>
             <div className="insight-content">
               <div className="insight-metric">
                 <span className="insight-label">Compliance</span>
@@ -2100,13 +2231,13 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                 <div className="insight-metric">
                   <span className="insight-label">Response Time</span>
                   <div className="insight-comparison">
-                    <span className="insight-value">{weekOverWeek.responseTime.thisWeek}%</span>
+                    <span className="insight-value">{weekOverWeek.responseTime.thisWeek.toFixed(1)}%</span>
                     <span className="insight-arrow">→</span>
                     <span className={`insight-value ${weekOverWeek.responseTime.direction === 'up' ? 'positive' : weekOverWeek.responseTime.direction === 'down' ? 'negative' : ''}`}>
-                      {weekOverWeek.responseTime.lastWeek}%
+                      {weekOverWeek.responseTime.lastWeek.toFixed(1)}%
                     </span>
                     <span className={`insight-change ${weekOverWeek.responseTime.direction}`}>
-                      {weekOverWeek.responseTime.change > 0 ? '+' : ''}{weekOverWeek.responseTime.change}%
+                      {weekOverWeek.responseTime.change > 0 ? '+' : ''}{weekOverWeek.responseTime.change.toFixed(1)}%
                     </span>
                   </div>
                 </div>
@@ -2114,6 +2245,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             </div>
           </div>
         )}
+
 
         {/* Best/Worst Day */}
         {bestWorstDay && (
@@ -2157,20 +2289,35 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         )}
 
         {/* Alerts Summary */}
-        {metrics.alerts && metrics.alerts.length > 0 && (
-          <div className="insight-card alert-summary">
-            <h4 className="insight-title">Active Alerts</h4>
-            <div className="insight-content">
-              <div className="insight-metric">
-                <span className="insight-label">Total Alerts</span>
-                <div className="insight-single">
-                  <span className="insight-value negative">{metrics.alerts.length}</span>
-                  <span className="insight-subtext">Requires attention</span>
+        {metrics.alerts && metrics.alerts.length > 0 && (() => {
+          const openChatsAlerts = metrics.alerts.filter(alert => alert.type === "open_threshold").length;
+          const waitingOnTSEAlerts = metrics.alerts.filter(alert => alert.type === "waiting_on_tse_threshold").length;
+          
+          return (
+            <div 
+              className={`insight-card alert-summary ${onNavigateToTSEView ? 'alert-summary-clickable' : ''}`}
+              onClick={onNavigateToTSEView || undefined}
+              style={{ cursor: onNavigateToTSEView ? 'pointer' : 'default' }}
+            >
+              {onNavigateToTSEView && <div className="alert-summary-click-icon">→</div>}
+              <h4 className="insight-title">Active Alerts</h4>
+              <div className="insight-content">
+                <div className="insight-metric">
+                  <span className="insight-label">Open Chats ({THRESHOLDS.MAX_OPEN_ALERT}+)</span>
+                  <div className="insight-single">
+                    <span className="insight-value negative">{openChatsAlerts}</span>
+                  </div>
+                </div>
+                <div className="insight-metric">
+                  <span className="insight-label">Snoozed - Waiting On TSE ({THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+)</span>
+                  <div className="insight-single">
+                    <span className="insight-value negative">{waitingOnTSEAlerts}</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Region Breakdown */}
         {regionBreakdown && regionBreakdown.length > 0 && (
@@ -2217,16 +2364,63 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               <div className="kpi-subtitle">Most recent day</div>
             </div>
 
-            <div className="kpi-card">
-              <div className="kpi-label">Open Chats</div>
+            <div 
+              className="kpi-card kpi-card-clickable"
+              onClick={() => onNavigateToConversations && onNavigateToConversations("open")}
+              style={{ cursor: onNavigateToConversations ? 'pointer' : 'default' }}
+            >
+              <div className="kpi-card-click-icon">→</div>
+              <div className="kpi-label">OPEN CHATS</div>
               <div className="kpi-value">{metrics.totalOpen}</div>
               <div className="kpi-subtitle">Currently open</div>
             </div>
 
-            <div className="kpi-card">
-              <div className="kpi-label">Actionable Snoozed</div>
-              <div className="kpi-value">{metrics.actionableSnoozed.length}</div>
+            <div 
+              className="kpi-card kpi-card-clickable"
+              onClick={() => onNavigateToConversations && onNavigateToConversations("waitingontse")}
+              style={{ cursor: onNavigateToConversations ? 'pointer' : 'default' }}
+            >
+              <div className="kpi-card-click-icon">→</div>
+              <div className="kpi-label">WAITING ON TSE</div>
+              <div className="kpi-value">{metrics.waitingOnTSE.length}</div>
               <div className="kpi-subtitle">Requires attention</div>
+            </div>
+
+            <div 
+              className="kpi-card kpi-card-clickable"
+              onClick={() => onNavigateToConversations && onNavigateToConversations("waitingoncustomer")}
+              style={{ cursor: onNavigateToConversations ? 'pointer' : 'default' }}
+            >
+              <div className="kpi-card-click-icon">→</div>
+              <div className="kpi-label">WAITING ON CUSTOMER</div>
+              <div className="kpi-value">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div>
+                    <span style={{ fontSize: '14px', fontWeight: 'normal' }}>Resolved: </span>
+                    <span style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                      {metrics.waitingOnCustomer ? metrics.waitingOnCustomer.filter(conv => {
+                        const tags = conv.tags || [];
+                        return tags.some(t => 
+                          (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
+                          (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
+                        );
+                      }).length : 0}
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '14px', fontWeight: 'normal' }}>Unresolved: </span>
+                    <span style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                      {metrics.waitingOnCustomer ? metrics.waitingOnCustomer.filter(conv => {
+                        const tags = conv.tags || [];
+                        return tags.some(t => 
+                          (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
+                          (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
+                        );
+                      }).length : 0}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2397,7 +2591,7 @@ function MetricCard({ title, value, target, status = "info" }) {
 
 // TSE Details Modal Component
 function TSEDetailsModal({ tse, conversations, onClose }) {
-  const { open, actionableSnoozed, customerWait } = conversations;
+  const { open, waitingOnTSE, waitingOnCustomer, totalSnoozed } = conversations;
   const avatarUrl = getTSEAvatar(tse.name);
   const region = getTSERegion(tse.name);
   const regionLabels = {
@@ -2408,6 +2602,15 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
   };
   const regionLabel = regionLabels[region] || regionLabels['Other'];
   const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
+  
+  // Calculate status for the modal
+  const totalOpenCount = open.length;
+  const totalWaitingOnTSECount = waitingOnTSE.length;
+  const status = totalOpenCount === 0 && totalWaitingOnTSECount <= 5
+    ? "success"
+    : totalOpenCount <= 5 && totalWaitingOnTSECount <= 5
+    ? "warning"
+    : "error";
 
   const formatDate = (timestamp) => {
     if (!timestamp) return "-";
@@ -2477,13 +2680,23 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-header-left">
-            {avatarUrl && (
-              <img 
-                src={avatarUrl} 
-                alt={tse.name}
-                className="modal-avatar"
-              />
-            )}
+            <div className="modal-avatar-container">
+              {avatarUrl && (
+                <img 
+                  src={avatarUrl} 
+                  alt={tse.name}
+                  className="modal-avatar"
+                />
+              )}
+              {tse.awayModeEnabled ? (
+                <span className="modal-avatar-away-indicator" title="Away mode enabled">
+                  🌙
+                </span>
+              ) : (
+                <span className="modal-avatar-available-indicator" title="Available">
+                </span>
+              )}
+            </div>
             <div className="modal-header-info">
               <h2 className="modal-title">{tse.name}</h2>
               <div className="modal-region">
@@ -2492,9 +2705,14 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
               </div>
             </div>
           </div>
-          <button className="modal-close-button" onClick={onClose}>
-            ×
-          </button>
+          <div className="modal-header-right">
+            <div className={`modal-compliance-badge status-${status}`}>
+              {status === "success" ? "Compliant" : status === "warning" ? "Warning" : "Non-Compliant"}
+            </div>
+            <button className="modal-close-button" onClick={onClose}>
+              ×
+            </button>
+          </div>
         </div>
 
         <div className="modal-body">
@@ -2507,22 +2725,31 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
             {renderConversationList(open, 'open')}
           </div>
 
-          {/* Actionable Snoozed Conversations */}
+          {/* Snoozed - Waiting On TSE */}
           <div className="modal-section">
             <h3 className="modal-section-title">
-              Actionable Snoozed Conversations
-              <span className="modal-section-count">({actionableSnoozed.length})</span>
+              Snoozed - Waiting On TSE
+              <span className="modal-section-count">({waitingOnTSE.length})</span>
             </h3>
-            {renderConversationList(actionableSnoozed, 'actionable')}
+            {renderConversationList(waitingOnTSE, 'waitingOnTSE')}
           </div>
 
-          {/* Waiting on Customer Conversations */}
+          {/* Snoozed - Waiting On Customer */}
           <div className="modal-section">
             <h3 className="modal-section-title">
-              Waiting on Customer Conversations
-              <span className="modal-section-count">({customerWait.length})</span>
+              Snoozed - Waiting On Customer
+              <span className="modal-section-count">({waitingOnCustomer.length})</span>
             </h3>
-            {renderConversationList(customerWait, 'customerWait')}
+            {renderConversationList(waitingOnCustomer, 'waitingOnCustomer')}
+          </div>
+
+          {/* Total Snoozed */}
+          <div className="modal-section">
+            <h3 className="modal-section-title">
+              Total Snoozed
+              <span className="modal-section-count">({totalSnoozed.length})</span>
+            </h3>
+            {renderConversationList(totalSnoozed, 'totalSnoozed')}
           </div>
         </div>
       </div>
@@ -2530,7 +2757,7 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
   );
 }
 
-function ConversationTable({ conversations, showTimeInfo = false }) {
+function ConversationTable({ conversations }) {
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
   const [columnWidths, setColumnWidths] = useState({
@@ -2885,6 +3112,93 @@ function ConversationTable({ conversations, showTimeInfo = false }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Help Modal Component
+function HelpModal({ onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content help-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Help & Documentation</h2>
+          <button className="modal-close-button" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body help-modal-body">
+          <div className="help-section">
+            <h3>Overview Dashboard</h3>
+            <p>The Overview Dashboard provides real-time metrics and insights:</p>
+            <ul>
+              <li><strong>KPI Cards:</strong> Click on "OPEN CHATS", "WAITING ON TSE", or "WAITING ON CUSTOMER" cards to navigate to filtered conversations.</li>
+              <li><strong>Region Compliance:</strong> View compliance percentages by region (UK, NY, SF).</li>
+              <li><strong>Active Alerts:</strong> Click the alert summary card to view all non-compliant TSEs.</li>
+              <li><strong>Compliance Trends:</strong> See 7-day compliance trends and response time metrics.</li>
+            </ul>
+          </div>
+
+          <div className="help-section">
+            <h3>TSE View</h3>
+            <p>Monitor individual TSE performance:</p>
+            <ul>
+              <li><strong>TSE Cards:</strong> Click any TSE card to view detailed conversation breakdowns.</li>
+              <li><strong>Status Indicators:</strong> Green arrow (✓) = Compliant, Yellow arrow (⚠) = Warning, Red arrow (✗) = Non-Compliant.</li>
+              <li><strong>Filters:</strong> Filter by region, compliance status, or specific TSEs.</li>
+            </ul>
+          </div>
+
+          <div className="help-section">
+            <h3>Conversations View</h3>
+            <p>Browse and filter conversations:</p>
+            <ul>
+              <li><strong>Filter by Snooze Type:</strong> Filter by "All Conversations", "All Snoozed", "Waiting On TSE", or "Waiting On Customer".</li>
+              <li><strong>Filter by TSE:</strong> View conversations assigned to specific TSEs or unassigned conversations.</li>
+              <li><strong>Search:</strong> Search for conversations by ID.</li>
+            </ul>
+          </div>
+
+          <div className="help-section">
+            <h3>Historical View</h3>
+            <p>Analyze trends over time:</p>
+            <ul>
+              <li><strong>Daily Compliance Trends:</strong> View compliance trends for selected TSEs over time.</li>
+              <li><strong>Region Comparison:</strong> Compare average compliance across regions.</li>
+              <li><strong>Response Time Analysis:</strong> Track response time metrics and identify slow response patterns.</li>
+              <li><strong>Date Range:</strong> Select custom date ranges to analyze historical data.</li>
+            </ul>
+          </div>
+
+          <div className="help-section">
+            <h3>Alerts</h3>
+            <p>Stay informed about non-compliant TSEs:</p>
+            <ul>
+              <li><strong>Alert Dropdown:</strong> Click the bell icon to view active alerts.</li>
+              <li><strong>Alert Items:</strong> Click on any alert to view TSE details, or click "View Chats" to see filtered conversations.</li>
+              <li><strong>View All:</strong> Navigate to TSE View filtered to show all non-compliant TSEs.</li>
+            </ul>
+          </div>
+
+          <div className="help-section">
+            <h3>Compliance Thresholds</h3>
+            <p>Compliance is calculated based on:</p>
+            <ul>
+              <li><strong>Open Chats:</strong> TSEs with 6+ open chats trigger alerts.</li>
+              <li><strong>Waiting On TSE:</strong> TSEs with 7+ conversations waiting on them trigger alerts.</li>
+              <li><strong>Status:</strong> Compliant (green), Warning (yellow), or Non-Compliant (red) based on these thresholds.</li>
+            </ul>
+          </div>
+
+          <div className="help-section">
+            <h3>Tips</h3>
+            <ul>
+              <li>Use the arrow icons (→) on cards to identify clickable elements.</li>
+              <li>Hover over TSE cards to see hover effects indicating interactivity.</li>
+              <li>Click on any TSE card to view detailed conversation breakdowns.</li>
+              <li>Use filters to narrow down conversations by type, TSE, or region.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -92,7 +92,7 @@ export default async function handler(req, res) {
 
     // Calculate TSE metrics (similar to Dashboard logic)
     const EXCLUDED_TSE_NAMES = [
-      "Stephen Skalamera", "Zen Junior", "Nathan Parrish", "Leticia Esparza",
+      "Zen Junior", "Nathan Parrish", "Leticia Esparza",
       "Rob Woollen", "Brett Bedevian", "Viswa Jeyaraman", "Brandon Yee",
       "Holly Coxon", "Chetana Shinde", "Matt Morgenroth", "Grace Sanford",
       "svc-prd-tse-intercom SVC"
@@ -107,7 +107,6 @@ export default async function handler(req, res) {
           name: admin.name || admin.email?.split("@")[0] || `TSE ${tseId}`,
           open: 0,
           actionableSnoozed: 0,
-          investigationSnoozed: 0,
           customerWaitSnoozed: 0
         };
       }
@@ -132,24 +131,23 @@ export default async function handler(req, res) {
 
       const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
       const tags = conv.tags || [];
-      const hasInvestigationTag = tags.some(t => 
-        t.name === "#Snooze.Investigation" || 
-        (typeof t === "string" && t.includes("Investigation"))
+      const hasWaitingOnTSETag = tags.some(t => 
+        (t.name && t.name.toLowerCase() === "snooze.waiting-on-tse") || 
+        (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-tse")
       );
-      const hasCustomerWaitTag = tags.some(t => 
-        t.name === "#Snooze.CustomerWait" || 
-        (typeof t === "string" && t.includes("CustomerWait"))
+      const hasWaitingOnCustomerTag = tags.some(t => 
+        (t.name && (t.name.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved")) || 
+        (typeof t === "string" && (t.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.toLowerCase() === "snooze.waiting-on-customer-unresolved"))
       );
 
       if (isSnoozed) {
         byTSE[tseId].totalSnoozed = (byTSE[tseId].totalSnoozed || 0) + 1;
-        if (hasInvestigationTag) {
-          byTSE[tseId].investigationSnoozed++;
-        } else if (hasCustomerWaitTag) {
-          byTSE[tseId].customerWaitSnoozed++;
-        } else {
-          byTSE[tseId].actionableSnoozed++;
+        if (hasWaitingOnTSETag) {
+          byTSE[tseId].actionableSnoozed++; // This field now represents "Waiting On TSE"
+        } else if (hasWaitingOnCustomerTag) {
+          byTSE[tseId].customerWaitSnoozed++; // This field represents "Waiting On Customer"
         }
+        // Snoozed conversations without specific tags are only counted in totalSnoozed
       }
 
       if (conv.state === "open" && !isSnoozed) {
@@ -181,7 +179,6 @@ export default async function handler(req, res) {
         name: tse.name,
         open: tse.open,
         actionableSnoozed: tse.actionableSnoozed,
-        investigationSnoozed: tse.investigationSnoozed,
         customerWaitSnoozed: tse.customerWaitSnoozed,
         totalSnoozed: tse.totalSnoozed || 0
       }))
