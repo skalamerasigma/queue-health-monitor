@@ -206,6 +206,24 @@
   color: white;
 }
 
+.region-unselect-all-button {
+  padding: 2px 8px;
+  border: 1px solid #fd8789;
+  border-radius: 3px;
+  background: white;
+  color: #fd8789;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 6px;
+}
+
+.region-unselect-all-button:hover {
+  background: #fd8789;
+  color: white;
+}
+
 .tse-region-checkbox-list {
   display: flex;
   flex-direction: column;

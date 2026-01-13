@@ -1164,6 +1164,19 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     });
   };
 
+  const unselectRegionTSEs = (region) => {
+    const regionTSEs = tseByRegion[region] || [];
+    const regionTSEIds = regionTSEs.map(tse => String(tse.id));
+    
+    setHasManuallyCleared(true);
+    hasManuallyClearedRef.current = true;
+    
+    setSelectedTSEs(prev => {
+      // Remove all region TSEs from selection
+      return prev.filter(id => !regionTSEIds.includes(id));
+    });
+  };
+
   // Prepare response time chart data
   const responseTimeChartData = useMemo(() => {
     if (!responseTimeMetrics || responseTimeMetrics.length === 0) {
@@ -1642,6 +1655,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   };
 
                   const allRegionTSEsSelected = regionTSEs.every(tse => selectedTSEs.includes(String(tse.id)));
+                  const anyRegionTSEsSelected = regionTSEs.some(tse => selectedTSEs.includes(String(tse.id)));
                   
                   return (
                     <div key={region} className="tse-region-filter-group">
@@ -1662,6 +1676,18 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                         >
                           {allRegionTSEsSelected ? '✓ All' : 'Select All'}
                         </button>
+                        {anyRegionTSEsSelected && (
+                          <button
+                            className="region-unselect-all-button"
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevent region toggle
+                              unselectRegionTSEs(region);
+                            }}
+                            title="Unselect all TSEs in this region"
+                          >
+                            Unselect All
+                          </button>
+                        )}
                       </div>
                       {isRegionExpanded && (
                         <div className="tse-region-checkbox-list">
