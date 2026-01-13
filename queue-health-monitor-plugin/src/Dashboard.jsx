@@ -6,8 +6,8 @@ import "./Dashboard.css";
 // TSE Region mapping
 const TSE_REGIONS = {
   'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson', 'Somachi Ngoka'],
-  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Priyanshi Singh', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker', 'Stephen Skalamera'],
-  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre']
+  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker', 'Stephen Skalamera', 'David Zingher'],
+  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre', 'Priyanshi Singh']
 };
 
 // Helper function to get region for a TSE name
@@ -35,11 +35,11 @@ const TSE_AVATARS = {
   'Lyle': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232388/14_vqo4ks.svg',
   'Betty': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232391/8_efebpc.svg',
   'Arley': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/9_vpzwjd.svg',
-  'Priyanshi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/12_avm2xl.svg',
   'Siddhi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232392/6_f3d2qt.svg',
   'Swapnil': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/11_xrb9qj.svg',
   'Stephen': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767811907/Untitled_design_15_cvscw6.svg',
   // San Francisco
+  'Priyanshi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232390/12_avm2xl.svg',
   'Sanyam': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765382789/Untitled_design_10_kzcja0.svg',
   'Hem': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765318686/Untitled_design_22_uydf2h.svg',
   'Sagarika': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232530/Untitled_design_8_ikixmx.svg',
@@ -53,7 +53,8 @@ const TSE_AVATARS = {
   'Abhijeet': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765310522/Untitled_design_16_jffaql.svg',
   'Ratna': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765311039/Untitled_design_17_lchaky.svg',
   'Sahibeer': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767268642/sahibeer_g0bk1n.svg',
-  'Vruddhi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767886566/Untitled_design_18_ecqjdf.svg',
+  'Vruddhi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768229860/Untitled_design_26_sfcjzp.svg',
+  'David': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768229654/Untitled_design_24_yq1bfi.svg',
   // London/UK
   'Nathan': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232389/13_flxpry.svg',
   'J': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232387/18_yqqjho.svg',
@@ -253,7 +254,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   const [alertsDropdownOpen, setAlertsDropdownOpen] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [wasLoading, setWasLoading] = useState(false);
-  const [selectedColors, setSelectedColors] = useState(new Set(['success', 'warning', 'error'])); // All selected by default
+  const [selectedColors, setSelectedColors] = useState(new Set(['exceeding', 'success', 'error'])); // All selected by default
   const [selectedRegions, setSelectedRegions] = useState(new Set(['UK', 'NY', 'SF', 'Other'])); // All selected by default
 
   // Fetch historical data for Overview tab
@@ -1081,7 +1082,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             }}
             onViewAll={() => {
               setActiveView("tse");
-              setSelectedColors(new Set(['error'])); // Non-Compliant only
+              setSelectedColors(new Set(['error'])); // Over Limit - Needs Attention only
               setSelectedRegions(new Set(['UK', 'NY', 'SF', 'Other'])); // All regions
               setAlertsDropdownOpen(false); // Close dropdown
             }}
@@ -1274,7 +1275,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                 <div className="filter-buttons">
                   <button 
                     className="filter-button"
-                    onClick={() => setSelectedColors(new Set(['success', 'warning', 'error']))}
+                    onClick={() => setSelectedColors(new Set(['exceeding', 'success', 'error']))}
                   >
                     Select All
                   </button>
@@ -1287,6 +1288,23 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                 </div>
               </div>
               <div className="tse-color-filters">
+                <div 
+                  className={`legend-item legend-clickable ${selectedColors.has('exceeding') ? 'legend-selected' : ''}`}
+                  onClick={() => {
+                    const newColors = new Set(selectedColors);
+                    if (newColors.has('exceeding')) {
+                      newColors.delete('exceeding');
+                    } else {
+                      newColors.add('exceeding');
+                    }
+                    setSelectedColors(newColors);
+                  }}
+                >
+                  <div className="legend-color legend-exceeding">
+                    {selectedColors.has('exceeding') && <span className="legend-checkmark">✓</span>}
+                  </div>
+                  <span className="legend-label">Outstanding (0 open, 0 waiting on TSE)</span>
+                </div>
                 <div 
                   className={`legend-item legend-clickable ${selectedColors.has('success') ? 'legend-selected' : ''}`}
                   onClick={() => {
@@ -1302,24 +1320,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                   <div className="legend-color legend-success">
                     {selectedColors.has('success') && <span className="legend-checkmark">✓</span>}
                   </div>
-                  <span className="legend-label">Compliant</span>
-                </div>
-                <div 
-                  className={`legend-item legend-clickable ${selectedColors.has('warning') ? 'legend-selected' : ''}`}
-                  onClick={() => {
-                    const newColors = new Set(selectedColors);
-                    if (newColors.has('warning')) {
-                      newColors.delete('warning');
-                    } else {
-                      newColors.add('warning');
-                    }
-                    setSelectedColors(newColors);
-                  }}
-                >
-                  <div className="legend-color legend-warning">
-                    {selectedColors.has('warning') && <span className="legend-checkmark">✓</span>}
-                  </div>
-                  <span className="legend-label">Warning (≤{THRESHOLDS.MAX_OPEN_SOFT} open, ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE)</span>
+                  <span className="legend-label">On Track (≤{THRESHOLDS.MAX_OPEN_SOFT} open, ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE)</span>
                 </div>
                 <div 
                   className={`legend-item legend-clickable ${selectedColors.has('error') ? 'legend-selected' : ''}`}
@@ -1336,7 +1337,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                   <div className="legend-color legend-error">
                     {selectedColors.has('error') && <span className="legend-checkmark">✓</span>}
                   </div>
-                  <span className="legend-label">Non-Compliant</span>
+                  <span className="legend-label">Over Limit - Needs Attention</span>
                 </div>
               </div>
             </div>
@@ -1411,18 +1412,23 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             const getTSEStatus = (tse) => {
               const totalOpen = tse.open;
               const totalWaitingOnTSE = tse.waitingOnTSE || 0;
-              return totalOpen === 0 && totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT
-                ? "success"
-                : totalOpen <= THRESHOLDS.MAX_OPEN_SOFT && totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT
-                ? "warning"
-                : "error";
+              // Outstanding: 0 open and 0 waiting on TSE
+              if (totalOpen === 0 && totalWaitingOnTSE === 0) {
+                return "exceeding";
+              }
+              // On Track: ≤5 open AND ≤5 waiting on TSE
+              if (totalOpen <= THRESHOLDS.MAX_OPEN_SOFT && totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT) {
+                return "success";
+              }
+              // Over Limit - Needs Attention: either >5 open OR >5 waiting on TSE
+              return "error";
             };
 
             // Filter TSEs by selected colors, then sort by status
             const filteredAndSortedTSEs = [...tses]
               .filter(tse => selectedColors.has(getTSEStatus(tse)))
               .sort((a, b) => {
-                const statusOrder = { "success": 0, "warning": 1, "error": 2 };
+                const statusOrder = { "exceeding": 0, "success": 1, "error": 2 };
                 return statusOrder[getTSEStatus(a)] - statusOrder[getTSEStatus(b)];
               });
 
@@ -1476,7 +1482,33 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                                 </span>
                               )}
                             </div>
-                            <h4>{tse.name}</h4>
+                            <h4>
+                              {tse.name}
+                              {status === "exceeding" && (
+                                <span 
+                                  className="tse-status-icon tse-exceeding-star"
+                                  title={`Outstanding - ${tse.open || 0} open, ${tse.waitingOnTSE || 0} waiting on TSE`}
+                                >
+                                  ⭐
+                                </span>
+                              )}
+                              {status === "success" && (
+                                <span 
+                                  className="tse-status-icon tse-success-checkmark"
+                                  title={`On Track - ${tse.open || 0} open, ${tse.waitingOnTSE || 0} waiting on TSE (target: ≤${THRESHOLDS.MAX_OPEN_SOFT} open, ≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting)`}
+                                >
+                                  ✓
+                                </span>
+                              )}
+                              {status === "error" && (
+                                <span 
+                                  className="tse-status-icon tse-error-x"
+                                  title={`Over Limit - Needs Attention - ${tse.open || 0} open, ${tse.waitingOnTSE || 0} waiting on TSE (target: ≤${THRESHOLDS.MAX_OPEN_SOFT} open, ≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting)`}
+                                >
+                                  ✗
+                                </span>
+                              )}
+                            </h4>
                           </div>
                         </div>
                         <div className="tse-metrics">
@@ -1878,6 +1910,9 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
 
 // Modern Overview Dashboard Component
 function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical, onNavigateToConversations, onNavigateToTSEView }) {
+  // Region filter state for performance streaks
+  const [streaksRegionFilter, setStreaksRegionFilter] = useState('all');
+  
   // Prepare compliance trend data (last 7 days)
   const complianceTrendData = useMemo(() => {
     console.log('Overview: Processing compliance trend data, snapshots:', historicalSnapshots);
@@ -2205,8 +2240,284 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     };
   }, [responseTimeTrendData]);
 
+  // Calculate performance streaks for each TSE
+  const performanceStreaks = useMemo(() => {
+    if (!historicalSnapshots || historicalSnapshots.length === 0) {
+      return { streak3: [], streak5: [], streak10: [] };
+    }
+
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+    
+    // Sort snapshots by date (oldest first)
+    const sortedSnapshots = [...historicalSnapshots]
+      .map(snapshot => ({
+        ...snapshot,
+        tseData: snapshot.tse_data || snapshot.tseData || []
+      }))
+      .filter(snapshot => snapshot.tseData.length > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (sortedSnapshots.length === 0) {
+      return { streak3: [], streak5: [], streak10: [] };
+    }
+
+    // Track performance status for each TSE by date
+    const tsePerformanceByDate = {};
+    
+    sortedSnapshots.forEach(snapshot => {
+      snapshot.tseData.forEach(tse => {
+        if (EXCLUDED_TSE_NAMES.includes(tse.name)) return;
+        
+        const tseId = String(tse.id);
+        if (!tsePerformanceByDate[tseId]) {
+          tsePerformanceByDate[tseId] = {
+            id: tseId,
+            name: tse.name,
+            dates: []
+          };
+        }
+        
+        const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
+        const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+        const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        // Performance compliance only uses Open and Waiting On TSE (not Total Snoozed)
+        const meetsPerformanceTargets = meetsOpen && meetsWaitingOnTSE;
+        
+        tsePerformanceByDate[tseId].dates.push({
+          date: snapshot.date,
+          compliant: meetsPerformanceTargets
+        });
+      });
+    });
+
+    // Calculate current streak for each TSE (working backwards from most recent date)
+    const streaks = Object.values(tsePerformanceByDate).map(tse => {
+      const dates = [...tse.dates].sort((a, b) => b.date.localeCompare(a.date)); // Most recent first
+      
+      let currentStreak = 0;
+      for (const dateEntry of dates) {
+        if (dateEntry.compliant) {
+          currentStreak++;
+        } else {
+          break; // Streak broken
+        }
+      }
+      
+      return {
+        id: tse.id,
+        name: tse.name,
+        streak: currentStreak
+      };
+    });
+
+    // Group by streak thresholds
+    const streak3 = streaks.filter(s => s.streak >= 3 && s.streak < 5);
+    const streak5 = streaks.filter(s => s.streak >= 5 && s.streak < 10);
+    const streak10 = streaks.filter(s => s.streak >= 10);
+
+    // Sort by streak length (highest first), then by name
+    const sortStreaks = (arr) => arr.sort((a, b) => {
+      if (b.streak !== a.streak) return b.streak - a.streak;
+      return a.name.localeCompare(b.name);
+    });
+
+    return {
+      streak3: sortStreaks(streak3),
+      streak5: sortStreaks(streak5),
+      streak10: sortStreaks(streak10)
+    };
+  }, [historicalSnapshots]);
+
+  // Filter streaks by region
+  const filteredPerformanceStreaks = useMemo(() => {
+    if (streaksRegionFilter === 'all') {
+      return performanceStreaks;
+    }
+
+    const filterByRegion = (streaks) => {
+      return streaks.filter(tse => {
+        const region = getTSERegion(tse.name);
+        return region === streaksRegionFilter;
+      });
+    };
+
+    return {
+      streak3: filterByRegion(performanceStreaks.streak3),
+      streak5: filterByRegion(performanceStreaks.streak5),
+      streak10: filterByRegion(performanceStreaks.streak10)
+    };
+  }, [performanceStreaks, streaksRegionFilter]);
+
+  // Helper function to get medal for a streak tier based on unique streak values
+  const getMedalForStreak = (streaks, currentStreak) => {
+    if (!streaks || streaks.length === 0) return null;
+    
+    // Get unique streak values, sorted descending
+    const uniqueStreaks = [...new Set(streaks.map(s => s.streak))].sort((a, b) => b - a);
+    
+    // Find the rank of the current streak
+    const rank = uniqueStreaks.indexOf(currentStreak);
+    
+    if (rank === 0) return '🥇'; // Highest streak
+    if (rank === 1) return '🥈'; // Second highest
+    if (rank === 2) return '🥉'; // Third highest
+    return null; // No medal for 4th place and below
+  };
+
   return (
     <div className="modern-overview">
+      {/* Performance Streaks Section */}
+      {(performanceStreaks.streak3.length > 0 || performanceStreaks.streak5.length > 0 || performanceStreaks.streak10.length > 0) && (
+        <div className="performance-streaks-section">
+          <div className="streaks-header">
+            <h2 className="streaks-title">🔥 Performance Streaks</h2>
+            <p className="streaks-subtitle">TSEs maintaining consecutive days of meeting performance targets</p>
+            
+            {/* Region Filter Buttons */}
+            <div className="streaks-region-filters">
+              <button
+                type="button"
+                className={`streaks-filter-btn ${streaksRegionFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setStreaksRegionFilter('all')}
+              >
+                All Regions
+              </button>
+              <button
+                type="button"
+                className={`streaks-filter-btn ${streaksRegionFilter === 'UK' ? 'active' : ''}`}
+                onClick={() => setStreaksRegionFilter('UK')}
+              >
+                🇬🇧 UK
+              </button>
+              <button
+                type="button"
+                className={`streaks-filter-btn ${streaksRegionFilter === 'NY' ? 'active' : ''}`}
+                onClick={() => setStreaksRegionFilter('NY')}
+              >
+                🗽 NY
+              </button>
+              <button
+                type="button"
+                className={`streaks-filter-btn ${streaksRegionFilter === 'SF' ? 'active' : ''}`}
+                onClick={() => setStreaksRegionFilter('SF')}
+              >
+                🌉 SF
+              </button>
+            </div>
+          </div>
+          
+          <div className="streaks-container">
+            {/* 10+ Day Streaks - Gold Tier */}
+            {filteredPerformanceStreaks.streak10.length > 0 && (
+              <div className="streak-tier streak-tier-gold">
+                <div className="streak-tier-header">
+                  <span className="streak-tier-icon">🏆</span>
+                  <div className="streak-tier-info">
+                    <h3 className="streak-tier-title">Elite Streak</h3>
+                    <p className="streak-tier-subtitle">10+ Consecutive Days</p>
+                  </div>
+                </div>
+                <div className="streak-avatars">
+                  {filteredPerformanceStreaks.streak10.map((tse) => {
+                    const avatarUrl = getTSEAvatar(tse.name);
+                    const medal = getMedalForStreak(filteredPerformanceStreaks.streak10, tse.streak);
+                    return (
+                      <div key={tse.id} className="streak-avatar-item" title={`${tse.name} - ${tse.streak} days`}>
+                        {avatarUrl ? (
+                          <img 
+                            src={avatarUrl} 
+                            alt={tse.name}
+                            className="streak-avatar streak-avatar-gold"
+                          />
+                        ) : (
+                          <div className="streak-avatar streak-avatar-gold streak-avatar-placeholder">
+                            {tse.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                          </div>
+                        )}
+                        {medal && <div className="streak-medal streak-medal-gold">{medal}</div>}
+                        <div className="streak-badge streak-badge-gold">{tse.streak}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 5-9 Day Streaks - Silver Tier */}
+            {filteredPerformanceStreaks.streak5.length > 0 && (
+              <div className="streak-tier streak-tier-silver">
+                <div className="streak-tier-header">
+                  <span className="streak-tier-icon">⭐</span>
+                  <div className="streak-tier-info">
+                    <h3 className="streak-tier-title">Hot Streak</h3>
+                    <p className="streak-tier-subtitle">5-9 Consecutive Days</p>
+                  </div>
+                </div>
+                <div className="streak-avatars">
+                  {filteredPerformanceStreaks.streak5.map((tse) => {
+                    const avatarUrl = getTSEAvatar(tse.name);
+                    const medal = getMedalForStreak(filteredPerformanceStreaks.streak5, tse.streak);
+                    return (
+                      <div key={tse.id} className="streak-avatar-item" title={`${tse.name} - ${tse.streak} days`}>
+                        {avatarUrl ? (
+                          <img 
+                            src={avatarUrl} 
+                            alt={tse.name}
+                            className="streak-avatar streak-avatar-silver"
+                          />
+                        ) : (
+                          <div className="streak-avatar streak-avatar-silver streak-avatar-placeholder">
+                            {tse.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                          </div>
+                        )}
+                        {medal && <div className="streak-medal streak-medal-silver">{medal}</div>}
+                        <div className="streak-badge streak-badge-silver">{tse.streak}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 3-4 Day Streaks - Bronze Tier */}
+            {filteredPerformanceStreaks.streak3.length > 0 && (
+              <div className="streak-tier streak-tier-bronze">
+                <div className="streak-tier-header">
+                  <span className="streak-tier-icon">💪</span>
+                  <div className="streak-tier-info">
+                    <h3 className="streak-tier-title">Building Momentum</h3>
+                    <p className="streak-tier-subtitle">3-4 Consecutive Days</p>
+                  </div>
+                </div>
+                <div className="streak-avatars">
+                  {filteredPerformanceStreaks.streak3.map((tse) => {
+                    const avatarUrl = getTSEAvatar(tse.name);
+                    const medal = getMedalForStreak(filteredPerformanceStreaks.streak3, tse.streak);
+                    return (
+                      <div key={tse.id} className="streak-avatar-item" title={`${tse.name} - ${tse.streak} days`}>
+                        {avatarUrl ? (
+                          <img 
+                            src={avatarUrl} 
+                            alt={tse.name}
+                            className="streak-avatar streak-avatar-bronze"
+                          />
+                        ) : (
+                          <div className="streak-avatar streak-avatar-bronze streak-avatar-placeholder">
+                            {tse.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                          </div>
+                        )}
+                        {medal && <div className="streak-medal streak-medal-bronze">{medal}</div>}
+                        <div className="streak-badge streak-badge-bronze">{tse.streak}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Quick Insights Section */}
       <div className="overview-insights">
         {/* Last 7 Days vs Previous 7 Days */}
@@ -2591,6 +2902,7 @@ function MetricCard({ title, value, target, status = "info" }) {
 
 // TSE Details Modal Component
 function TSEDetailsModal({ tse, conversations, onClose }) {
+  const [clickedTooltip, setClickedTooltip] = useState(null);
   const { open, waitingOnTSE, waitingOnCustomer, totalSnoozed } = conversations;
   const avatarUrl = getTSEAvatar(tse.name);
   const region = getTSERegion(tse.name);
@@ -2606,11 +2918,27 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
   // Calculate status for the modal
   const totalOpenCount = open.length;
   const totalWaitingOnTSECount = waitingOnTSE.length;
-  const status = totalOpenCount === 0 && totalWaitingOnTSECount <= 5
+  const status = totalOpenCount === 0 && totalWaitingOnTSECount === 0
+    ? "exceeding"
+    : totalOpenCount <= THRESHOLDS.MAX_OPEN_SOFT && totalWaitingOnTSECount <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT
     ? "success"
-    : totalOpenCount <= 5 && totalWaitingOnTSECount <= 5
-    ? "warning"
     : "error";
+
+  // Close tooltip when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (clickedTooltip && !event.target.closest('.tooltip-popup') && !event.target.closest('.clickable-status-icon')) {
+        setClickedTooltip(null);
+      }
+    };
+
+    if (clickedTooltip) {
+      document.addEventListener('click', handleClickOutside);
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  }, [clickedTooltip]);
 
   const formatDate = (timestamp) => {
     if (!timestamp) return "-";
@@ -2698,7 +3026,75 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
               )}
             </div>
             <div className="modal-header-info">
-              <h2 className="modal-title">{tse.name}</h2>
+              <h2 className="modal-title">
+                {tse.name}
+                <span style={{ position: 'relative', display: 'inline-block' }}>
+                  {status === "exceeding" && (
+                    <span 
+                      className="tse-status-icon tse-exceeding-star clickable-status-icon"
+                      title={`Outstanding - ${totalOpenCount} open, ${totalWaitingOnTSECount} waiting on TSE`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setClickedTooltip(clickedTooltip === 'status' ? null : 'status');
+                      }}
+                    >
+                      ⭐
+                    </span>
+                  )}
+                  {status === "success" && (
+                    <span 
+                      className="tse-status-icon tse-success-checkmark clickable-status-icon"
+                      title={`On Track - ${totalOpenCount} open, ${totalWaitingOnTSECount} waiting on TSE (target: ≤${THRESHOLDS.MAX_OPEN_SOFT} open, ≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting)`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setClickedTooltip(clickedTooltip === 'status' ? null : 'status');
+                      }}
+                    >
+                      ✓
+                    </span>
+                  )}
+                  {status === "error" && (
+                    <span 
+                      className="tse-status-icon tse-error-x clickable-status-icon"
+                      title={`Over Limit - Needs Attention - ${totalOpenCount} open, ${totalWaitingOnTSECount} waiting on TSE (target: ≤${THRESHOLDS.MAX_OPEN_SOFT} open, ≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting)`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setClickedTooltip(clickedTooltip === 'status' ? null : 'status');
+                      }}
+                    >
+                      ✗
+                    </span>
+                  )}
+                  {clickedTooltip === 'status' && (
+                    <div className="tooltip-popup">
+                      <div className="tooltip-content">
+                        <div className="tooltip-header">
+                          <span className="tooltip-title">
+                            {status === "exceeding" ? "Outstanding" : status === "success" ? "On Track" : "Over Limit - Needs Attention"}
+                          </span>
+                          <button 
+                            className="tooltip-close"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setClickedTooltip(null);
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <div className="tooltip-body">
+                          <div className="tooltip-metric">
+                            <strong>Open:</strong> {totalOpenCount} (target: ≤{THRESHOLDS.MAX_OPEN_SOFT})
+                          </div>
+                          <div className="tooltip-metric">
+                            <strong>Waiting on TSE:</strong> {totalWaitingOnTSECount} (target: ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </span>
+              </h2>
               <div className="modal-region">
                 {regionLabel.emoji && <span className="modal-region-emoji">{regionLabel.emoji}</span>}
                 <span className="modal-region-text">{regionLabel.text}</span>
@@ -2707,7 +3103,9 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
           </div>
           <div className="modal-header-right">
             <div className={`modal-compliance-badge status-${status}`}>
-              {status === "success" ? "Compliant" : status === "warning" ? "Warning" : "Non-Compliant"}
+              {status === "exceeding" && <span>⭐ Outstanding</span>}
+              {status === "success" && <span>✓ On Track</span>}
+              {status === "error" && <span>✗ Over Limit - Needs Attention</span>}
             </div>
             <button className="modal-close-button" onClick={onClose}>
               ×
@@ -3132,7 +3530,7 @@ function HelpModal({ onClose }) {
             <ul>
               <li><strong>KPI Cards:</strong> Click on "OPEN CHATS", "WAITING ON TSE", or "WAITING ON CUSTOMER" cards to navigate to filtered conversations.</li>
               <li><strong>Region Compliance:</strong> View compliance percentages by region (UK, NY, SF).</li>
-              <li><strong>Active Alerts:</strong> Click the alert summary card to view all non-compliant TSEs.</li>
+              <li><strong>Active Alerts:</strong> Click the alert summary card to view all TSEs over limit.</li>
               <li><strong>Compliance Trends:</strong> See 7-day compliance trends and response time metrics.</li>
             </ul>
           </div>
@@ -3142,7 +3540,7 @@ function HelpModal({ onClose }) {
             <p>Monitor individual TSE performance:</p>
             <ul>
               <li><strong>TSE Cards:</strong> Click any TSE card to view detailed conversation breakdowns.</li>
-              <li><strong>Status Indicators:</strong> Green arrow (✓) = Compliant, Yellow arrow (⚠) = Warning, Red arrow (✗) = Non-Compliant.</li>
+              <li><strong>Status Indicators:</strong> Gold star (⭐) = Outstanding, Green checkmark (✓) = On Track, Red X (✗) = Over Limit - Needs Attention.</li>
               <li><strong>Filters:</strong> Filter by region, compliance status, or specific TSEs.</li>
             </ul>
           </div>
@@ -3170,11 +3568,11 @@ function HelpModal({ onClose }) {
 
           <div className="help-section">
             <h3>Alerts</h3>
-            <p>Stay informed about non-compliant TSEs:</p>
+            <p>Stay informed about TSEs over limit:</p>
             <ul>
               <li><strong>Alert Dropdown:</strong> Click the bell icon to view active alerts.</li>
               <li><strong>Alert Items:</strong> Click on any alert to view TSE details, or click "View Chats" to see filtered conversations.</li>
-              <li><strong>View All:</strong> Navigate to TSE View filtered to show all non-compliant TSEs.</li>
+              <li><strong>View All:</strong> Navigate to TSE View filtered to show all TSEs over limit.</li>
             </ul>
           </div>
 
@@ -3184,7 +3582,7 @@ function HelpModal({ onClose }) {
             <ul>
               <li><strong>Open Chats:</strong> TSEs with 6+ open chats trigger alerts.</li>
               <li><strong>Waiting On TSE:</strong> TSEs with 7+ conversations waiting on them trigger alerts.</li>
-              <li><strong>Status:</strong> Compliant (green), Warning (yellow), or Non-Compliant (red) based on these thresholds.</li>
+              <li><strong>Status:</strong> Outstanding (purple with gold star), On Track (green), or Over Limit - Needs Attention (red) based on these thresholds.</li>
             </ul>
           </div>
 

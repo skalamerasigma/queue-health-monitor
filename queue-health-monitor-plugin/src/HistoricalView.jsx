@@ -5,8 +5,8 @@ import './HistoricalView.css';
 // TSE Region mapping
 const TSE_REGIONS = {
   'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson', 'Somachi Ngoka'],
-  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Priyanshi Singh', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker', 'Stephen Skalamera'],
-  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre']
+  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker', 'Stephen Skalamera'],
+  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre', 'Priyanshi Singh']
 };
 
 // Helper function to get region for a TSE name
@@ -197,6 +197,7 @@ const THRESHOLDS = {
 function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const [snapshots, setSnapshots] = useState([]);
   const [responseTimeMetrics, setResponseTimeMetrics] = useState([]);
+  const [clickedTooltip, setClickedTooltip] = useState(null); // { date, tseName } or null
   const [loading, setLoading] = useState(false);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [selectedTSEs, setSelectedTSEs] = useState([]);
@@ -216,6 +217,22 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const [responseTimeSortConfig, setResponseTimeSortConfig] = useState({ key: null, direction: 'asc' });
   const [expandedRegions, setExpandedRegions] = useState(new Set()); // All collapsed by default
   const [hasManuallyCleared, setHasManuallyCleared] = useState(false); // Track if user manually cleared selection
+
+  // Close tooltip when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (clickedTooltip && !event.target.closest('.tooltip-popup') && !event.target.closest('.clickable-badge')) {
+        setClickedTooltip(null);
+      }
+    };
+
+    if (clickedTooltip) {
+      document.addEventListener('click', handleClickOutside);
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  }, [clickedTooltip]);
 
   // Calculate default date range (last 7 weekdays)
   const getLast7Weekdays = () => {
@@ -978,6 +995,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
         const totalWaitingOnTSE = tse.actionableSnoozed || 0;
         const meetsSnoozed = totalWaitingOnTSE <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        const exceedsTargets = tse.open === 0 && totalWaitingOnTSE === 0;
+        const overallCompliant = meetsOpen && meetsSnoozed;
         
         groupedByDate[snapshot.date].tses.push({
           tseName: tse.name,
@@ -987,7 +1006,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           totalSnoozed: tse.totalSnoozed || 0,
           openCompliant: meetsOpen,
           snoozedCompliant: meetsSnoozed,
-          overallCompliant: meetsOpen && meetsSnoozed
+          overallCompliant: overallCompliant,
+          exceedsTargets: exceedsTargets
         });
 
         groupedByDate[snapshot.date].totalTSEs++;
@@ -2091,9 +2111,69 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                                           </span>
                                         </td>
                                         <td>
-                                          <span className={tse.overallCompliant ? "compliant-badge compliant" : "compliant-badge non-compliant"}>
-                                            {tse.overallCompliant ? "✓" : "✗"}
-                                          </span>
+                                          {(() => {
+                                            const tooltipKey = `${dateGroup.date}-${tse.tseName}`;
+                                            const isClicked = clickedTooltip === tooltipKey;
+                                            const tooltipText = tse.exceedsTargets
+                                              ? `Outstanding - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Waiting on TSE: ${tse.actionableSnoozed || 0} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`
+                                              : tse.overallCompliant
+                                              ? `On Track - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Waiting on TSE: ${tse.actionableSnoozed || 0} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`
+                                              : `Over Limit - Needs Attention - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Waiting on TSE: ${tse.actionableSnoozed || 0} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`;
+                                            
+                                            return (
+                                              <div style={{ position: 'relative', display: 'inline-block' }}>
+                                                {tse.exceedsTargets ? (
+                                                  <span 
+                                                    className="compliant-badge exceeds-targets clickable-badge" 
+                                                    title={tooltipText}
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setClickedTooltip(isClicked ? null : tooltipKey);
+                                                    }}
+                                                  >
+                                                    ⭐
+                                                  </span>
+                                                ) : (
+                                                  <span 
+                                                    className={`compliant-badge ${tse.overallCompliant ? 'compliant' : 'non-compliant'} clickable-badge`}
+                                                    title={tooltipText}
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setClickedTooltip(isClicked ? null : tooltipKey);
+                                                    }}
+                                                  >
+                                                    {tse.overallCompliant ? "✓" : "✗"}
+                                                  </span>
+                                                )}
+                                                {isClicked && (
+                                                  <div className="tooltip-popup">
+                                                    <div className="tooltip-content">
+                                                      <div className="tooltip-header">
+                                                        <span className="tooltip-title">{tse.exceedsTargets ? 'Outstanding' : tse.overallCompliant ? 'On Track' : 'Over Limit - Needs Attention'}</span>
+                                                        <button 
+                                                          className="tooltip-close"
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setClickedTooltip(null);
+                                                          }}
+                                                        >
+                                                          ×
+                                                        </button>
+                                                      </div>
+                                                      <div className="tooltip-body">
+                                                        <div className="tooltip-metric">
+                                                          <strong>Open:</strong> {tse.open} (target: ≤{THRESHOLDS.MAX_OPEN_SOFT})
+                                                        </div>
+                                                        <div className="tooltip-metric">
+                                                          <strong>Waiting on TSE:</strong> {tse.actionableSnoozed || 0} (target: ≤{THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})
+                                                        </div>
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          })()}
                                         </td>
                                       </tr>
                                     ))}
