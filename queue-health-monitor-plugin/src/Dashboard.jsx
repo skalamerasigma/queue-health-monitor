@@ -10,6 +10,14 @@ const TSE_REGIONS = {
   'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre', 'Priyanshi Singh']
 };
 
+// Region icons (SVG URLs)
+const REGION_ICONS = {
+  'UK': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768284324/3_150_x_150_px_5_yrnw4o.svg',
+  'NY': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768284324/3_150_x_150_px_5_yrnw4o.svg',
+  'SF': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768283947/3_150_x_150_px_1_hmomvc.svg',
+  'Other': null
+};
+
 // Helper function to get region for a TSE name
 const getTSERegion = (tseName) => {
   for (const [region, names] of Object.entries(TSE_REGIONS)) {
@@ -1301,10 +1309,16 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                 if (regionTSEs.length === 0) return null;
                 
                 const regionLabels = {
-                  'UK': 'UK 🇬🇧',
-                  'NY': 'New York 🗽',
-                  'SF': 'San Francisco 🌉',
+                  'UK': 'UK',
+                  'NY': 'New York',
+                  'SF': 'San Francisco',
                   'Other': 'Other'
+                };
+                const regionIconUrls = {
+                  'UK': REGION_ICONS['UK'],
+                  'NY': REGION_ICONS['NY'],
+                  'SF': REGION_ICONS['SF'],
+                  'Other': null
                 };
                 
                 return (
@@ -1413,21 +1427,24 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                     className={`streaks-filter-btn ${streaksRegionFilter === 'UK' ? 'active' : ''}`}
                     onClick={() => setStreaksRegionFilter('UK')}
                   >
-                    🇬🇧 UK
+                    <img src={REGION_ICONS['UK']} alt="UK" className="streaks-region-icon" />
+                    UK
                   </button>
                   <button
                     type="button"
                     className={`streaks-filter-btn ${streaksRegionFilter === 'NY' ? 'active' : ''}`}
                     onClick={() => setStreaksRegionFilter('NY')}
                   >
-                    🗽 NY
+                    <img src={REGION_ICONS['NY']} alt="NY" className="streaks-region-icon" />
+                    NY
                   </button>
                   <button
                     type="button"
                     className={`streaks-filter-btn ${streaksRegionFilter === 'SF' ? 'active' : ''}`}
                     onClick={() => setStreaksRegionFilter('SF')}
                   >
-                    🌉 SF
+                    <img src={REGION_ICONS['SF']} alt="SF" className="streaks-region-icon" />
+                    SF
                   </button>
                 </div>
               </div>
@@ -1582,12 +1599,13 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
               <div className="tse-region-filter">
                 {['UK', 'NY', 'SF', 'Other'].map(region => {
                   const regionLabels = {
-                    'UK': { text: 'UK', emoji: '🇬🇧' },
-                    'NY': { text: 'New York', emoji: '🗽' },
-                    'SF': { text: 'San Francisco', emoji: '🌉' },
-                    'Other': { text: 'Other', emoji: '' }
+                    'UK': { text: 'UK' },
+                    'NY': { text: 'New York' },
+                    'SF': { text: 'San Francisco' },
+                    'Other': { text: 'Other' }
                   };
                   const label = regionLabels[region];
+                  const iconUrl = REGION_ICONS[region];
                   return (
                     <label key={region} className="region-filter-checkbox">
                       <input
@@ -1604,7 +1622,13 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                         }}
                       />
                       <span className="region-filter-text">{label.text}</span>
-                      {label.emoji && <span className="region-filter-emoji">{label.emoji}</span>}
+                      {iconUrl && (
+                        <img 
+                          src={iconUrl} 
+                          alt={region} 
+                          className="region-filter-icon"
+                        />
+                      )}
                     </label>
                   );
                 })}
@@ -1620,9 +1644,9 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             if (tses.length === 0) return null;
 
             const regionLabels = {
-              'UK': 'UK 🇬🇧',
-              'NY': 'New York 🗽',
-              'SF': 'San Francisco 🌉',
+              'UK': 'UK',
+              'NY': 'New York',
+              'SF': 'San Francisco',
               'Other': 'Other'
             };
 
@@ -1653,16 +1677,20 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             // Don't render region group if no TSEs match the filter
             if (filteredAndSortedTSEs.length === 0) return null;
 
-            // Split region label into text and emoji for styling
-            const regionLabelParts = regionLabels[region].split(' ');
-            const regionText = regionLabelParts.slice(0, -1).join(' ');
-            const regionEmoji = regionLabelParts[regionLabelParts.length - 1];
+            const regionText = regionLabels[region];
+            const iconUrl = REGION_ICONS[region];
 
             return (
               <div key={region} className="tse-region-group">
                 <h4 className="tse-region-title">
                   <span className="region-title-text">{regionText}</span>
-                  {regionEmoji && <span className="region-title-emoji"> {regionEmoji}</span>}
+                  {iconUrl && (
+                    <img 
+                      src={iconUrl} 
+                      alt={region} 
+                      className="region-title-icon"
+                    />
+                  )}
                 </h4>
                 <div className="tse-grid">
                   {filteredAndSortedTSEs.map((tse) => {
@@ -1977,11 +2005,12 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
 
                   const isRegionExpanded = expandedRegions.has(region);
                   const regionLabels = {
-                    'UK': 'UK 🇬🇧',
-                    'NY': 'New York 🗽',
-                    'SF': 'San Francisco 🌉',
+                    'UK': 'UK',
+                    'NY': 'New York',
+                    'SF': 'San Francisco',
                     'Other': 'Other'
                   };
+                  const iconUrl = REGION_ICONS[region];
 
                   // Calculate total alerts for this region
                   const regionAlertCount = regionTSEs.reduce((sum, tse) => 
@@ -1996,6 +2025,13 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
                       >
                         <span className="region-expand-icon">{isRegionExpanded ? '▼' : '▶'}</span>
                         <span className="region-name">{regionLabels[region]}</span>
+                        {iconUrl && (
+                          <img 
+                            src={iconUrl} 
+                            alt={region} 
+                            className="region-alert-icon"
+                          />
+                        )}
                         <span className="region-alert-count">({regionAlertCount})</span>
                       </div>
                       
@@ -2847,12 +2883,13 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
   const avatarUrl = getTSEAvatar(tse.name);
   const region = getTSERegion(tse.name);
   const regionLabels = {
-    'UK': { text: 'UK', emoji: '🇬🇧' },
-    'NY': { text: 'New York', emoji: '🗽' },
-    'SF': { text: 'San Francisco', emoji: '🌉' },
-    'Other': { text: 'Other', emoji: '' }
+    'UK': { text: 'UK' },
+    'NY': { text: 'New York' },
+    'SF': { text: 'San Francisco' },
+    'Other': { text: 'Other' }
   };
   const regionLabel = regionLabels[region] || regionLabels['Other'];
+  const regionIconUrl = REGION_ICONS[region];
   const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
   
   // Calculate status for the modal
@@ -3036,7 +3073,13 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
                 </span>
               </h2>
               <div className="modal-region">
-                {regionLabel.emoji && <span className="modal-region-emoji">{regionLabel.emoji}</span>}
+                {regionIconUrl && (
+                  <img 
+                    src={regionIconUrl} 
+                    alt={region} 
+                    className="modal-region-icon"
+                  />
+                )}
                 <span className="modal-region-text">{regionLabel.text}</span>
               </div>
             </div>

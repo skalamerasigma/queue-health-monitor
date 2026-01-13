@@ -9,6 +9,14 @@ const TSE_REGIONS = {
   'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre', 'Priyanshi Singh']
 };
 
+// Region icons (SVG URLs)
+const REGION_ICONS = {
+  'UK': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768284324/3_150_x_150_px_5_yrnw4o.svg',
+  'NY': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768284324/3_150_x_150_px_5_yrnw4o.svg',
+  'SF': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768283947/3_150_x_150_px_1_hmomvc.svg',
+  'Other': null
+};
+
 // Helper function to get region for a TSE name
 const getTSERegion = (tseName) => {
   for (const [region, names] of Object.entries(TSE_REGIONS)) {
@@ -1648,11 +1656,12 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
                   const isRegionExpanded = expandedRegions.has(region);
                   const regionLabels = {
-                    'UK': 'UK 🇬🇧',
-                    'NY': 'New York 🗽',
-                    'SF': 'San Francisco 🌉',
+                    'UK': 'UK',
+                    'NY': 'New York',
+                    'SF': 'San Francisco',
                     'Other': 'Other'
                   };
+                  const iconUrl = REGION_ICONS[region];
 
                   const allRegionTSEsSelected = regionTSEs.every(tse => selectedTSEs.includes(String(tse.id)));
                   const anyRegionTSEsSelected = regionTSEs.some(tse => selectedTSEs.includes(String(tse.id)));
@@ -1665,6 +1674,13 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                       >
                         <span className="region-expand-icon">{isRegionExpanded ? '▼' : '▶'}</span>
                         <span className="region-filter-name">{regionLabels[region]}</span>
+                        {iconUrl && (
+                          <img 
+                            src={iconUrl} 
+                            alt={region} 
+                            className="region-filter-icon"
+                          />
+                        )}
                         <span className="region-filter-count">({regionTSEs.length})</span>
                         <button
                           className="region-select-all-button"

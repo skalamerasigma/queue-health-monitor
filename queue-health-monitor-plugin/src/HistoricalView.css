@@ -170,6 +170,14 @@
   background: #e8e8e8;
 }
 
+.region-filter-icon {
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  vertical-align: middle;
+  object-fit: contain;
+}
+
 .region-expand-icon {
   font-size: 11px;
   color: #666;

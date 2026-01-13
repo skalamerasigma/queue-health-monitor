@@ -878,9 +878,12 @@
   font-size: 12px;
 }
 
-.region-filter-emoji {
-  font-size: 20px;
-  line-height: 1;
+.region-filter-icon {
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  vertical-align: middle;
+  object-fit: contain;
 }
 
 .region-filter-checkbox input[type="checkbox"] {
@@ -910,8 +913,12 @@
   font-size: 16px;
 }
 
-.region-title-emoji {
-  font-size: 22px;
+.region-title-icon {
+  width: 22px;
+  height: 22px;
+  margin-left: 8px;
+  vertical-align: middle;
+  object-fit: contain;
 }
 
 .tse-grid {
@@ -1375,6 +1382,9 @@
   background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
   color: white;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   border-radius: 16px;
   font-size: 12px;
   font-weight: 600;
@@ -1403,6 +1413,20 @@
   background: white;
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(255, 255, 255, 0.4);
+}
+
+.streaks-region-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.region-alert-icon {
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  vertical-align: middle;
+  object-fit: contain;
 }
 
 .streaks-container {
@@ -2411,9 +2435,12 @@
   color: #666;
 }
 
-.modal-region-emoji {
-  font-size: 18px;
-  line-height: 1;
+.modal-region-icon {
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  vertical-align: middle;
+  object-fit: contain;
 }
 
 .modal-region-text {
