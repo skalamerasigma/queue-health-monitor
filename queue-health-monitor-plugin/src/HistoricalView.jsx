@@ -373,7 +373,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const processComplianceResponseTimeCorrelation = (snapshots, responseTimeMetrics) => {
     if (!snapshots.length || !responseTimeMetrics.length) return null;
 
-    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
     const COMPLIANCE_THRESHOLDS = {
       MAX_OPEN_SOFT: 5,
       MAX_WAITING_ON_TSE_SOFT: 5
@@ -509,7 +509,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
   useEffect(() => {
     // Extract unique TSEs from snapshots, excluding Prerit Sachdeva
-    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
     const tseMap = new Map(); // Use Map to track by name for deduplication
     snapshots.forEach(snapshot => {
       snapshot.tseData?.forEach(tse => {
@@ -742,7 +742,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         };
       }
 
-      const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+      const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
       let tseData = selectedTSEs.length > 0
         ? snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)))
         : snapshot.tseData;
@@ -847,7 +847,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     const regionStats = { 'UK': [], 'NY': [], 'SF': [], 'Other': [] };
     
     snapshots.forEach(snapshot => {
-      const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+      const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
       let tseData = snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)));
       tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
       
@@ -910,7 +910,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const tseAverageCompliance = useMemo(() => {
     if (!snapshots.length) return [];
 
-    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
     const tseStats = {};
     
     snapshots.forEach(snapshot => {
@@ -967,7 +967,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const groupedTableData = useMemo(() => {
     if (!snapshots.length) return [];
 
-    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
     const groupedByDate = {};
     
     snapshots.forEach(snapshot => {

@@ -1479,6 +1479,10 @@
   justify-content: center;
 }
 
+.streak-avatar-item.streak-avatar-clickable {
+  cursor: pointer;
+}
+
 .streak-avatar-item {
   position: relative;
   display: flex;

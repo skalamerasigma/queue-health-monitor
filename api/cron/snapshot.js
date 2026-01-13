@@ -95,7 +95,7 @@ export default async function handler(req, res) {
       "Zen Junior", "Nathan Parrish", "Leticia Esparza",
       "Rob Woollen", "Brett Bedevian", "Viswa Jeyaraman", "Brandon Yee",
       "Holly Coxon", "Chetana Shinde", "Matt Morgenroth", "Grace Sanford",
-      "svc-prd-tse-intercom SVC"
+      "Prerit Sachdeva", "Stephen Skalamera", "svc-prd-tse-intercom SVC"
     ];
 
     const byTSE = {};
