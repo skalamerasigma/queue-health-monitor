@@ -12,8 +12,8 @@ const TSE_REGIONS = {
 // Region icons (SVG URLs)
 const REGION_ICONS = {
   'UK': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768284230/3_150_x_150_px_4_kxkr26.svg',
-  'NY': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768284324/3_150_x_150_px_5_yrnw4o.svg',
-  'SF': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768283947/3_150_x_150_px_1_hmomvc.svg',
+  'NY': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768284817/3_150_x_150_px_7_i1jnre.svg',
+  'SF': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768286199/3_150_x_150_px_8_ae1dl7.svg',
   'Other': null
 };
 
