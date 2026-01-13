@@ -2611,17 +2611,29 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           <div className="insight-card region-breakdown">
             <h4 className="insight-title">Region Compliance</h4>
             <div className="insight-content">
-              {regionBreakdown.map(region => (
-                <div key={region.region} className="insight-metric">
-                  <span className="insight-label">{region.region}</span>
-                  <div className="insight-single">
-                    <span className={`insight-value ${region.compliance >= 80 ? 'positive' : region.compliance >= 60 ? 'warning' : 'negative'}`}>
-                      {region.compliance}%
+              {regionBreakdown.map(region => {
+                const iconUrl = REGION_ICONS[region.region];
+                return (
+                  <div key={region.region} className="insight-metric">
+                    <span className="insight-label">
+                      {region.region}
+                      {iconUrl && (
+                        <img 
+                          src={iconUrl} 
+                          alt={region.region} 
+                          className="region-breakdown-icon"
+                        />
+                      )}
                     </span>
-                    <span className="insight-subtext">{region.compliant}/{region.total} TSEs</span>
+                    <div className="insight-single">
+                      <span className={`insight-value ${region.compliance >= 80 ? 'positive' : region.compliance >= 60 ? 'warning' : 'negative'}`}>
+                        {region.compliance}%
+                      </span>
+                      <span className="insight-subtext">{region.compliant}/{region.total} TSEs</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
