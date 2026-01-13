@@ -2358,6 +2358,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     // Get unique streak values, sorted descending
     const uniqueStreaks = [...new Set(streaks.map(s => s.streak))].sort((a, b) => b - a);
     
+    // If all TSEs have the same streak, don't show any medals
+    if (uniqueStreaks.length === 1) return null;
+    
     // Find the rank of the current streak
     const rank = uniqueStreaks.indexOf(currentStreak);
     
