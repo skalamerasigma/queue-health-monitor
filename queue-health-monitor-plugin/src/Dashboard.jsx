@@ -1446,7 +1446,6 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                     <div className="streak-avatars">
                       {filteredPerformanceStreaks.streak3.map((streakTSE) => {
                         const avatarUrl = getTSEAvatar(streakTSE.name);
-                        const medal = getMedalForStreak(filteredPerformanceStreaks.streak3, streakTSE.streak);
                         // Find the full TSE object from metrics
                         const fullTSE = (metrics.byTSE || []).find(t => 
                           String(t.id) === String(streakTSE.id) || t.name === streakTSE.name
@@ -1470,7 +1469,6 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                                 {streakTSE.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                               </div>
                             )}
-                            {medal && <div className="streak-medal streak-medal-bronze">{medal}</div>}
                             <div className="streak-badge streak-badge-bronze">{streakTSE.streak}</div>
                           </div>
                         );
