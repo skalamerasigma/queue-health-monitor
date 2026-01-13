@@ -1416,9 +1416,11 @@
 }
 
 .streaks-region-icon {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .region-alert-icon {
