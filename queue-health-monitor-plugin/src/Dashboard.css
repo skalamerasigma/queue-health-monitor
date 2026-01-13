@@ -2643,6 +2643,64 @@
   overflow-y: auto;
   flex: 1;
   background: #f8f9fa;
+  scroll-behavior: smooth;
+}
+
+.help-toc {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 32px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.help-toc-title {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: white;
+}
+
+.help-toc-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.help-toc-link {
+  color: white;
+  text-decoration: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: block;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.help-toc-link:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  color: white;
+  text-decoration: none;
+}
+
+.help-toc-link:active {
+  transform: translateY(0);
+}
+
+.help-section {
+  scroll-margin-top: 20px;
 }
 
 .help-section {

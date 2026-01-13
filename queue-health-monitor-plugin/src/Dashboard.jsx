@@ -3511,6 +3511,24 @@ function ConversationTable({ conversations }) {
 
 // Help Modal Component
 function HelpModal({ onClose }) {
+  const scrollToSection = (sectionId) => {
+    const element = document.getElementById(sectionId);
+    if (element) {
+      const modalBody = element.closest('.help-modal-body');
+      if (modalBody) {
+        const offset = 20;
+        const elementPosition = element.getBoundingClientRect().top;
+        const modalBodyPosition = modalBody.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + modalBody.scrollTop - modalBodyPosition - offset;
+        
+        modalBody.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
+        });
+      }
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content help-modal-content" onClick={(e) => e.stopPropagation()}>
@@ -3522,8 +3540,23 @@ function HelpModal({ onClose }) {
           <button className="modal-close-button" onClick={onClose}>×</button>
         </div>
         <div className="modal-body help-modal-body">
+          {/* Table of Contents */}
+          <div className="help-toc">
+            <h3 className="help-toc-title">📑 Table of Contents</h3>
+            <div className="help-toc-links">
+              <button onClick={() => scrollToSection('overview-dashboard')} className="help-toc-link">📊 Overview Dashboard</button>
+              <button onClick={() => scrollToSection('tse-view')} className="help-toc-link">👥 TSE View</button>
+              <button onClick={() => scrollToSection('tse-details-modal')} className="help-toc-link">🔍 TSE Details Modal</button>
+              <button onClick={() => scrollToSection('conversations-view')} className="help-toc-link">💬 Conversations View</button>
+              <button onClick={() => scrollToSection('historical-view')} className="help-toc-link">📅 Historical View</button>
+              <button onClick={() => scrollToSection('alerts-system')} className="help-toc-link">🔔 Alerts System</button>
+              <button onClick={() => scrollToSection('compliance-thresholds')} className="help-toc-link">📏 Compliance Thresholds</button>
+              <button onClick={() => scrollToSection('tips-practices')} className="help-toc-link">💡 Tips & Best Practices</button>
+            </div>
+          </div>
+
           {/* Overview Dashboard Section */}
-          <div className="help-section">
+          <div id="overview-dashboard" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">📊</span>
               <h3>Overview Dashboard</h3>
@@ -3632,7 +3665,7 @@ function HelpModal({ onClose }) {
           </div>
 
           {/* TSE View Section */}
-          <div className="help-section">
+          <div id="tse-view" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">👥</span>
               <h3>TSE View</h3>
@@ -3693,7 +3726,7 @@ function HelpModal({ onClose }) {
           </div>
 
           {/* TSE Details Modal Section */}
-          <div className="help-section">
+          <div id="tse-details-modal" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">🔍</span>
               <h3>TSE Details Modal</h3>
@@ -3734,7 +3767,7 @@ function HelpModal({ onClose }) {
           </div>
 
           {/* Conversations View Section */}
-          <div className="help-section">
+          <div id="conversations-view" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">💬</span>
               <h3>Conversations View</h3>
@@ -3794,7 +3827,7 @@ function HelpModal({ onClose }) {
           </div>
 
           {/* Historical View Section */}
-          <div className="help-section">
+          <div id="historical-view" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">📅</span>
               <h3>Historical View</h3>
@@ -3870,7 +3903,7 @@ function HelpModal({ onClose }) {
           </div>
 
           {/* Alerts Section */}
-          <div className="help-section">
+          <div id="alerts-system" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">🔔</span>
               <h3>Alerts System</h3>
@@ -3912,7 +3945,7 @@ function HelpModal({ onClose }) {
           </div>
 
           {/* Compliance Thresholds Section */}
-          <div className="help-section">
+          <div id="compliance-thresholds" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">📏</span>
               <h3>Compliance Thresholds & Status</h3>
@@ -3977,7 +4010,7 @@ function HelpModal({ onClose }) {
           </div>
 
           {/* Tips & Best Practices */}
-          <div className="help-section">
+          <div id="tips-practices" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">💡</span>
               <h3>Tips & Best Practices</h3>
