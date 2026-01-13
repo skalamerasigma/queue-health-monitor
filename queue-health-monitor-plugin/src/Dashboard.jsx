@@ -2374,7 +2374,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         <div className="performance-streaks-section">
           <div className="streaks-header">
             <h2 className="streaks-title">🔥 Outstanding Performance Streaks</h2>
-            <p className="streaks-subtitle">TSEs maintaining 3+ consecutive days with Outstanding status (0 open, 0 waiting on TSE)</p>
             
             {/* Region Filter Buttons */}
             <div className="streaks-region-filters">
