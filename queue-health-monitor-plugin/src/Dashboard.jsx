@@ -251,6 +251,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   const [loadingHistorical, setLoadingHistorical] = useState(false);
   const [selectedTSE, setSelectedTSE] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [streaksRegionFilter, setStreaksRegionFilter] = useState('all');
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [alertsDropdownOpen, setAlertsDropdownOpen] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
@@ -822,6 +823,134 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     };
     }, [conversations, teamMembers]);
 
+  // Calculate performance streaks for each TSE
+  const performanceStreaks = useMemo(() => {
+    if (!historicalSnapshots || historicalSnapshots.length === 0) {
+      return { streak3: [] };
+    }
+
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
+    
+    // Sort snapshots by date (oldest first)
+    const sortedSnapshots = [...historicalSnapshots]
+      .map(snapshot => ({
+        ...snapshot,
+        tseData: snapshot.tse_data || snapshot.tseData || []
+      }))
+      .filter(snapshot => snapshot.tseData.length > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (sortedSnapshots.length === 0) {
+      return { streak3: [] };
+    }
+
+    // Track performance status for each TSE by date
+    const tsePerformanceByDate = {};
+    
+    sortedSnapshots.forEach(snapshot => {
+      snapshot.tseData.forEach(tse => {
+        if (EXCLUDED_TSE_NAMES.includes(tse.name)) return;
+        
+        const tseId = String(tse.id);
+        if (!tsePerformanceByDate[tseId]) {
+          tsePerformanceByDate[tseId] = {
+            id: tseId,
+            name: tse.name,
+            dates: []
+          };
+        }
+        
+        const totalOpen = (tse.open || 0);
+        const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+        // Outstanding Performance: 0 open AND 0 waiting on TSE
+        const isOutstanding = totalOpen === 0 && totalWaitingOnTSE === 0;
+        
+        tsePerformanceByDate[tseId].dates.push({
+          date: snapshot.date,
+          compliant: isOutstanding
+        });
+      });
+    });
+
+    // Calculate current streak and total outstanding days for each TSE
+    const streaks = Object.values(tsePerformanceByDate).map(tse => {
+      const dates = [...tse.dates].sort((a, b) => b.date.localeCompare(a.date)); // Most recent first
+      
+      let currentStreak = 0;
+      let totalOutstandingDays = 0;
+      
+      // Calculate current streak (working backwards from most recent date)
+      for (const dateEntry of dates) {
+        if (dateEntry.compliant) {
+          currentStreak++;
+        } else {
+          break; // Streak broken
+        }
+      }
+      
+      // Calculate total outstanding days in history
+      totalOutstandingDays = tse.dates.filter(d => d.compliant).length;
+      
+      return {
+        id: tse.id,
+        name: tse.name,
+        streak: currentStreak,
+        totalOutstandingDays: totalOutstandingDays
+      };
+    });
+
+    // Group by streak thresholds - only show 3+ days
+    const streak3 = streaks.filter(s => s.streak >= 3);
+
+    // Sort by streak length (highest first), then by total outstanding days (higher is better)
+    const sortStreaks = (arr) => arr.sort((a, b) => {
+      if (b.streak !== a.streak) return b.streak - a.streak;
+      if (b.totalOutstandingDays !== a.totalOutstandingDays) return b.totalOutstandingDays - a.totalOutstandingDays;
+      return 0; // Leave remaining ties as-is
+    });
+
+    return {
+      streak3: sortStreaks(streak3)
+    };
+  }, [historicalSnapshots]);
+
+  // Filter streaks by region
+  const filteredPerformanceStreaks = useMemo(() => {
+    if (streaksRegionFilter === 'all') {
+      return performanceStreaks;
+    }
+
+    const filterByRegion = (streaks) => {
+      return streaks.filter(tse => {
+        const region = getTSERegion(tse.name);
+        return region === streaksRegionFilter;
+      });
+    };
+
+    return {
+      streak3: filterByRegion(performanceStreaks.streak3)
+    };
+  }, [performanceStreaks, streaksRegionFilter]);
+
+  // Helper function to get medal for a streak tier based on unique streak values
+  const getMedalForStreak = (streaks, currentStreak) => {
+    if (!streaks || streaks.length === 0) return null;
+    
+    // Get unique streak values, sorted descending
+    const uniqueStreaks = [...new Set(streaks.map(s => s.streak))].sort((a, b) => b - a);
+    
+    // If all TSEs have the same streak, don't show any medals
+    if (uniqueStreaks.length === 1) return null;
+    
+    // Find the rank of the current streak
+    const rank = uniqueStreaks.indexOf(currentStreak);
+    
+    if (rank === 0) return '🥇'; // Highest streak
+    if (rank === 1) return '🥈'; // Second highest
+    if (rank === 2) return '🥉'; // Third highest
+    return null; // No medal for 4th place and below
+  };
+
   // Filter conversations based on selected tag and TSE, excluding conversations from excluded TSEs
   const filteredConversations = useMemo(() => {
     if (!conversations) return [];
@@ -1264,6 +1393,95 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       {/* TSE-Level Breakdown - Show only in TSE view */}
       {activeView === "tse" && (
         <div className="tse-section">
+          {/* Performance Streaks Section */}
+          {performanceStreaks.streak3.length > 0 && (
+            <div className="performance-streaks-section">
+              <div className="streaks-header">
+                <h2 className="streaks-title">🔥 Outstanding Performance Streaks</h2>
+                
+                {/* Region Filter Buttons */}
+                <div className="streaks-region-filters">
+                  <button
+                    type="button"
+                    className={`streaks-filter-btn ${streaksRegionFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setStreaksRegionFilter('all')}
+                  >
+                    All Regions
+                  </button>
+                  <button
+                    type="button"
+                    className={`streaks-filter-btn ${streaksRegionFilter === 'UK' ? 'active' : ''}`}
+                    onClick={() => setStreaksRegionFilter('UK')}
+                  >
+                    🇬🇧 UK
+                  </button>
+                  <button
+                    type="button"
+                    className={`streaks-filter-btn ${streaksRegionFilter === 'NY' ? 'active' : ''}`}
+                    onClick={() => setStreaksRegionFilter('NY')}
+                  >
+                    🗽 NY
+                  </button>
+                  <button
+                    type="button"
+                    className={`streaks-filter-btn ${streaksRegionFilter === 'SF' ? 'active' : ''}`}
+                    onClick={() => setStreaksRegionFilter('SF')}
+                  >
+                    🌉 SF
+                  </button>
+                </div>
+              </div>
+              
+              <div className="streaks-container">
+                {/* 3+ Day Streaks */}
+                {filteredPerformanceStreaks.streak3.length > 0 && (
+                  <div className="streak-tier streak-tier-bronze">
+                    <div className="streak-tier-header">
+                      <span className="streak-tier-icon">💪</span>
+                      <div className="streak-tier-info">
+                        <h3 className="streak-tier-title">Building Momentum</h3>
+                        <p className="streak-tier-subtitle">⭐ 3+ Consecutive Outstanding Days</p>
+                      </div>
+                    </div>
+                    <div className="streak-avatars">
+                      {filteredPerformanceStreaks.streak3.map((streakTSE) => {
+                        const avatarUrl = getTSEAvatar(streakTSE.name);
+                        const medal = getMedalForStreak(filteredPerformanceStreaks.streak3, streakTSE.streak);
+                        // Find the full TSE object from metrics
+                        const fullTSE = (metrics.byTSE || []).find(t => 
+                          String(t.id) === String(streakTSE.id) || t.name === streakTSE.name
+                        ) || streakTSE; // Fallback to streakTSE if not found in metrics
+                        
+                        return (
+                          <div 
+                            key={streakTSE.id} 
+                            className="streak-avatar-item streak-avatar-clickable" 
+                            title={`${streakTSE.name} - ${streakTSE.streak} days`}
+                            onClick={() => handleTSECardClick(fullTSE)}
+                          >
+                            {avatarUrl ? (
+                              <img 
+                                src={avatarUrl} 
+                                alt={streakTSE.name}
+                                className="streak-avatar streak-avatar-bronze"
+                              />
+                            ) : (
+                              <div className="streak-avatar streak-avatar-bronze streak-avatar-placeholder">
+                                {streakTSE.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                              </div>
+                            )}
+                            {medal && <div className="streak-medal streak-medal-bronze">{medal}</div>}
+                            <div className="streak-badge streak-badge-bronze">{streakTSE.streak}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <h3 className="section-title">TSE Queue Health</h3>
           
           {/* Filters Container */}
@@ -1912,8 +2130,6 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
 
 // Modern Overview Dashboard Component
 function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical, onNavigateToConversations, onNavigateToTSEView, onTSEClick }) {
-  // Region filter state for performance streaks
-  const [streaksRegionFilter, setStreaksRegionFilter] = useState('all');
   
   // Prepare compliance trend data (last 7 days)
   const complianceTrendData = useMemo(() => {
@@ -2242,225 +2458,8 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     };
   }, [responseTimeTrendData]);
 
-  // Calculate performance streaks for each TSE
-  const performanceStreaks = useMemo(() => {
-    if (!historicalSnapshots || historicalSnapshots.length === 0) {
-      return { streak3: [] };
-    }
-
-    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
-    
-    // Sort snapshots by date (oldest first)
-    const sortedSnapshots = [...historicalSnapshots]
-      .map(snapshot => ({
-        ...snapshot,
-        tseData: snapshot.tse_data || snapshot.tseData || []
-      }))
-      .filter(snapshot => snapshot.tseData.length > 0)
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    if (sortedSnapshots.length === 0) {
-      return { streak3: [] };
-    }
-
-    // Track performance status for each TSE by date
-    const tsePerformanceByDate = {};
-    
-    sortedSnapshots.forEach(snapshot => {
-      snapshot.tseData.forEach(tse => {
-        if (EXCLUDED_TSE_NAMES.includes(tse.name)) return;
-        
-        const tseId = String(tse.id);
-        if (!tsePerformanceByDate[tseId]) {
-          tsePerformanceByDate[tseId] = {
-            id: tseId,
-            name: tse.name,
-            dates: []
-          };
-        }
-        
-        const totalOpen = (tse.open || 0);
-        const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
-        // Outstanding Performance: 0 open AND 0 waiting on TSE
-        const isOutstanding = totalOpen === 0 && totalWaitingOnTSE === 0;
-        
-        tsePerformanceByDate[tseId].dates.push({
-          date: snapshot.date,
-          compliant: isOutstanding
-        });
-      });
-    });
-
-    // Calculate current streak and total outstanding days for each TSE
-    const streaks = Object.values(tsePerformanceByDate).map(tse => {
-      const dates = [...tse.dates].sort((a, b) => b.date.localeCompare(a.date)); // Most recent first
-      
-      let currentStreak = 0;
-      let totalOutstandingDays = 0;
-      
-      // Calculate current streak (working backwards from most recent date)
-      for (const dateEntry of dates) {
-        if (dateEntry.compliant) {
-          currentStreak++;
-        } else {
-          break; // Streak broken
-        }
-      }
-      
-      // Calculate total outstanding days in history
-      totalOutstandingDays = tse.dates.filter(d => d.compliant).length;
-      
-      return {
-        id: tse.id,
-        name: tse.name,
-        streak: currentStreak,
-        totalOutstandingDays: totalOutstandingDays
-      };
-    });
-
-    // Group by streak thresholds - only show 3+ days
-    const streak3 = streaks.filter(s => s.streak >= 3);
-
-    // Sort by streak length (highest first), then by total outstanding days (higher is better)
-    const sortStreaks = (arr) => arr.sort((a, b) => {
-      if (b.streak !== a.streak) return b.streak - a.streak;
-      if (b.totalOutstandingDays !== a.totalOutstandingDays) return b.totalOutstandingDays - a.totalOutstandingDays;
-      return 0; // Leave remaining ties as-is
-    });
-
-    return {
-      streak3: sortStreaks(streak3)
-    };
-  }, [historicalSnapshots]);
-
-  // Filter streaks by region
-  const filteredPerformanceStreaks = useMemo(() => {
-    if (streaksRegionFilter === 'all') {
-      return performanceStreaks;
-    }
-
-    const filterByRegion = (streaks) => {
-      return streaks.filter(tse => {
-        const region = getTSERegion(tse.name);
-        return region === streaksRegionFilter;
-      });
-    };
-
-    return {
-      streak3: filterByRegion(performanceStreaks.streak3)
-    };
-  }, [performanceStreaks, streaksRegionFilter]);
-
-  // Helper function to get medal for a streak tier based on unique streak values
-  const getMedalForStreak = (streaks, currentStreak) => {
-    if (!streaks || streaks.length === 0) return null;
-    
-    // Get unique streak values, sorted descending
-    const uniqueStreaks = [...new Set(streaks.map(s => s.streak))].sort((a, b) => b - a);
-    
-    // If all TSEs have the same streak, don't show any medals
-    if (uniqueStreaks.length === 1) return null;
-    
-    // Find the rank of the current streak
-    const rank = uniqueStreaks.indexOf(currentStreak);
-    
-    if (rank === 0) return '🥇'; // Highest streak
-    if (rank === 1) return '🥈'; // Second highest
-    if (rank === 2) return '🥉'; // Third highest
-    return null; // No medal for 4th place and below
-  };
-
   return (
     <div className="modern-overview">
-      {/* Performance Streaks Section */}
-      {performanceStreaks.streak3.length > 0 && (
-        <div className="performance-streaks-section">
-          <div className="streaks-header">
-            <h2 className="streaks-title">🔥 Outstanding Performance Streaks</h2>
-            
-            {/* Region Filter Buttons */}
-            <div className="streaks-region-filters">
-              <button
-                type="button"
-                className={`streaks-filter-btn ${streaksRegionFilter === 'all' ? 'active' : ''}`}
-                onClick={() => setStreaksRegionFilter('all')}
-              >
-                All Regions
-              </button>
-              <button
-                type="button"
-                className={`streaks-filter-btn ${streaksRegionFilter === 'UK' ? 'active' : ''}`}
-                onClick={() => setStreaksRegionFilter('UK')}
-              >
-                🇬🇧 UK
-              </button>
-              <button
-                type="button"
-                className={`streaks-filter-btn ${streaksRegionFilter === 'NY' ? 'active' : ''}`}
-                onClick={() => setStreaksRegionFilter('NY')}
-              >
-                🗽 NY
-              </button>
-              <button
-                type="button"
-                className={`streaks-filter-btn ${streaksRegionFilter === 'SF' ? 'active' : ''}`}
-                onClick={() => setStreaksRegionFilter('SF')}
-              >
-                🌉 SF
-              </button>
-            </div>
-          </div>
-          
-          <div className="streaks-container">
-            {/* 3+ Day Streaks */}
-            {filteredPerformanceStreaks.streak3.length > 0 && (
-              <div className="streak-tier streak-tier-bronze">
-                <div className="streak-tier-header">
-                  <span className="streak-tier-icon">💪</span>
-                  <div className="streak-tier-info">
-                    <h3 className="streak-tier-title">Building Momentum</h3>
-                    <p className="streak-tier-subtitle">⭐ 3+ Consecutive Outstanding Days</p>
-                  </div>
-                </div>
-                <div className="streak-avatars">
-                  {filteredPerformanceStreaks.streak3.map((streakTSE) => {
-                    const avatarUrl = getTSEAvatar(streakTSE.name);
-                    const medal = getMedalForStreak(filteredPerformanceStreaks.streak3, streakTSE.streak);
-                    // Find the full TSE object from metrics
-                    const fullTSE = (metrics.byTSE || []).find(t => 
-                      String(t.id) === String(streakTSE.id) || t.name === streakTSE.name
-                    ) || streakTSE; // Fallback to streakTSE if not found in metrics
-                    
-                    return (
-                      <div 
-                        key={streakTSE.id} 
-                        className="streak-avatar-item streak-avatar-clickable" 
-                        title={`${streakTSE.name} - ${streakTSE.streak} days`}
-                        onClick={() => onTSEClick && onTSEClick(fullTSE)}
-                      >
-                        {avatarUrl ? (
-                          <img 
-                            src={avatarUrl} 
-                            alt={streakTSE.name}
-                            className="streak-avatar streak-avatar-bronze"
-                          />
-                        ) : (
-                          <div className="streak-avatar streak-avatar-bronze streak-avatar-placeholder">
-                            {streakTSE.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                          </div>
-                        )}
-                        {medal && <div className="streak-medal streak-medal-bronze">{medal}</div>}
-                        <div className="streak-badge streak-badge-bronze">{streakTSE.streak}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Quick Insights Section */}
       <div className="overview-insights">
         {/* Last 7 Days vs Previous 7 Days */}
