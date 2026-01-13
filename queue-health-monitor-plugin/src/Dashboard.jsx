@@ -3514,81 +3514,516 @@ function HelpModal({ onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content help-modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Help & Documentation</h2>
+        <div className="modal-header help-modal-header">
+          <div className="help-header-content">
+            <span className="help-header-icon">📚</span>
+            <h2>Dashboard Guide & Documentation</h2>
+          </div>
           <button className="modal-close-button" onClick={onClose}>×</button>
         </div>
         <div className="modal-body help-modal-body">
+          {/* Overview Dashboard Section */}
           <div className="help-section">
-            <h3>Overview Dashboard</h3>
-            <p>The Overview Dashboard provides real-time metrics and insights:</p>
-            <ul>
-              <li><strong>KPI Cards:</strong> Click on "OPEN CHATS", "WAITING ON TSE", or "WAITING ON CUSTOMER" cards to navigate to filtered conversations.</li>
-              <li><strong>Region Compliance:</strong> View compliance percentages by region (UK, NY, SF).</li>
-              <li><strong>Active Alerts:</strong> Click the alert summary card to view all TSEs over limit.</li>
-              <li><strong>Compliance Trends:</strong> See 7-day compliance trends and response time metrics.</li>
-            </ul>
+            <div className="help-section-header">
+              <span className="help-section-icon">📊</span>
+              <h3>Overview Dashboard</h3>
+            </div>
+            <p className="help-intro">The Overview Dashboard provides real-time metrics and insights at a glance. All cards are clickable and navigate to filtered views.</p>
+            
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🎯</span>
+                <strong>KPI Cards</strong>
+              </div>
+              <p><strong>What:</strong> Three main metric cards showing key conversation counts.</p>
+              <ul>
+                <li><strong>OPEN CHATS</strong> - Total active, non-snoozed conversations</li>
+                <li><strong>WAITING ON TSE</strong> - Conversations snoozed with tag "snooze.waiting-on-tse"</li>
+                <li><strong>WAITING ON CUSTOMER</strong> - Conversations snoozed with tag "snooze.waiting-on-customer"</li>
+              </ul>
+              <p><strong>How:</strong> Calculated from real-time conversation data, excluding excluded TSEs.</p>
+              <p><strong>Why:</strong> Quick visibility into conversation volume and distribution. Click any card to navigate to filtered Conversations View.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🌍</span>
+                <strong>Region Compliance</strong>
+              </div>
+              <p><strong>What:</strong> Compliance percentages by region (UK 🇬🇧, NY 🗽, SF 🌉).</p>
+              <p><strong>How:</strong> Calculated from the most recent historical snapshot. For each region:</p>
+              <ul>
+                <li>Counts TSEs meeting both thresholds: ≤{THRESHOLDS.MAX_OPEN_SOFT} open chats AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE</li>
+                <li>Compliance % = (Compliant TSEs / Total TSEs) × 100</li>
+              </ul>
+              <p><strong>Why:</strong> Identifies regional performance patterns and helps allocate resources.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🔥</span>
+                <strong>Outstanding Performance Streaks</strong>
+              </div>
+              <p><strong>What:</strong> TSEs with 3+ consecutive days of Outstanding status (0 open, 0 waiting on TSE).</p>
+              <p><strong>How:</strong> Analyzes historical snapshots to find consecutive Outstanding days. Streaks are calculated backwards from the most recent date. Tiebreakers: (1) Longer streaks, (2) Total outstanding days in history.</p>
+              <p><strong>Why:</strong> Recognizes consistent excellence and motivates continued performance. Click any TSE avatar to view their details.</p>
+              <p><strong>Filtering:</strong> Use region buttons (All Regions, UK, NY, SF) to filter by location.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📈</span>
+                <strong>Compliance Trends Chart</strong>
+              </div>
+              <p><strong>What:</strong> Line chart showing compliance percentage over the last 7 days.</p>
+              <p><strong>How:</strong> Uses historical snapshots. Each data point represents daily compliance calculated from all TSEs in that snapshot.</p>
+              <p><strong>Why:</strong> Visualizes trends to identify improving or declining performance patterns.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">⏱️</span>
+                <strong>Response Time Metrics</strong>
+              </div>
+              <p><strong>What:</strong> Percentage of conversations with 10+ minute first response times.</p>
+              <p><strong>How:</strong> Calculated from response time metrics captured daily at midnight UTC. Shows percentage and trend (improving ↓, worsening ↑, stable →).</p>
+              <p><strong>Why:</strong> Tracks customer experience quality. Lower percentages indicate faster response times.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🔔</span>
+                <strong>Active Alerts Card</strong>
+              </div>
+              <p><strong>What:</strong> Summary of TSEs exceeding thresholds.</p>
+              <p><strong>How:</strong> Counts alerts for open chats ({THRESHOLDS.MAX_OPEN_ALERT}+) and waiting on TSE ({THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+).</p>
+              <p><strong>Why:</strong> Quick identification of TSEs needing immediate attention. Click to navigate to TSE View filtered to non-compliant TSEs.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📅</span>
+                <strong>Week-over-Week Comparison</strong>
+              </div>
+              <p><strong>What:</strong> Compares last 7 days vs previous 7 days for compliance and response time.</p>
+              <p><strong>How:</strong> Calculates averages for each period and shows the difference with direction indicators.</p>
+              <p><strong>Why:</strong> Identifies short-term trends and performance changes.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📊</span>
+                <strong>Best/Worst Day</strong>
+              </div>
+              <p><strong>What:</strong> Highlights the best and worst compliance days in the last 7 days.</p>
+              <p><strong>How:</strong> Finds the highest and lowest compliance percentages from daily snapshots.</p>
+              <p><strong>Why:</strong> Helps identify what conditions lead to better or worse performance.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📉</span>
+                <strong>Volatility Indicator</strong>
+              </div>
+              <p><strong>What:</strong> Measures stability of compliance over the last 7 days.</p>
+              <p><strong>How:</strong> Calculates standard deviation of daily compliance values. Classified as Stable (±&lt;5%), Moderate (±5-10%), or Volatile (±&gt;10%).</p>
+              <p><strong>Why:</strong> Indicates consistency. Stable performance is preferred over volatile swings.</p>
+            </div>
           </div>
 
+          {/* TSE View Section */}
           <div className="help-section">
-            <h3>TSE View</h3>
-            <p>Monitor individual TSE performance:</p>
-            <ul>
-              <li><strong>TSE Cards:</strong> Click any TSE card to view detailed conversation breakdowns.</li>
-              <li><strong>Status Indicators:</strong> Gold star (⭐) = Outstanding, Green checkmark (✓) = On Track, Red X (✗) = Over Limit - Needs Attention.</li>
-              <li><strong>Filters:</strong> Filter by region, compliance status, or specific TSEs.</li>
-            </ul>
+            <div className="help-section-header">
+              <span className="help-section-icon">👥</span>
+              <h3>TSE View</h3>
+            </div>
+            <p className="help-intro">Monitor individual TSE performance with detailed metrics and filtering options.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">⭐</span>
+                <strong>TSE Status Indicators</strong>
+              </div>
+              <p><strong>Status Levels:</strong></p>
+              <ul>
+                <li><strong>⭐ Outstanding</strong> - 0 open chats AND 0 waiting on TSE. Purple badge with gold star icon.</li>
+                <li><strong>✓ On Track</strong> - ≤{THRESHOLDS.MAX_OPEN_SOFT} open chats AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE. Green badge with checkmark.</li>
+                <li><strong>✗ Over Limit - Needs Attention</strong> - &gt;{THRESHOLDS.MAX_OPEN_SOFT} open chats OR &gt;{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE. Red badge with X icon.</li>
+              </ul>
+              <p><strong>Tooltips:</strong> Hover or click status icons to see detailed counts and thresholds.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🎴</span>
+                <strong>TSE Cards</strong>
+              </div>
+              <p><strong>What:</strong> Individual cards for each TSE showing their current status and metrics.</p>
+              <p><strong>Contains:</strong></p>
+              <ul>
+                <li>TSE name with status icon</li>
+                <li>Avatar (if available)</li>
+                <li>Away mode indicator (🌙) if enabled</li>
+                <li>Open chats count</li>
+                <li>Waiting on TSE count</li>
+                <li>Waiting on Customer count</li>
+                <li>Total snoozed count</li>
+              </ul>
+              <p><strong>Interaction:</strong> Click any TSE card to open detailed modal with conversation breakdown.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🔍</span>
+                <strong>Filters</strong>
+              </div>
+              <p><strong>Region Filters:</strong> Checkboxes to filter by UK 🇬🇧, NY 🗽, SF 🌉, or Other. Click region icons to select/deselect.</p>
+              <p><strong>Status Filters:</strong> Color-coded buttons to filter by compliance status (Outstanding, On Track, Over Limit).</p>
+              <p><strong>How:</strong> Filters combine - selected regions AND selected statuses.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📋</span>
+                <strong>Region Grouping</strong>
+              </div>
+              <p><strong>What:</strong> TSEs are grouped by region with region icons displayed.</p>
+              <p><strong>Why:</strong> Easier to scan and compare performance within regions.</p>
+            </div>
           </div>
 
+          {/* TSE Details Modal Section */}
           <div className="help-section">
-            <h3>Conversations View</h3>
-            <p>Browse and filter conversations:</p>
-            <ul>
-              <li><strong>Filter by Snooze Type:</strong> Filter by "All Conversations", "All Snoozed", "Waiting On TSE", or "Waiting On Customer".</li>
-              <li><strong>Filter by TSE:</strong> View conversations assigned to specific TSEs or unassigned conversations.</li>
-              <li><strong>Search:</strong> Search for conversations by ID.</li>
-            </ul>
+            <div className="help-section-header">
+              <span className="help-section-icon">🔍</span>
+              <h3>TSE Details Modal</h3>
+            </div>
+            <p className="help-intro">Detailed breakdown of a specific TSE's conversations and performance metrics.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📊</span>
+                <strong>Header Information</strong>
+              </div>
+              <p><strong>Contains:</strong> TSE name, region, status badge with icon, away mode indicator (if enabled).</p>
+              <p><strong>Status Tooltip:</strong> Click status icon to see detailed breakdown of open/waiting counts vs thresholds.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">💬</span>
+                <strong>Conversation Breakdown</strong>
+              </div>
+              <p><strong>Sections:</strong></p>
+              <ul>
+                <li><strong>Open Conversations</strong> - Active, non-snoozed conversations</li>
+                <li><strong>Waiting On TSE</strong> - Snoozed with "snooze.waiting-on-tse" tag</li>
+                <li><strong>Waiting On Customer</strong> - Snoozed with "snooze.waiting-on-customer" tag</li>
+                <li><strong>Total Snoozed</strong> - All snoozed conversations</li>
+              </ul>
+              <p><strong>Interaction:</strong> Click conversation IDs to open in Intercom.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📈</span>
+                <strong>Metrics Display</strong>
+              </div>
+              <p><strong>Shows:</strong> Counts for each conversation type with color-coded badges matching status levels.</p>
+            </div>
           </div>
 
+          {/* Conversations View Section */}
           <div className="help-section">
-            <h3>Historical View</h3>
-            <p>Analyze trends over time:</p>
-            <ul>
-              <li><strong>Daily Compliance Trends:</strong> View compliance trends for selected TSEs over time.</li>
-              <li><strong>Region Comparison:</strong> Compare average compliance across regions.</li>
-              <li><strong>Response Time Analysis:</strong> Track response time metrics and identify slow response patterns.</li>
-              <li><strong>Date Range:</strong> Select custom date ranges to analyze historical data.</li>
-            </ul>
+            <div className="help-section-header">
+              <span className="help-section-icon">💬</span>
+              <h3>Conversations View</h3>
+            </div>
+            <p className="help-intro">Browse, search, and filter all conversations with advanced filtering options.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🔽</span>
+                <strong>Snooze Type Filter</strong>
+              </div>
+              <p><strong>Options:</strong></p>
+              <ul>
+                <li><strong>All Conversations</strong> - Shows all open and snoozed conversations</li>
+                <li><strong>All Snoozed</strong> - All snoozed conversations regardless of tag</li>
+                <li><strong>Snoozed - Waiting On TSE</strong> - Conversations with "snooze.waiting-on-tse" tag</li>
+                <li><strong>Snoozed - Waiting On Customer</strong> - All conversations with "snooze.waiting-on-customer" tag</li>
+                <li><strong>Waiting On Customer - Resolved</strong> - Resolved conversations waiting on customer</li>
+                <li><strong>Waiting On Customer - Unresolved</strong> - Unresolved conversations waiting on customer</li>
+              </ul>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">👤</span>
+                <strong>TSE Filter</strong>
+              </div>
+              <p><strong>Options:</strong> All TSEs, Unassigned, or filter by specific TSE (grouped by region).</p>
+              <p><strong>Why:</strong> Focus on conversations for specific team members or unassigned conversations.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🔎</span>
+                <strong>Search by ID</strong>
+              </div>
+              <p><strong>What:</strong> Text input to search for specific conversation IDs.</p>
+              <p><strong>How:</strong> Filters conversations matching the entered ID.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📋</span>
+                <strong>Conversation Table</strong>
+              </div>
+              <p><strong>Columns:</strong> Conversation ID (clickable to Intercom), Assignee, State, Snooze tags, Last updated.</p>
+              <p><strong>Interaction:</strong> Click conversation IDs to open in Intercom in a new tab.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">⚡</span>
+                <strong>Quick Filter Buttons</strong>
+              </div>
+              <p><strong>Buttons:</strong> Show Unassigned, Show Snoozed, Show Open, Clear (resets all filters).</p>
+            </div>
           </div>
 
+          {/* Historical View Section */}
           <div className="help-section">
-            <h3>Alerts</h3>
-            <p>Stay informed about TSEs over limit:</p>
-            <ul>
-              <li><strong>Alert Dropdown:</strong> Click the bell icon to view active alerts.</li>
-              <li><strong>Alert Items:</strong> Click on any alert to view TSE details, or click "View Chats" to see filtered conversations.</li>
-              <li><strong>View All:</strong> Navigate to TSE View filtered to show all TSEs over limit.</li>
-            </ul>
+            <div className="help-section-header">
+              <span className="help-section-icon">📅</span>
+              <h3>Historical View</h3>
+            </div>
+            <p className="help-intro">Analyze trends, patterns, and correlations over time with three specialized tabs.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📊</span>
+                <strong>Daily Compliance Trends Tab</strong>
+              </div>
+              <p><strong>What:</strong> Line chart showing compliance trends for selected TSEs over time.</p>
+              <p><strong>Features:</strong></p>
+              <ul>
+                <li><strong>Date Range Selector:</strong> Yesterday, Last 7 Weekdays, Last 30 Days, Last 90 Days, or Custom Range</li>
+                <li><strong>TSE Filter:</strong> Select specific TSEs by region (UK, NY, SF, Other) with expandable checkboxes</li>
+                <li><strong>Compliance Chart:</strong> Line graph with moving average (3-day window)</li>
+                <li><strong>Region Comparison:</strong> Bar chart comparing average compliance across regions</li>
+                <li><strong>Detailed Table:</strong> Expandable rows showing daily compliance, open counts, waiting on TSE counts</li>
+                <li><strong>Holiday Indicators:</strong> Icons mark holidays that may affect metrics</li>
+              </ul>
+              <p><strong>How Compliance is Calculated:</strong> For each day, counts TSEs meeting both thresholds (≤{THRESHOLDS.MAX_OPEN_SOFT} open AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE), then calculates percentage.</p>
+              <p><strong>Why:</strong> Identifies trends, patterns, and helps understand what drives compliance changes.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">⏱️</span>
+                <strong>Response Time Metrics Tab</strong>
+              </div>
+              <p><strong>What:</strong> Analysis of first response times, focusing on conversations with 10+ minute wait times.</p>
+              <p><strong>Features:</strong></p>
+              <ul>
+                <li><strong>Summary Cards:</strong> Average % with 10+ min wait, Total conversations, Total slow responses</li>
+                <li><strong>Percentage Chart:</strong> Line chart showing daily percentage of slow responses</li>
+                <li><strong>Day-of-Week Analysis:</strong> Bar chart showing patterns by weekday</li>
+                <li><strong>Best/Worst Days:</strong> Highlights days with best and worst response times</li>
+                <li><strong>Trend Analysis:</strong> Compares recent performance vs historical average</li>
+                <li><strong>Detailed Table:</strong> Expandable rows with daily metrics, conversation IDs, and counts</li>
+                <li><strong>Region Filtering:</strong> Filter by TSE region (same as Compliance Trends)</li>
+                <li><strong>Manual Capture:</strong> Button to manually capture current day's metric</li>
+              </ul>
+              <p><strong>How:</strong> Metrics are captured daily at midnight UTC. Calculates percentage of conversations with first response time ≥10 minutes.</p>
+              <p><strong>Why:</strong> Tracks customer experience quality. Lower percentages indicate faster response times and better service.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🔗</span>
+                <strong>Impact Tab</strong>
+              </div>
+              <p><strong>What:</strong> Correlation analysis between compliance and slow response times.</p>
+              <p><strong>Features:</strong></p>
+              <ul>
+                <li><strong>Correlation Analysis:</strong> Measures relationship between compliance and slow response rates</li>
+                <li><strong>Correlation Strength:</strong> Weak (&lt;0.3), Moderate (0.3-0.7), or Strong (&gt;0.7)</li>
+                <li><strong>Correlation Direction:</strong> Positive (higher compliance → higher slow responses) or Negative (higher compliance → lower slow responses)</li>
+                <li><strong>Scatter Plot:</strong> Visual representation of compliance vs slow response percentage</li>
+                <li><strong>Range Statistics:</strong> Breakdown by compliance ranges showing average slow response rates</li>
+              </ul>
+              <p><strong>How:</strong> Combines compliance data from snapshots with response time metrics, calculates Pearson correlation coefficient.</p>
+              <p><strong>Why:</strong> Understands if maintaining compliance helps or hurts response times. Negative correlation (higher compliance → lower slow responses) is desired.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">💾</span>
+                <strong>Snapshot Management</strong>
+              </div>
+              <p><strong>Save Current Snapshot:</strong> Button to manually capture current day's compliance data.</p>
+              <p><strong>Why:</strong> Ensures historical data is captured even if automatic snapshots fail.</p>
+            </div>
           </div>
 
+          {/* Alerts Section */}
           <div className="help-section">
-            <h3>Compliance Thresholds</h3>
-            <p>Compliance is calculated based on:</p>
-            <ul>
-              <li><strong>Open Chats:</strong> TSEs with 6+ open chats trigger alerts.</li>
-              <li><strong>Waiting On TSE:</strong> TSEs with 7+ conversations waiting on them trigger alerts.</li>
-              <li><strong>Status:</strong> Outstanding (purple with gold star), On Track (green), or Over Limit - Needs Attention (red) based on these thresholds.</li>
-            </ul>
+            <div className="help-section-header">
+              <span className="help-section-icon">🔔</span>
+              <h3>Alerts System</h3>
+            </div>
+            <p className="help-intro">Stay informed about TSEs exceeding compliance thresholds with real-time alerts.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🔔</span>
+                <strong>Alert Dropdown</strong>
+              </div>
+              <p><strong>Access:</strong> Click the bell icon (🔔) in the header.</p>
+              <p><strong>What:</strong> Shows count of active alerts. Badge displays total alert count.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">⚠️</span>
+                <strong>Alert Types</strong>
+              </div>
+              <p><strong>Open Chat Alerts:</strong> Triggered when TSE has {THRESHOLDS.MAX_OPEN_ALERT}+ open conversations.</p>
+              <p><strong>Waiting On TSE Alerts:</strong> Triggered when TSE has {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+ conversations waiting on them.</p>
+              <p><strong>Severity:</strong> High (🔴) or Medium (🟡) based on how far over threshold.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📋</span>
+                <strong>Alert Organization</strong>
+              </div>
+              <p><strong>Grouping:</strong> Alerts grouped by TSE, then by type. Expandable regions (UK, NY, SF, Other).</p>
+              <p><strong>Actions:</strong></p>
+              <ul>
+                <li>Click alert → Opens TSE Details Modal</li>
+                <li>Click "View Chats" → Navigates to Conversations View filtered to that TSE and alert type</li>
+                <li>Click "View All" → Navigates to TSE View filtered to all non-compliant TSEs</li>
+              </ul>
+            </div>
           </div>
 
+          {/* Compliance Thresholds Section */}
           <div className="help-section">
-            <h3>Tips</h3>
-            <ul>
-              <li>Use the arrow icons (→) on cards to identify clickable elements.</li>
-              <li>Hover over TSE cards to see hover effects indicating interactivity.</li>
-              <li>Click on any TSE card to view detailed conversation breakdowns.</li>
-              <li>Use filters to narrow down conversations by type, TSE, or region.</li>
-            </ul>
+            <div className="help-section-header">
+              <span className="help-section-icon">📏</span>
+              <h3>Compliance Thresholds & Status</h3>
+            </div>
+            <p className="help-intro">Understanding how compliance is calculated and what each status means.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">✅</span>
+                <strong>Compliance Calculation</strong>
+              </div>
+              <p><strong>Definition:</strong> A TSE is "compliant" if they meet BOTH thresholds:</p>
+              <ul>
+                <li>Open conversations ≤ {THRESHOLDS.MAX_OPEN_SOFT}</li>
+                <li>Waiting on TSE conversations ≤ {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}</li>
+              </ul>
+              <p><strong>Note:</strong> "Waiting on TSE" refers to conversations snoozed with tag "snooze.waiting-on-tse".</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">⭐</span>
+                <strong>Status Levels</strong>
+              </div>
+              <div className="help-status-grid">
+                <div className="help-status-item">
+                  <span className="help-status-badge status-exceeding">⭐</span>
+                  <div>
+                    <strong>Outstanding</strong>
+                    <p>0 open AND 0 waiting on TSE</p>
+                    <p className="help-status-detail">Perfect performance - no active workload</p>
+                  </div>
+                </div>
+                <div className="help-status-item">
+                  <span className="help-status-badge status-success">✓</span>
+                  <div>
+                    <strong>On Track</strong>
+                    <p>≤{THRESHOLDS.MAX_OPEN_SOFT} open AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting</p>
+                    <p className="help-status-detail">Within acceptable limits</p>
+                  </div>
+                </div>
+                <div className="help-status-item">
+                  <span className="help-status-badge status-error">✗</span>
+                  <div>
+                    <strong>Over Limit</strong>
+                    <p>&gt;{THRESHOLDS.MAX_OPEN_SOFT} open OR &gt;{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting</p>
+                    <p className="help-status-detail">Needs attention - exceeds thresholds</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🚨</span>
+                <strong>Alert Thresholds</strong>
+              </div>
+              <p><strong>Open Chats Alert:</strong> Triggered at {THRESHOLDS.MAX_OPEN_ALERT}+ open conversations (soft limit: {THRESHOLDS.MAX_OPEN_SOFT})</p>
+              <p><strong>Waiting On TSE Alert:</strong> Triggered at {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+ waiting conversations (soft limit: {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})</p>
+              <p><strong>Why Different:</strong> Soft limits indicate "On Track" status, alert limits trigger notifications for attention.</p>
+            </div>
+          </div>
+
+          {/* Tips & Best Practices */}
+          <div className="help-section">
+            <div className="help-section-header">
+              <span className="help-section-icon">💡</span>
+              <h3>Tips & Best Practices</h3>
+            </div>
+            
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🖱️</span>
+                <strong>Navigation Tips</strong>
+              </div>
+              <ul>
+                <li>Look for arrow icons (→) on cards to identify clickable elements</li>
+                <li>Hover over TSE cards to see hover effects indicating interactivity</li>
+                <li>Click any TSE card or avatar to view detailed conversation breakdown</li>
+                <li>Use filters to narrow down views by region, status, or TSE</li>
+                <li>Click conversation IDs to open them directly in Intercom</li>
+              </ul>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📊</span>
+                <strong>Using Historical Data</strong>
+              </div>
+              <ul>
+                <li>Select specific TSEs to analyze individual performance trends</li>
+                <li>Use region filters to compare regional performance</li>
+                <li>Check day-of-week patterns to identify workload patterns</li>
+                <li>Review correlation analysis to understand compliance impact on response times</li>
+                <li>Use custom date ranges to analyze specific time periods</li>
+              </ul>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🎯</span>
+                <strong>Performance Monitoring</strong>
+              </div>
+              <ul>
+                <li>Monitor Outstanding Performance Streaks to recognize consistent excellence</li>
+                <li>Use alerts to quickly identify TSEs needing support</li>
+                <li>Review region compliance to allocate resources effectively</li>
+                <li>Track response time trends to maintain customer experience quality</li>
+                <li>Check volatility indicators to assess consistency</li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
