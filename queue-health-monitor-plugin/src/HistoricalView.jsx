@@ -665,6 +665,21 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     let start, end;
     
     switch (range) {
+      case 'yesterday':
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        // If yesterday was a weekend, go back to Friday
+        const yesterdayDay = yesterday.getDay();
+        if (yesterdayDay === 0) { // Sunday
+          yesterday.setDate(yesterday.getDate() - 2); // Go to Friday
+        } else if (yesterdayDay === 6) { // Saturday
+          yesterday.setDate(yesterday.getDate() - 1); // Go to Friday
+        }
+        start = yesterday.toISOString().split('T')[0];
+        end = yesterday.toISOString().split('T')[0];
+        setStartDate(start);
+        setEndDate(end);
+        break;
       case '7days':
         const dates = getLast7Weekdays();
         start = dates[0];
@@ -1565,6 +1580,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         <div className="filter-group">
           <label>Date Range:</label>
           <select value={dateRange} onChange={(e) => handleDateRangeChange(e.target.value)} className="filter-select">
+            <option value="yesterday">Yesterday</option>
             <option value="7days">Last 7 Weekdays</option>
             <option value="30days">Last 30 Days</option>
             <option value="90days">Last 90 Days</option>
@@ -1606,7 +1622,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           </>
         )}
 
-        {activeTab === 'compliance' && (
+        {(activeTab === 'compliance' || activeTab === 'response-time') && (
           <div className="filter-group tse-selector">
             <label>Filter by TSE:</label>
             <div className="tse-checkboxes">
