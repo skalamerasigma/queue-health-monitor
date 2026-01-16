@@ -30,10 +30,10 @@ Each TSE object contains:
     - **Resolved**: Conversations with tag `snooze.waiting-on-customer-resolved`
     - **Unresolved**: Conversations with tag `snooze.waiting-on-customer-unresolved`
 
-### Compliance Metrics
-- **`complianceOverall`**: Percentage of TSEs meeting both open and waiting-on-TSE thresholds
-- **`complianceOpenOnly`**: Percentage of TSEs meeting open conversation threshold (≤5)
-- **`complianceSnoozedOnly`**: Percentage of TSEs meeting waiting-on-TSE threshold (≤5)
+### On Track Metrics
+- **`onTrackOverall`**: Percentage of TSEs meeting both open and waiting-on-TSE thresholds
+- **`onTrackOpenOnly`**: Percentage of TSEs meeting open conversation threshold (≤5)
+- **`onTrackSnoozedOnly`**: Percentage of TSEs meeting waiting-on-TSE threshold (≤5)
 
 ### Alerts
 - **`alerts`**: Array of alert objects
@@ -57,41 +57,41 @@ Each snapshot contains TSE data for a specific date:
 - **`customerWaitSnoozed`**: Number of snoozed conversations with waiting-on-customer tags
 - **`totalSnoozed`**: Total number of snoozed conversations
 
-### Compliance Trend Metrics
-- **`compliance`**: Daily compliance percentage (TSEs meeting both thresholds)
-- **`compliantBoth`**: Count of TSEs meeting both open and waiting-on-TSE thresholds
+### On Track Trend Metrics
+- **`onTrack`**: Daily on-track percentage (TSEs meeting both thresholds)
+- **`onTrackBoth`**: Count of TSEs meeting both open and waiting-on-TSE thresholds
 - **`totalTSEs`**: Total number of TSEs in snapshot
 
-### Compliance Analysis Metrics
-- **`firstHalfAvg`**: Average compliance for first half of date range
-- **`secondHalfAvg`**: Average compliance for second half of date range
-- **`change`**: Change in compliance between halves
+### On Track Analysis Metrics
+- **`firstHalfAvg`**: Average on-track for first half of date range
+- **`secondHalfAvg`**: Average on-track for second half of date range
+- **`change`**: Change in on-track between halves
 - **`trend`**: `improving`, `worsening`, or `stable` (based on ±2% threshold)
-- **`volatility`**: Standard deviation of compliance values
-- **`currentAvg`**: Current average compliance
+- **`volatility`**: Standard deviation of on-track values
+- **`currentAvg`**: Current average on-track
 
-### Per-TSE Historical Compliance (`tseAverageCompliance`)
+### Per-TSE Historical On Track (`tseAverageOnTrack`)
 - **`daysCounted`**: Number of days TSE appears in snapshots
-- **`openCompliantDays`**: Days meeting open threshold
-- **`snoozedCompliantDays`**: Days meeting waiting-on-TSE threshold
-- **`overallCompliantDays`**: Days meeting both thresholds
-- **`openCompliance`**: Percentage of days meeting open threshold
-- **`snoozedCompliance`**: Percentage of days meeting waiting-on-TSE threshold
-- **`overallCompliance`**: Percentage of days meeting both thresholds
+- **`openOnTrackDays`**: Days meeting open threshold
+- **`snoozedOnTrackDays`**: Days meeting waiting-on-TSE threshold
+- **`overallOnTrackDays`**: Days meeting both thresholds
+- **`openOnTrack`**: Percentage of days meeting open threshold
+- **`snoozedOnTrack`**: Percentage of days meeting waiting-on-TSE threshold
+- **`overallOnTrack`**: Percentage of days meeting both thresholds
 
 ### Region Comparison Metrics
-- **`average`**: Average compliance percentage per region across date range
+- **`average`**: Average on-track percentage per region across date range
 - **`count`**: Number of data points (days) for region
 
 ### Date-Grouped Metrics (`groupedTableData`)
 Per date:
 - **`totalTSEs`**: Total TSEs on that date
-- **`compliantOpen`**: Count of TSEs meeting open threshold
-- **`compliantSnoozed`**: Count of TSEs meeting waiting-on-TSE threshold
-- **`compliantBoth`**: Count of TSEs meeting both thresholds
-- **`openCompliance`**: Percentage meeting open threshold
-- **`snoozedCompliance`**: Percentage meeting waiting-on-TSE threshold
-- **`overallCompliance`**: Percentage meeting both thresholds
+- **`onTrackOpen`**: Count of TSEs meeting open threshold
+- **`onTrackSnoozed`**: Count of TSEs meeting waiting-on-TSE threshold
+- **`onTrackBoth`**: Count of TSEs meeting both thresholds
+- **`openOnTrack`**: Percentage meeting open threshold
+- **`snoozedOnTrack`**: Percentage meeting waiting-on-TSE threshold
+- **`overallOnTrack`**: Percentage meeting both thresholds
 - **`tses`**: Array of TSE data for that date
 
 ---
@@ -127,8 +127,8 @@ Per date:
 ### Overview Dashboard Region Breakdown
 - **`region`**: UK, NY, SF, or Other
 - **`total`**: Total TSEs in region
-- **`compliant`**: Count of compliant TSEs in region
-- **`compliance`**: Percentage of compliant TSEs in region
+- **`onTrack`**: Count of on-track TSEs in region
+- **`onTrackPct`**: Percentage of on-track TSEs in region
 
 ### Historical Region Comparison
 - **`region`**: UK, NY, SF, or Other

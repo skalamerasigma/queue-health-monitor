@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from "react";
+import { BrowserRouter, useLocation } from "react-router-dom";
+import { AuthProvider, useAuth } from "./AuthContext";
+import LoginPage from "./LoginPage";
 import Dashboard from "./Dashboard";
+import MyQueue from "./MyQueue";
 import "./App.css";
 
 // Backend URL configuration for Sigma plugin deployment
@@ -7,6 +11,7 @@ import "./App.css";
 // In development, use localhost backend
 // For Sigma plugins: The plugin URL will be something like https://your-app.vercel.app
 // The API endpoint will be at the same domain: https://your-app.vercel.app/api/intercom/...
+// eslint-disable-next-line no-unused-vars
 const getBackendUrl = () => {
   // If explicitly set via env var, use that
   if (process.env.REACT_APP_BACKEND_URL) {
@@ -23,13 +28,55 @@ const getBackendUrl = () => {
   return 'http://localhost:3000';
 };
 
-const BACKEND_URL = getBackendUrl();
+// const BACKEND_URL = getBackendUrl(); // Reserved for future use
 
-function App() {
+// Sigma plugin API integration
+// Get current user email from Sigma plugin props
+// In Sigma, this will be passed as a prop: currentUserEmail
+// The plugin definition in Sigma should have an argument bound to CurrentUserEmail() system function
+function getCurrentUserEmail(props) {
+  // Method 1: Get from Sigma plugin props (when embedded in Sigma)
+  // Sigma passes props via window.sigma.getProps() or directly as component props
+  if (props && props.currentUserEmail) {
+    return props.currentUserEmail;
+  }
+  
+  // Method 2: Try window.sigma API (Sigma plugin SDK)
+  if (window.sigma && typeof window.sigma.getProps === 'function') {
+    try {
+      const sigmaProps = window.sigma.getProps();
+      if (sigmaProps && sigmaProps.currentUserEmail) {
+        return sigmaProps.currentUserEmail;
+      }
+    } catch (e) {
+      console.warn('Could not get props from Sigma API:', e);
+    }
+  }
+  
+  // Method 3: Try to get from URL params (for testing/debugging)
+  const urlParams = new URLSearchParams(window.location.search);
+  const emailFromUrl = urlParams.get('currentUserEmail');
+  if (emailFromUrl) {
+    return emailFromUrl;
+  }
+  
+  // Method 4: Try to get from localStorage (for development)
+  const emailFromStorage = localStorage.getItem('currentUserEmail');
+  if (emailFromStorage) {
+    return emailFromStorage;
+  }
+  
+  return null;
+}
+
+function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
+  const location = useLocation();
+  const { isAuthenticated, loading: authLoading, login } = useAuth();
   const [data, setData] = useState({ conversations: [], teamMembers: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState(null);
 
   async function fetchData(showLoading = true) {
     if (showLoading) {
@@ -75,6 +122,13 @@ function App() {
     }
   }
 
+  // Get current user email on mount and when location/props change
+  useEffect(() => {
+    const email = getCurrentUserEmail({ currentUserEmail: propsCurrentUserEmail });
+    setCurrentUserEmail(email);
+    console.log('App: Current user email:', email);
+  }, [location, propsCurrentUserEmail]);
+
   useEffect(() => {
     fetchData(true); // Initial load with loading state
     
@@ -86,15 +140,53 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Show login page if not authenticated
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={login} />;
+  }
+
+  // Determine which component to render based on route
+  const commonProps = {
+    conversations: data.conversations || data,
+    teamMembers: data.teamMembers || [],
+    loading,
+    error,
+    onRefresh: () => fetchData(true),
+    lastUpdated
+  };
+
+  if (location.pathname === '/myqueue') {
+    return (
+      <MyQueue
+        {...commonProps}
+        currentUserEmail={currentUserEmail}
+      />
+    );
+  }
+
   return (
-    <Dashboard
-      conversations={data.conversations || data}
-      teamMembers={data.teamMembers || []}
-      loading={loading}
-      error={error}
-      onRefresh={() => fetchData(true)}
-      lastUpdated={lastUpdated}
-    />
+    <Dashboard {...commonProps} />
+  );
+}
+
+function App(props) {
+  // Extract currentUserEmail from props (passed by Sigma plugin)
+  const currentUserEmail = props?.currentUserEmail || null;
+  
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <AppContent currentUserEmail={currentUserEmail} />
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

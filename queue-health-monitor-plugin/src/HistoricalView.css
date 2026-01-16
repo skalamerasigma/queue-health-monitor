@@ -41,6 +41,27 @@
   box-shadow: 0 2px 8px rgba(53, 161, 180, 0.3);
 }
 
+.last-snapshot-display {
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.last-snapshot-display span {
+  white-space: nowrap;
+  color: #40a4b6;
+  font-style: italic;
+}
+
+.last-snapshot-timestamp {
+  color: #999;
+  font-style: italic;
+  font-weight: normal;
+}
+
 .historical-filters {
   background: white;
   padding: 20px;
@@ -51,6 +72,32 @@
   flex-wrap: wrap;
   gap: 20px;
   align-items: flex-start;
+}
+
+.cron-info-banner {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-left: 3px solid #40a4b6;
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.cron-info-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.cron-info-text {
+  color: #495057;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }
 
 .filter-group {
@@ -552,7 +599,7 @@
   border-bottom: none;
 }
 
-.violation-item.compliant {
+.violation-item.on-track {
   border-bottom: 2px solid #4cec8c;
   padding-bottom: 12px;
   margin-bottom: 4px;
@@ -726,13 +773,13 @@
   padding: 12px 16px;
 }
 
-.compliance-percentage {
+.on-track-percentage {
   font-weight: 600;
   color: #666;
   font-size: 14px;
 }
 
-.compliance-percentage.compliant {
+.on-track-percentage.on-track {
   color: #4cec8c;
 }
 
@@ -846,7 +893,7 @@
   background: #f5f5f5;
 }
 
-.compliant-badge {
+.on-track-badge {
   display: inline-block;
   width: 24px;
   height: 24px;
@@ -857,22 +904,22 @@
   font-size: 14px;
 }
 
-.compliant-badge.compliant {
+.on-track-badge.on-track {
   background: #4cec8c;
   color: white;
 }
 
-.compliant-badge.non-compliant {
+.on-track-badge.over-limit {
   background: #fd8789;
   color: white;
 }
 
-.compliant-badge.clickable-badge {
+.on-track-badge.clickable-badge {
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.compliant-badge.clickable-badge:hover {
+.on-track-badge.clickable-badge:hover {
   transform: scale(1.1);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
@@ -955,7 +1002,7 @@
   font-weight: 600;
 }
 
-.compliant-badge.exceeds-targets {
+.on-track-badge.exceeds-targets {
   background-color: #4cec8c;
   color: white;
   font-size: 16px;

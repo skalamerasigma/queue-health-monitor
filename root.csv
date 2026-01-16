@@ -1,0 +1,13 @@
+Value,Description,When to Choose
+Insufficient Onboarding,Issue stems from lack of proper introduction to the platform.,"Use when the user is missing training, has an incomplete implementation, or hasn't had a walkthrough of key workflows."
+Unintuitive Product,The UI/UX or workflow is confusing despite being technically functional.,Use when a reasonable user would struggle to discover or use a feature without direct guidance.
+Unclear Documentation,"Help content is missing, outdated, or hard to understand.",Use when confusion or misuse is directly caused by contradictions or gaps in the help center/guides.
+Product Gap,Requested capability is not currently possible and requires a new feature.,Use for net-new feature requests that cannot be solved by a bug fix or configuration change.
+Low User Effort,The user did not invest the necessary time to follow instructions.,"Use when the product and docs are adequate, but the user skipped steps or abandoned the flow early."
+User Error,The customer made a clear mistake despite having all necessary tools.,"Use for incorrect formulas, misconfigured permissions, or choosing the wrong data source."
+Transient Issue,The problem was temporary and not reliably reproducible.,"Use for one-off glitches, momentary service degradation, or brief network problems."
+Want Consultation,User needs best-practice advice rather than troubleshooting.,"Use when the user asks for modeling strategy, dashboard design, or performance tuning advice."
+Bug - External,Issue is caused by a system outside of the platform's codebase.,"Use for upstream data system failures, browser issues, or third-party service outages."
+Bug - Sigma,Confirmed or suspected defect in the product or infrastructure.,"Use for regressions, crashes, or data inconsistencies where the product deviates from the spec."
+New Release,A recent deployment directly introduced the issue.,Use when a breaking change or regression occurs immediately following a specific software release.
+Other/Test,Situation does not fit other categories or is for training.,"Use for test tickets, internal exercises, or unique edge cases without a defined root cause."

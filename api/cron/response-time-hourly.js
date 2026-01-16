@@ -157,11 +157,14 @@ export default async function handler(req, res) {
     // Fetch only conversations created today (optimized query)
     const conversationsToday = await fetchTeamConversationsCreatedToday(authHeaderValue, todayStartSeconds, todayEndSeconds);
 
-    // Calculate metrics: count conversations with 10+ minute wait time
-    // Also store conversation IDs for those with 10+ minute wait times
+    // Calculate metrics: count conversations with 5+ and 10+ minute wait times
+    // Also store conversation IDs for those with 5+ and 10+ minute wait times
+    const FIVE_MINUTES_SECONDS = 300;
     const TEN_MINUTES_SECONDS = 600;
+    let count5PlusMin = 0;
     let count10PlusMin = 0;
     let totalWithResponse = 0;
+    const conversations5PlusMin = []; // Store conversation IDs with 5+ minute wait times
     const conversations10PlusMin = []; // Store conversation IDs with 10+ minute wait times
 
     conversationsToday.forEach(conv => {
@@ -184,6 +187,18 @@ export default async function handler(req, res) {
       if (waitTimeSeconds !== null && waitTimeSeconds >= 0) {
         totalWithResponse++;
         
+        if (waitTimeSeconds >= FIVE_MINUTES_SECONDS) {
+          count5PlusMin++;
+          // Store conversation ID and wait time for display in expandable table
+          if (conv.id) {
+            conversations5PlusMin.push({
+              id: conv.id,
+              waitTimeSeconds: waitTimeSeconds,
+              waitTimeMinutes: Math.round(waitTimeSeconds / 60 * 100) / 100 // Round to 2 decimal places
+            });
+          }
+        }
+        
         if (waitTimeSeconds >= TEN_MINUTES_SECONDS) {
           count10PlusMin++;
           // Store conversation ID and wait time for display in expandable table
@@ -198,6 +213,10 @@ export default async function handler(req, res) {
       }
     });
 
+    const percentage5PlusMin = totalWithResponse > 0 
+      ? (count5PlusMin / totalWithResponse) * 100 
+      : 0;
+    
     const percentage10PlusMin = totalWithResponse > 0 
       ? (count10PlusMin / totalWithResponse) * 100 
       : 0;
@@ -208,10 +227,13 @@ export default async function handler(req, res) {
     const metric = {
       timestamp: now.toISOString(),
       date,
+      count5PlusMin,
       count10PlusMin,
       totalConversations: conversationsToday.length, // Only count conversations created today
       totalWithResponse,
+      percentage5PlusMin: Math.round(percentage5PlusMin * 100) / 100,
       percentage10PlusMin: Math.round(percentage10PlusMin * 100) / 100,
+      conversationIds5PlusMin: conversations5PlusMin, // Store IDs for expandable table
       conversationIds10PlusMin: conversations10PlusMin // Store IDs for expandable table
     };
 
@@ -223,15 +245,46 @@ export default async function handler(req, res) {
         id SERIAL PRIMARY KEY,
         timestamp TIMESTAMP NOT NULL,
         date VARCHAR(10) NOT NULL,
+        count_5_plus_min INTEGER NOT NULL DEFAULT 0,
         count_10_plus_min INTEGER NOT NULL,
         total_conversations INTEGER NOT NULL,
+        percentage_5_plus_min DECIMAL(5,2) NOT NULL DEFAULT 0,
         percentage_10_plus_min DECIMAL(5,2) NOT NULL,
+        conversation_ids_5_plus_min JSONB,
         conversation_ids_10_plus_min JSONB,
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(date)
       );
     `);
 
+    // Add 5+ minute columns if they don't exist (for existing tables)
+    try {
+      console.log('[Migration] Adding 5+ minute columns if they don\'t exist...');
+      const alterResult = await db.query(`
+        ALTER TABLE response_time_metrics 
+        ADD COLUMN IF NOT EXISTS count_5_plus_min INTEGER DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS percentage_5_plus_min DECIMAL(5,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS conversation_ids_5_plus_min JSONB;
+      `);
+      console.log('[Migration] Column addition completed');
+      
+      // Fix existing records: if count_10_plus_min > 0 but count_5_plus_min = 0,
+      // set count_5_plus_min to at least count_10_plus_min (since 10+ min is a subset of 5+ min)
+      // Note: This is a conservative fix - actual 5+ min count could be higher, but at least it won't be 0
+      console.log('[Migration] Fixing existing records with 10+ min but 0 for 5+ min...');
+      const updateResult = await db.query(`
+        UPDATE response_time_metrics 
+        SET count_5_plus_min = count_10_plus_min,
+            percentage_5_plus_min = percentage_10_plus_min
+        WHERE count_10_plus_min > 0 
+          AND (count_5_plus_min = 0 OR count_5_plus_min IS NULL);
+      `);
+      console.log(`[Migration] Updated ${updateResult.rowCount} records`);
+    } catch (migrationError) {
+      console.error('[Migration] Error adding 5+ minute columns:', migrationError);
+      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
+    }
+    
     // Add conversation_ids_10_plus_min column if it doesn't exist (for existing tables)
     try {
       await db.query(`
@@ -240,6 +293,50 @@ export default async function handler(req, res) {
       `);
     } catch (migrationError) {
       console.warn('Migration warning (may be safe to ignore):', migrationError.message);
+    }
+
+    // Drop time-to-close columns if they exist
+    try {
+      console.log('[Migration] Dropping time-to-close columns if they exist...');
+      
+      // Check if columns exist
+      const columnCheck = await db.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'response_time_metrics' 
+        AND column_name IN ('avg_time_to_close_hours', 'closed_conversations_count')
+      `);
+      
+      const existingColumns = columnCheck.rows.map(r => r.column_name);
+      console.log('[Migration] Existing time-to-close columns:', existingColumns);
+      
+      if (existingColumns.includes('avg_time_to_close_hours')) {
+        console.log('[Migration] Dropping avg_time_to_close_hours column...');
+        await db.query(`
+          ALTER TABLE response_time_metrics 
+          DROP COLUMN IF EXISTS avg_time_to_close_hours;
+        `);
+        console.log('[Migration] avg_time_to_close_hours column dropped');
+      }
+      
+      if (existingColumns.includes('closed_conversations_count')) {
+        console.log('[Migration] Dropping closed_conversations_count column...');
+        await db.query(`
+          ALTER TABLE response_time_metrics 
+          DROP COLUMN IF EXISTS closed_conversations_count;
+        `);
+        console.log('[Migration] closed_conversations_count column dropped');
+      }
+      
+      console.log('[Migration] Time-to-close columns removal completed');
+    } catch (migrationError) {
+      console.error('[Migration] Error dropping time-to-close columns:', migrationError);
+      console.error('[Migration] Error details:', {
+        message: migrationError.message,
+        code: migrationError.code,
+        detail: migrationError.detail
+      });
+      // Don't throw - allow the cron job to continue even if migration fails
     }
 
     // Migrate from assignment time schema back to simple schema if needed
@@ -337,30 +434,39 @@ export default async function handler(req, res) {
 
     console.log(`[Response Time Hourly] Saving metric for date: ${metric.date}`, {
       timestamp: metric.timestamp,
+      count5PlusMin: metric.count5PlusMin,
       count10PlusMin: metric.count10PlusMin,
       totalConversations: metric.totalConversations,
+      percentage5PlusMin: metric.percentage5PlusMin,
       percentage10PlusMin: metric.percentage10PlusMin,
-      conversationIdsCount: metric.conversationIds10PlusMin?.length || 0
+      conversationIds5PlusMinCount: metric.conversationIds5PlusMin?.length || 0,
+      conversationIds10PlusMinCount: metric.conversationIds10PlusMin?.length || 0
     });
 
     const insertResult = await db.query(`
-      INSERT INTO response_time_metrics (timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO response_time_metrics (timestamp, date, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       ON CONFLICT (date) 
       DO UPDATE SET 
         timestamp = EXCLUDED.timestamp,
+        count_5_plus_min = EXCLUDED.count_5_plus_min,
         count_10_plus_min = EXCLUDED.count_10_plus_min,
         total_conversations = EXCLUDED.total_conversations,
+        percentage_5_plus_min = EXCLUDED.percentage_5_plus_min,
         percentage_10_plus_min = EXCLUDED.percentage_10_plus_min,
+        conversation_ids_5_plus_min = EXCLUDED.conversation_ids_5_plus_min,
         conversation_ids_10_plus_min = EXCLUDED.conversation_ids_10_plus_min,
         created_at = NOW()
       RETURNING id, date, timestamp;
     `, [
       metric.timestamp,
       metric.date,
+      metric.count5PlusMin,
       metric.count10PlusMin,
       metric.totalConversations,
+      metric.percentage5PlusMin,
       metric.percentage10PlusMin,
+      JSON.stringify(metric.conversationIds5PlusMin || []),
       JSON.stringify(metric.conversationIds10PlusMin || [])
     ]);
 
@@ -368,7 +474,7 @@ export default async function handler(req, res) {
 
     // Verify the data was actually saved
     const verifyResult = await db.query(`
-      SELECT id, date, timestamp, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min
+      SELECT id, date, timestamp, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
       FROM response_time_metrics
       WHERE date = $1
     `, [metric.date]);

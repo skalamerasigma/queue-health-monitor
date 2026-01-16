@@ -1,6 +1,8 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
+import { useAuth } from "./AuthContext";
 import HistoricalView from "./HistoricalView";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend, ScatterChart, Scatter, BarChart, Bar, Cell } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts';
+import { formatDateTimeUTC, formatTimestampUTC, formatDateForChart } from "./utils/dateUtils";
 import "./Dashboard.css";
 
 // TSE Region mapping
@@ -14,7 +16,7 @@ const TSE_REGIONS = {
 const REGION_ICONS = {
   'UK': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768284230/3_150_x_150_px_4_kxkr26.svg',
   'NY': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768284817/3_150_x_150_px_7_i1jnre.svg',
-  'SF': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768286199/3_150_x_150_px_8_ae1dl7.svg',
+  'SF': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768314189/3_150_x_150_px_9_x6vkvp.svg',
   'Other': null
 };
 
@@ -226,7 +228,6 @@ const EXCLUDED_TSE_NAMES = [
   "Zen Junior",
   "Nathan Parrish",
   "Prerit Sachdeva",
-  "Stephen Skalamera",
   "Leticia Esparza",
   "Rob Woollen",
   "Brett Bedevian",
@@ -250,6 +251,7 @@ const THRESHOLDS = {
 };
 
 function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh, lastUpdated }) {
+  const { logout } = useAuth();
   const [activeView, setActiveView] = useState("overview");
   const [filterTag, setFilterTag] = useState("all");
   const [filterTSE, setFilterTSE] = useState("all");
@@ -260,11 +262,15 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   const [selectedTSE, setSelectedTSE] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [streaksRegionFilter, setStreaksRegionFilter] = useState('all');
+  const [isStreaksModalOpen, setIsStreaksModalOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [alertsDropdownOpen, setAlertsDropdownOpen] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [wasLoading, setWasLoading] = useState(false);
-  const [selectedColors, setSelectedColors] = useState(new Set(['exceeding', 'success', 'error'])); // All selected by default
+  const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
+  const [loadingStartTime, setLoadingStartTime] = useState(null);
+  const [progressPercentage, setProgressPercentage] = useState(0);
+  const [selectedColors, setSelectedColors] = useState(new Set(['warning', 'exceeding', 'success', 'error'])); // All selected by default
   const [selectedRegions, setSelectedRegions] = useState(new Set(['UK', 'NY', 'SF', 'Other'])); // All selected by default
 
   // Fetch historical data for Overview tab
@@ -318,7 +324,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
 
       console.log('Overview: Fetching snapshots for date range:', { startDateStr, endDateStr, weekdays });
 
-      // Fetch compliance snapshots
+      // Fetch historical snapshots
       const snapshotParams = new URLSearchParams();
       snapshotParams.append('startDate', startDateStr);
       snapshotParams.append('endDate', endDateStr);
@@ -421,7 +427,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         if (assigneeName && EXCLUDED_TSE_NAMES.includes(assigneeName)) return;
 
         const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
-        const tags = conv.tags || [];
+        const tags = Array.isArray(conv.tags) ? conv.tags : [];
         const hasWaitingOnTSETag = tags.some(t => 
           (t.name && t.name.toLowerCase() === "snooze.waiting-on-tse") || 
           (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-tse")
@@ -663,7 +669,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                        (conv.statistics && conv.statistics.state === "snoozed") ||
                        (conv.source && conv.source.type === "snoozed") ||
                        (conv.conversation_parts && conv.conversation_parts.some(part => part.state === "snoozed"));
-      const tags = conv.tags || [];
+      const tags = Array.isArray(conv.tags) ? conv.tags : [];
       
       // New tag detection: snooze.waiting-on-tse
       const hasWaitingOnTSETag = tags.some(t => 
@@ -711,9 +717,13 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       const totalWaitingOnTSE = tse.waitingOnTSE;
       
       if (totalOpen >= THRESHOLDS.MAX_OPEN_ALERT) {
+        // Determine severity based on how far above threshold
+        // Medium (🟡): threshold to threshold + 2 (6-8)
+        // High (🔴): threshold + 3 or more (9+)
+        const severity = totalOpen >= THRESHOLDS.MAX_OPEN_ALERT + 3 ? "high" : "medium";
         alerts.push({
           type: "open_threshold",
-          severity: "high",
+          severity: severity,
           tseId: tse.id,
           tseName: tse.name,
           message: `${tse.name}: ${totalOpen} open chats (threshold: ${THRESHOLDS.MAX_OPEN_ALERT}+)`,
@@ -722,9 +732,13 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       }
       
       if (totalWaitingOnTSE >= THRESHOLDS.MAX_WAITING_ON_TSE_ALERT) {
+        // Determine severity based on how far above threshold
+        // Medium (🟡): threshold to threshold + 2 (7-9)
+        // High (🔴): threshold + 3 or more (10+)
+        const severity = totalWaitingOnTSE >= THRESHOLDS.MAX_WAITING_ON_TSE_ALERT + 3 ? "high" : "medium";
         alerts.push({
           type: "waiting_on_tse_threshold",
-          severity: "high",
+          severity: severity,
           tseId: tse.id,
           tseName: tse.name,
           message: `${tse.name}: ${totalWaitingOnTSE} waiting on TSE (threshold: ${THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+)`,
@@ -770,42 +784,42 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       return isSnoozed;
     }).length;
     
-    // Calculate compliance metrics
+    // Calculate on-track metrics
     const totalTSEs = filteredByTSE.length;
-    let compliantBoth = 0;
-    let compliantOpen = 0; // TSEs meeting open requirement (regardless of snoozed)
-    let compliantSnoozed = 0; // TSEs meeting snoozed requirement (regardless of open)
+    let onTrackBoth = 0;
+    let onTrackOpen = 0; // TSEs meeting open requirement (regardless of snoozed)
+    let onTrackSnoozed = 0; // TSEs meeting snoozed requirement (regardless of open)
     
     filteredByTSE.forEach(tse => {
       const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
       const meetsWaitingOnTSE = tse.waitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
       
       if (meetsOpen && meetsWaitingOnTSE) {
-        compliantBoth++;
+        onTrackBoth++;
       }
       
       // Count independently - these are not mutually exclusive
       if (meetsOpen) {
-        compliantOpen++;
+        onTrackOpen++;
       }
       if (meetsWaitingOnTSE) {
-        compliantSnoozed++;
+        onTrackSnoozed++;
       }
     });
     
-    const complianceOverall = totalTSEs > 0 ? Math.round((compliantBoth / totalTSEs) * 100) : 0;
-    const complianceOpenOnlyPct = totalTSEs > 0 ? Math.round((compliantOpen / totalTSEs) * 100) : 0;
-    const complianceSnoozedOnlyPct = totalTSEs > 0 ? Math.round((compliantSnoozed / totalTSEs) * 100) : 0;
+    const onTrackOverall = totalTSEs > 0 ? Math.round((onTrackBoth / totalTSEs) * 100) : 0;
+    const onTrackOpenOnlyPct = totalTSEs > 0 ? Math.round((onTrackOpen / totalTSEs) * 100) : 0;
+    const onTrackSnoozedOnlyPct = totalTSEs > 0 ? Math.round((onTrackSnoozed / totalTSEs) * 100) : 0;
     
     // Debug logging
-    console.log('Compliance breakdown:', {
+    console.log('On Track breakdown:', {
       totalTSEs,
-      compliantBoth,
-      compliantOpen,
-      compliantSnoozed,
-      complianceOverall: `${complianceOverall}%`,
-      complianceOpenOnly: `${complianceOpenOnlyPct}%`,
-      complianceSnoozedOnly: `${complianceSnoozedOnlyPct}%`
+      onTrackBoth,
+      onTrackOpen,
+      onTrackSnoozed,
+      onTrackOverall: `${onTrackOverall}%`,
+      onTrackOpenOnly: `${onTrackOpenOnlyPct}%`,
+      onTrackSnoozedOnly: `${onTrackSnoozedOnlyPct}%`
     });
     
     return {
@@ -825,9 +839,9 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       waitingOnTSE: Array.isArray(waitingOnTSEConvs) ? waitingOnTSEConvs : [],
       waitingOnCustomer: Array.isArray(waitingOnCustomerConvs) ? waitingOnCustomerConvs : [],
       alerts: Array.isArray(filteredAlerts) ? filteredAlerts : [],
-      complianceOverall,
-      complianceOpenOnly: complianceOpenOnlyPct,
-      complianceSnoozedOnly: complianceSnoozedOnlyPct
+      onTrackOverall,
+      onTrackOpenOnly: onTrackOpenOnlyPct,
+      onTrackSnoozedOnly: onTrackSnoozedOnlyPct
     };
     }, [conversations, teamMembers]);
 
@@ -837,7 +851,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       return { streak3: [] };
     }
 
-    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
     
     // Sort snapshots by date (oldest first)
     const sortedSnapshots = [...historicalSnapshots]
@@ -875,7 +889,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         
         tsePerformanceByDate[tseId].dates.push({
           date: snapshot.date,
-          compliant: isOutstanding
+          onTrack: isOutstanding
         });
       });
     });
@@ -889,7 +903,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       
       // Calculate current streak (working backwards from most recent date)
       for (const dateEntry of dates) {
-        if (dateEntry.compliant) {
+        if (dateEntry.onTrack) {
           currentStreak++;
         } else {
           break; // Streak broken
@@ -897,7 +911,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       }
       
       // Calculate total outstanding days in history
-      totalOutstandingDays = tse.dates.filter(d => d.compliant).length;
+      totalOutstandingDays = tse.dates.filter(d => d.onTrack).length;
       
       return {
         id: tse.id,
@@ -941,6 +955,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   }, [performanceStreaks, streaksRegionFilter]);
 
   // Helper function to get medal for a streak tier based on unique streak values
+  // eslint-disable-next-line no-unused-vars
   const getMedalForStreak = (streaks, currentStreak) => {
     if (!streaks || streaks.length === 0) return null;
     
@@ -989,7 +1004,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         return conversations.filter(conv => {
           const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
           if (!isSnoozed) return false;
-          const tags = conv.tags || [];
+          const tags = Array.isArray(conv.tags) ? conv.tags : [];
           return tags.some(t => 
             (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
             (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
@@ -1000,7 +1015,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         return conversations.filter(conv => {
           const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
           if (!isSnoozed) return false;
-          const tags = conv.tags || [];
+          const tags = Array.isArray(conv.tags) ? conv.tags : [];
           return tags.some(t => 
             (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
             (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
@@ -1051,6 +1066,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
   }, [conversations, filterTag, filterTSE, metrics, searchId]);
   
   // Get list of TSEs for filter dropdown
+  // eslint-disable-next-line no-unused-vars
   const tseList = useMemo(() => {
     return (metrics.byTSE || []).map(tse => ({ id: tse.id, name: tse.name }));
   }, [metrics.byTSE]);
@@ -1088,7 +1104,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                        conv.state === "Snoozed" ||
                        conv.snoozed_until || 
                        (conv.statistics && conv.statistics.state === "snoozed");
-      const tags = conv.tags || [];
+      const tags = Array.isArray(conv.tags) ? conv.tags : [];
       const hasWaitingOnTSETag = tags.some(t => 
         (t.name && t.name.toLowerCase() === "snooze.waiting-on-tse") || 
         (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-tse")
@@ -1125,21 +1141,147 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     setSelectedTSE(null);
   };
 
-  // Track loading state changes to show completion animation
+  // Loading phrases - professional descriptions of what's happening
+  const loadingPhrases = [
+    "Fetching conversation data from Intercom...",
+    "Filtering to Resolution Team conversations...",
+    "Processing team member assignments...",
+    "Analyzing individual TSE conversation data...",
+    "Calculating TSE queue status metrics...",
+    "Computing regional on-track statistics...",
+    "Analyzing historical on-track trends...",
+    "Calculating performance correlations...",
+    "Identifying outstanding performance streaks...",
+    "Building dashboard visualizations...",
+    "Compiling status insights..."
+  ];
+
+  const fallbackPhrases = [
+    "Almost there...",
+    "Finishing up...",
+    "Finalizing data..."
+  ];
+
+  // Track loading state changes to show completion animation and cycle through phrases
   useEffect(() => {
-    if (loading) {
+    if (loading && (!conversations || (Array.isArray(conversations) && conversations.length === 0))) {
       setWasLoading(true);
       setShowCompletion(false);
+      setLoadingPhraseIndex(0);
+      setLoadingStartTime(Date.now());
     } else if (wasLoading && conversations && conversations.length > 0) {
       // Loading just finished, show completion GIF
       setShowCompletion(true);
       const timer = setTimeout(() => {
         setShowCompletion(false);
         setWasLoading(false);
+        setLoadingPhraseIndex(0);
+        setLoadingStartTime(null);
       }, 3000); // Show completion GIF for 3 seconds
       return () => clearTimeout(timer);
     }
   }, [loading, conversations, wasLoading]);
+
+  // Cycle through loading phrases
+  useEffect(() => {
+    if (!loadingStartTime) return;
+
+    const elapsed = Date.now() - loadingStartTime;
+    const totalPhrases = loadingPhrases.length;
+    const phraseDuration = 5000; // 5 seconds per phrase (60 seconds / 11 phrases ≈ 5.45 seconds, but using 5s for consistent timing)
+    const fallbackStartTime = 60000; // 60 seconds total - when to start showing fallback phrases
+
+    let intervalId;
+    
+    if (elapsed < fallbackStartTime) {
+      // Show regular phrases
+      const currentIndex = Math.min(Math.floor(elapsed / phraseDuration), totalPhrases - 1);
+      setLoadingPhraseIndex(currentIndex);
+      
+      // Set up interval to update phrase
+      intervalId = setInterval(() => {
+        const currentElapsed = Date.now() - loadingStartTime;
+        const newIndex = Math.min(Math.floor(currentElapsed / phraseDuration), totalPhrases - 1);
+        setLoadingPhraseIndex(newIndex);
+      }, 1000); // Check every second
+    } else {
+      // Show fallback phrases (cycle through them)
+      const fallbackElapsed = elapsed - fallbackStartTime;
+      const fallbackIndex = Math.floor(fallbackElapsed / 2000) % fallbackPhrases.length; // Change every 2 seconds
+      setLoadingPhraseIndex(totalPhrases + fallbackIndex);
+      
+      intervalId = setInterval(() => {
+        const currentElapsed = Date.now() - loadingStartTime;
+        if (currentElapsed >= fallbackStartTime) {
+          const fallbackElapsed = currentElapsed - fallbackStartTime;
+          const fallbackIndex = Math.floor(fallbackElapsed / 2000) % fallbackPhrases.length;
+          setLoadingPhraseIndex(totalPhrases + fallbackIndex);
+        }
+      }, 1000);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [loadingStartTime, loadingPhrases.length, fallbackPhrases.length]);
+
+  // Update progress percentage continuously for smooth animation
+  useEffect(() => {
+    if (!loadingStartTime) {
+      setProgressPercentage(0);
+      return;
+    }
+
+    const updateProgress = () => {
+    const elapsed = Date.now() - loadingStartTime;
+    // eslint-disable-next-line no-unused-vars
+    const totalPhrases = loadingPhrases.length;
+    const totalRegularPhraseTime = 60000; // 60 seconds total for all regular phrases
+    const fallbackStartTime = totalRegularPhraseTime;
+      
+      let progress = 0;
+      
+      if (elapsed < totalRegularPhraseTime) {
+        // Use exponential ease-out curve: fills quickly initially, slows near end
+        const normalizedTime = elapsed / totalRegularPhraseTime;
+        const easedProgress = 1 - Math.pow(1 - normalizedTime, 2.5);
+        progress = Math.min(easedProgress * 92, 92);
+      } else {
+        // During fallback phrases: continue from 92% to 99% smoothly
+        const fallbackElapsed = elapsed - fallbackStartTime;
+        const fallbackDuration = 8000;
+        const fallbackProgress = Math.min(fallbackElapsed / fallbackDuration, 1);
+        const easedFallback = 1 - Math.pow(1 - fallbackProgress, 2);
+        progress = 92 + (easedFallback * 7);
+      }
+      
+      // If we're about to show completion, ensure progress is near 100%
+      if (wasLoading && conversations && conversations.length > 0 && progress < 99) {
+        progress = 99;
+      }
+      
+      setProgressPercentage(Math.min(progress, 99));
+    };
+
+    // Update immediately
+    updateProgress();
+    
+    // Update every 100ms for smooth animation
+    const intervalId = setInterval(updateProgress, 100);
+    
+    return () => clearInterval(intervalId);
+  }, [loadingStartTime, loadingPhrases.length, wasLoading, conversations]);
+
+  // Get current loading phrase
+  const getCurrentLoadingPhrase = () => {
+    if (loadingPhraseIndex < loadingPhrases.length) {
+      return loadingPhrases[loadingPhraseIndex];
+    } else {
+      const fallbackIndex = loadingPhraseIndex - loadingPhrases.length;
+      return fallbackPhrases[fallbackIndex % fallbackPhrases.length];
+    }
+  };
+
 
   // Show loading screen on initial load or during completion animation
   if ((loading && (!conversations || (Array.isArray(conversations) && conversations.length === 0))) || showCompletion) {
@@ -1155,8 +1297,16 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             className="loading-gif"
           />
           <div className={`loading-text ${!showCompletion ? 'pulse' : ''}`}>
-            {showCompletion ? "Loading complete!" : "Loading queue health data…"}
+            {showCompletion ? "Loading complete!" : getCurrentLoadingPhrase()}
           </div>
+          {!showCompletion && (
+            <div className="loading-progress-bar">
+              <div 
+                className="loading-progress-bar-fill"
+                style={{ width: `${progressPercentage}%` }}
+              ></div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1189,7 +1339,25 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         </div>
       )}
       <div className="dashboard-header">
-        <h2>Support Ops: Queue Health Dashboard</h2>
+        <div className="header-left">
+          <h2>Support Ops: Queue Health Monitor</h2>
+          <div className="button-group">
+            <button
+              className="logout-button"
+              onClick={logout}
+              aria-label="Logout"
+              title="Sign out"
+            >
+              Sign Out
+            </button>
+            <button onClick={onRefresh} className="refresh-button">Refresh</button>
+            {lastUpdated && (
+              <span className="last-updated">
+                Last updated: {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+        </div>
         <div className="header-actions">
           <button
             className="help-icon-button"
@@ -1198,9 +1366,23 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             title="Help"
           >
             <img 
-              src="https://res.cloudinary.com/doznvxtja/image/upload/v1767909444/Untitled_design_19_wav3tj.svg" 
+              src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513679/3_150_x_150_px_12_zhkdig.svg" 
               alt="Help" 
               className="help-icon"
+              style={{ width: 32, height: 32 }}
+            />
+          </button>
+          <button
+            className="streaks-icon-button"
+            onClick={() => setIsStreaksModalOpen(true)}
+            aria-label="Outstanding Performance Streaks"
+            title="Outstanding Performance Streaks"
+            disabled={!performanceStreaks.streak3 || performanceStreaks.streak3.length === 0}
+          >
+            <img 
+              src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513305/3_150_x_150_px_11_a6potb.svg" 
+              alt="Outstanding Performance Streaks" 
+              className="streaks-icon"
             />
           </button>
           <AlertsDropdown 
@@ -1209,6 +1391,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             onToggle={() => setAlertsDropdownOpen(!alertsDropdownOpen)}
             onClose={() => setAlertsDropdownOpen(false)}
             onTSEClick={(tseId, tseName) => {
+              setAlertsDropdownOpen(false);
               // Find TSE object from metrics
               const tse = (metrics.byTSE || []).find(t => 
                 String(t.id) === String(tseId) || t.name === tseName
@@ -1265,14 +1448,6 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
               Analytics
             </button>
           </div>
-          <div className="refresh-section">
-            {lastUpdated && (
-              <span className="last-updated">
-                Last updated: {lastUpdated.toLocaleTimeString()}
-              </span>
-            )}
-            <button onClick={onRefresh} className="refresh-button">Refresh</button>
-          </div>
         </div>
       </div>
 
@@ -1314,6 +1489,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                   'SF': 'San Francisco',
                   'Other': 'Other'
                 };
+                // eslint-disable-next-line no-unused-vars
                 const regionIconUrls = {
                   'UK': REGION_ICONS['UK'],
                   'NY': REGION_ICONS['NY'],
@@ -1397,7 +1573,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           }}
           onNavigateToTSEView={() => {
             setActiveView("tse");
-            setSelectedColors(new Set(['error'])); // Non-Compliant only
+            setSelectedColors(new Set(['error'])); // Over Limit only
             setSelectedRegions(new Set(['UK', 'NY', 'SF', 'Other'])); // All regions
           }}
           onTSEClick={handleTSECardClick}
@@ -1407,96 +1583,6 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       {/* TSE-Level Breakdown - Show only in TSE view */}
       {activeView === "tse" && (
         <div className="tse-section">
-          {/* Performance Streaks Section */}
-          {performanceStreaks.streak3.length > 0 && (
-            <div className="performance-streaks-section">
-              <div className="streaks-header">
-                <h2 className="streaks-title">🔥 Outstanding Performance Streaks</h2>
-                
-                {/* Region Filter Buttons */}
-                <div className="streaks-region-filters">
-                  <button
-                    type="button"
-                    className={`streaks-filter-btn ${streaksRegionFilter === 'all' ? 'active' : ''}`}
-                    onClick={() => setStreaksRegionFilter('all')}
-                  >
-                    All Regions
-                  </button>
-                  <button
-                    type="button"
-                    className={`streaks-filter-btn ${streaksRegionFilter === 'UK' ? 'active' : ''}`}
-                    onClick={() => setStreaksRegionFilter('UK')}
-                  >
-                    <img src={REGION_ICONS['UK']} alt="UK" className="streaks-region-icon" />
-                    UK
-                  </button>
-                  <button
-                    type="button"
-                    className={`streaks-filter-btn ${streaksRegionFilter === 'NY' ? 'active' : ''}`}
-                    onClick={() => setStreaksRegionFilter('NY')}
-                  >
-                    <img src={REGION_ICONS['NY']} alt="NY" className="streaks-region-icon" />
-                    NY
-                  </button>
-                  <button
-                    type="button"
-                    className={`streaks-filter-btn ${streaksRegionFilter === 'SF' ? 'active' : ''}`}
-                    onClick={() => setStreaksRegionFilter('SF')}
-                  >
-                    <img src={REGION_ICONS['SF']} alt="SF" className="streaks-region-icon" />
-                    SF
-                  </button>
-                </div>
-              </div>
-              
-              <div className="streaks-container">
-                {/* 3+ Day Streaks */}
-                {filteredPerformanceStreaks.streak3.length > 0 && (
-                  <div className="streak-tier streak-tier-bronze">
-                    <div className="streak-tier-header">
-                      <span className="streak-tier-icon">💪</span>
-                      <div className="streak-tier-info">
-                        <h3 className="streak-tier-title">Building Momentum</h3>
-                        <p className="streak-tier-subtitle">⭐ 3+ Consecutive Outstanding Days</p>
-                      </div>
-                    </div>
-                    <div className="streak-avatars">
-                      {filteredPerformanceStreaks.streak3.map((streakTSE) => {
-                        const avatarUrl = getTSEAvatar(streakTSE.name);
-                        // Find the full TSE object from metrics
-                        const fullTSE = (metrics.byTSE || []).find(t => 
-                          String(t.id) === String(streakTSE.id) || t.name === streakTSE.name
-                        ) || streakTSE; // Fallback to streakTSE if not found in metrics
-                        
-                        return (
-                          <div 
-                            key={streakTSE.id} 
-                            className="streak-avatar-item streak-avatar-clickable" 
-                            title={`${streakTSE.name} - ${streakTSE.streak} days`}
-                            onClick={() => handleTSECardClick(fullTSE)}
-                          >
-                            {avatarUrl ? (
-                              <img 
-                                src={avatarUrl} 
-                                alt={streakTSE.name}
-                                className="streak-avatar streak-avatar-bronze"
-                              />
-                            ) : (
-                              <div className="streak-avatar streak-avatar-bronze streak-avatar-placeholder">
-                                {streakTSE.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                              </div>
-                            )}
-                            <div className="streak-badge streak-badge-bronze">{streakTSE.streak}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
           <h3 className="section-title">TSE Queue Health</h3>
           
           {/* Filters Container */}
@@ -1510,7 +1596,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                 <div className="filter-buttons">
                   <button 
                     className="filter-button"
-                    onClick={() => setSelectedColors(new Set(['exceeding', 'success', 'error']))}
+                    onClick={() => setSelectedColors(new Set(['warning', 'exceeding', 'success', 'error']))}
                   >
                     Select All
                   </button>
@@ -1556,6 +1642,23 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                     {selectedColors.has('success') && <span className="legend-checkmark">✓</span>}
                   </div>
                   <span className="legend-label">On Track (≤{THRESHOLDS.MAX_OPEN_SOFT} open, ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE)</span>
+                </div>
+                <div 
+                  className={`legend-item legend-clickable ${selectedColors.has('warning') ? 'legend-selected' : ''}`}
+                  onClick={() => {
+                    const newColors = new Set(selectedColors);
+                    if (newColors.has('warning')) {
+                      newColors.delete('warning');
+                    } else {
+                      newColors.add('warning');
+                    }
+                    setSelectedColors(newColors);
+                  }}
+                >
+                  <div className="legend-color legend-warning">
+                    {selectedColors.has('warning') && <span className="legend-checkmark">✓</span>}
+                  </div>
+                  <span className="legend-label">Missing Snooze Tags (Total Snoozed &gt; Waiting On TSE + Waiting On Customer)</span>
                 </div>
                 <div 
                   className={`legend-item legend-clickable ${selectedColors.has('error') ? 'legend-selected' : ''}`}
@@ -1654,15 +1757,28 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             const getTSEStatus = (tse) => {
               const totalOpen = tse.open;
               const totalWaitingOnTSE = tse.waitingOnTSE || 0;
+              const totalWaitingOnCustomer = tse.waitingOnCustomer || 0;
+              const totalSnoozed = tse.totalSnoozed || 0;
+              
               // Outstanding: 0 open and 0 waiting on TSE
               if (totalOpen === 0 && totalWaitingOnTSE === 0) {
                 return "exceeding";
               }
+              // Over Limit - Needs Attention: either >5 open OR >5 waiting on TSE
+              // Check this BEFORE warning to prioritize critical issues
+              if (totalOpen > THRESHOLDS.MAX_OPEN_SOFT || totalWaitingOnTSE > THRESHOLDS.MAX_WAITING_ON_TSE_SOFT) {
+                return "error";
+              }
               // On Track: ≤5 open AND ≤5 waiting on TSE
               if (totalOpen <= THRESHOLDS.MAX_OPEN_SOFT && totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT) {
+                // Check for warning condition: Total Snoozed > Waiting On TSE + Waiting On Customer
+                // This indicates snoozed conversations without proper tags
+                if (totalSnoozed > (totalWaitingOnTSE + totalWaitingOnCustomer)) {
+                  return "warning";
+                }
                 return "success";
               }
-              // Over Limit - Needs Attention: either >5 open OR >5 waiting on TSE
+              // Fallback (shouldn't reach here, but just in case)
               return "error";
             };
 
@@ -1670,7 +1786,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             const filteredAndSortedTSEs = [...tses]
               .filter(tse => selectedColors.has(getTSEStatus(tse)))
               .sort((a, b) => {
-                const statusOrder = { "exceeding": 0, "success": 1, "error": 2 };
+                const statusOrder = { "warning": 0, "exceeding": 1, "success": 2, "error": 3 };
                 return statusOrder[getTSEStatus(a)] - statusOrder[getTSEStatus(b)];
               });
 
@@ -1744,6 +1860,14 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                                   title={`On Track - ${tse.open || 0} open, ${tse.waitingOnTSE || 0} waiting on TSE (target: ≤${THRESHOLDS.MAX_OPEN_SOFT} open, ≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting)`}
                                 >
                                   ✓
+                                </span>
+                              )}
+                              {status === "warning" && (
+                                <span 
+                                  className="tse-status-icon tse-warning-exclamation"
+                                  title={`Missing Snooze Tags - ${tse.totalSnoozed || 0} total snoozed, but only ${(tse.waitingOnTSE || 0) + (tse.waitingOnCustomer || 0)} have proper tags. Please tag snoozed conversations with one of: Waiting On TSE, Waiting On Customer - Resolved, or Waiting On Customer - Unresolved.`}
+                                >
+                                  ⚠
                                 </span>
                               )}
                               {status === "error" && (
@@ -1831,6 +1955,110 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       {isHelpModalOpen && (
         <HelpModal onClose={() => setIsHelpModalOpen(false)} />
       )}
+
+      {/* Outstanding Performance Streaks Modal */}
+      {isStreaksModalOpen && performanceStreaks.streak3.length > 0 && (
+        <div className="modal-overlay" onClick={() => setIsStreaksModalOpen(false)}>
+          <div className="modal-content streaks-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="streaks-modal-header">
+              <h2 className="streaks-modal-title">🔥 Outstanding Performance Streaks</h2>
+              <button 
+                className="modal-close-button" 
+                onClick={() => setIsStreaksModalOpen(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="streaks-modal-body">
+              {/* Region Filter Buttons */}
+              <div className="streaks-region-filters">
+                <button
+                  type="button"
+                  className={`streaks-filter-btn ${streaksRegionFilter === 'all' ? 'active' : ''}`}
+                  onClick={() => setStreaksRegionFilter('all')}
+                >
+                  All Regions
+                </button>
+                <button
+                  type="button"
+                  className={`streaks-filter-btn ${streaksRegionFilter === 'UK' ? 'active' : ''}`}
+                  onClick={() => setStreaksRegionFilter('UK')}
+                >
+                  <img src={REGION_ICONS['UK']} alt="UK" className="streaks-region-icon" />
+                  UK
+                </button>
+                <button
+                  type="button"
+                  className={`streaks-filter-btn ${streaksRegionFilter === 'NY' ? 'active' : ''}`}
+                  onClick={() => setStreaksRegionFilter('NY')}
+                >
+                  <img src={REGION_ICONS['NY']} alt="NY" className="streaks-region-icon" />
+                  NY
+                </button>
+                <button
+                  type="button"
+                  className={`streaks-filter-btn ${streaksRegionFilter === 'SF' ? 'active' : ''}`}
+                  onClick={() => setStreaksRegionFilter('SF')}
+                >
+                  <img src={REGION_ICONS['SF']} alt="SF" className="streaks-region-icon" />
+                  SF
+                </button>
+              </div>
+
+              {/* Streaks Container */}
+              <div className="streaks-container">
+                {filteredPerformanceStreaks.streak3.length > 0 && (
+                  <div className="streak-tier streak-tier-bronze">
+                    <div className="streak-tier-header">
+                      <span className="streak-tier-icon">💪</span>
+                      <div className="streak-tier-info">
+                        <h3 className="streak-tier-title">Building Momentum</h3>
+                        <p className="streak-tier-subtitle">⭐ 3+ Consecutive Outstanding Days</p>
+                      </div>
+                    </div>
+                    <div className="streak-avatars">
+                      {filteredPerformanceStreaks.streak3.map((streakTSE) => {
+                        const avatarUrl = getTSEAvatar(streakTSE.name);
+                        // Find the full TSE object from metrics
+                        const fullTSE = (metrics.byTSE || []).find(t => 
+                          String(t.id) === String(streakTSE.id) || t.name === streakTSE.name
+                        ) || streakTSE; // Fallback to streakTSE if not found in metrics
+                        
+                        return (
+                          <div 
+                            key={streakTSE.id} 
+                            className="streak-avatar-item streak-avatar-clickable" 
+                            title={`${streakTSE.name} - ${streakTSE.streak} days`}
+                            onClick={() => {
+                              setIsStreaksModalOpen(false);
+                              handleTSECardClick(fullTSE);
+                            }}
+                          >
+                            {avatarUrl ? (
+                              <img 
+                                src={avatarUrl} 
+                                alt={streakTSE.name}
+                                className="streak-avatar streak-avatar-bronze"
+                              />
+                            ) : (
+                              <div className="streak-avatar streak-avatar-bronze streak-avatar-placeholder">
+                                {streakTSE.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                              </div>
+                            )}
+                            <div className="streak-badge streak-badge-bronze">{streakTSE.streak}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1906,6 +2134,7 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
     return regionGroups;
   }, [alerts]);
 
+  // eslint-disable-next-line no-unused-vars
   const allTSEs = useMemo(() => {
     return Object.values(alertsByRegion).flat();
   }, [alertsByRegion]);
@@ -1918,6 +2147,7 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
   }, [expandedRegions, alertsByRegion]);
   
   // Create a Set of TSE keys from expanded regions for quick lookup
+  // eslint-disable-next-line no-unused-vars
   const visibleTSEKeys = useMemo(() => {
     return new Set(expandedRegionTSEs.map(tse => `${tse.tseId}-${tse.tseName}`));
   }, [expandedRegionTSEs]);
@@ -2165,9 +2395,9 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
 // Modern Overview Dashboard Component
 function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical, onNavigateToConversations, onNavigateToTSEView, onTSEClick }) {
   
-  // Prepare compliance trend data (last 7 days)
-  const complianceTrendData = useMemo(() => {
-    console.log('Overview: Processing compliance trend data, snapshots:', historicalSnapshots);
+  // Prepare on-track trend data (last 7 days)
+  const onTrackTrendData = useMemo(() => {
+    console.log('Overview: Processing on-track trend data, snapshots:', historicalSnapshots);
     if (!historicalSnapshots || historicalSnapshots.length === 0) {
       console.log('Overview: No historical snapshots available');
       return [];
@@ -2179,52 +2409,42 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         const totalTSEs = tseData.length;
         if (totalTSEs === 0) return null;
 
-        let compliantBoth = 0;
+        let onTrackBoth = 0;
         tseData.forEach(tse => {
           const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
           // Support both old and new field names for backwards compatibility
           const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
           const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
-          if (meetsOpen && meetsWaitingOnTSE) compliantBoth++;
+          if (meetsOpen && meetsWaitingOnTSE) onTrackBoth++;
         });
 
-        const compliance = totalTSEs > 0 ? Math.round((compliantBoth / totalTSEs) * 100) : 0;
-        
-        // Parse date avoiding timezone issues
-        const [year, month, day] = snapshot.date.split('-').map(Number);
-        const localDate = new Date(year, month - 1, day);
-        const displayMonth = localDate.getMonth() + 1;
-        const displayDay = localDate.getDate();
+        const onTrack = totalTSEs > 0 ? Math.round((onTrackBoth / totalTSEs) * 100) : 0;
         
         return {
           date: snapshot.date,
-          displayLabel: `${displayMonth}/${displayDay}`,
-          compliance
+          displayLabel: formatDateForChart(snapshot.date),
+          onTrack
         };
       })
       .filter(item => item !== null)
       .sort((a, b) => a.date.localeCompare(b.date));
       // Don't limit to 7 days - we need more for week-over-week comparison
     
-    console.log('Overview: Processed compliance trend data:', processed);
+    console.log('Overview: Processed on-track trend data:', processed);
     return processed;
   }, [historicalSnapshots]);
 
-  // Prepare response time trend data
+  // Prepare response time trend data (5+ minute)
   const responseTimeTrendData = useMemo(() => {
     if (!responseTimeMetrics || responseTimeMetrics.length === 0) return [];
     
     return responseTimeMetrics
       .map(metric => {
-        const [year, month, day] = metric.date.split('-').map(Number);
-        const localDate = new Date(year, month - 1, day);
-        const displayMonth = localDate.getMonth() + 1;
-        const displayDay = localDate.getDate();
-        
         return {
           date: metric.date,
-          displayLabel: `${displayMonth}/${displayDay}`,
-          percentage: parseFloat(metric.percentage10PlusMin || 0)
+          displayLabel: formatDateForChart(metric.date),
+          percentage5Plus: parseFloat(metric.percentage5PlusMin || 0),
+          percentage: parseFloat(metric.percentage5PlusMin || 0) // Use 5+ min for backward compatibility
         };
       })
       .sort((a, b) => a.date.localeCompare(b.date));
@@ -2238,7 +2458,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     const latestSnapshot = historicalSnapshots[historicalSnapshots.length - 1];
     const tseData = latestSnapshot.tse_data || latestSnapshot.tseData || [];
     
-    const regionStats = { 'UK': { total: 0, compliant: 0 }, 'NY': { total: 0, compliant: 0 }, 'SF': { total: 0, compliant: 0 } };
+    const regionStats = { 'UK': { total: 0, onTrack: 0 }, 'NY': { total: 0, onTrack: 0 }, 'SF': { total: 0, onTrack: 0 } };
     
     tseData.forEach(tse => {
       const region = getTSERegion(tse.name);
@@ -2246,32 +2466,33 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       if (region === 'Other' || !regionStats[region]) return;
       
       const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
-      // Compliance uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
+      // On-track uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
       // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
       // Support both old and new field names for backwards compatibility
       const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
       const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
       
       regionStats[region].total++;
-      if (meetsOpen && meetsWaitingOnTSE) regionStats[region].compliant++;
+      if (meetsOpen && meetsWaitingOnTSE) regionStats[region].onTrack++;
     });
     
     return Object.entries(regionStats).map(([region, stats]) => ({
       region,
-      compliance: stats.total > 0 ? Math.round((stats.compliant / stats.total) * 100) : 0,
+      onTrack: stats.total > 0 ? Math.round((stats.onTrack / stats.total) * 100) : 0,
       total: stats.total,
-      compliant: stats.compliant
+      onTrackCount: stats.onTrack
     })).filter(r => r.total > 0 && r.region !== 'Other');
   }, [historicalSnapshots]);
 
   // Calculate today vs yesterday comparison
+  // eslint-disable-next-line no-unused-vars
   const todayVsYesterday = useMemo(() => {
-    if (!complianceTrendData || complianceTrendData.length < 2) return null;
+    if (!onTrackTrendData || onTrackTrendData.length < 2) return null;
     
-    const today = complianceTrendData[complianceTrendData.length - 1];
-    const yesterday = complianceTrendData[complianceTrendData.length - 2];
+    const today = onTrackTrendData[onTrackTrendData.length - 1];
+    const yesterday = onTrackTrendData[onTrackTrendData.length - 2];
     
-    const complianceChange = today.compliance - yesterday.compliance;
+    const onTrackChange = today.onTrack - yesterday.onTrack;
     
     // Get response time comparison
     let responseTimeChange = null;
@@ -2282,11 +2503,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     }
     
     return {
-      compliance: {
-        today: today.compliance,
-        yesterday: yesterday.compliance,
-        change: complianceChange,
-        direction: complianceChange > 0 ? 'up' : complianceChange < 0 ? 'down' : 'stable'
+      onTrack: {
+        today: today.onTrack,
+        yesterday: yesterday.onTrack,
+        change: onTrackChange,
+        direction: onTrackChange > 0 ? 'up' : onTrackChange < 0 ? 'down' : 'stable'
       },
       responseTime: responseTimeChange !== null ? {
         today: responseTimeTrendData[responseTimeTrendData.length - 1].percentage,
@@ -2295,23 +2516,23 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         direction: responseTimeChange < 0 ? 'up' : responseTimeChange > 0 ? 'down' : 'stable' // Lower is better
       } : null
     };
-  }, [complianceTrendData, responseTimeTrendData]);
+  }, [onTrackTrendData, responseTimeTrendData]);
 
   // Calculate week-over-week comparison (or most recent period comparison if less data available)
   const weekOverWeek = useMemo(() => {
-    if (!complianceTrendData || complianceTrendData.length < 2) return null;
+    if (!onTrackTrendData || onTrackTrendData.length < 2) return null;
     
     // If we have at least 7 days, compare last 7 vs previous 7
-    if (complianceTrendData.length >= 7) {
-      const thisWeek = complianceTrendData.slice(-7);
-      const lastWeek = complianceTrendData.slice(-14, -7);
+    if (onTrackTrendData.length >= 7) {
+      const thisWeek = onTrackTrendData.slice(-7);
+      const lastWeek = onTrackTrendData.slice(-14, -7);
       
       if (lastWeek.length === 0) {
         // Not enough for full comparison, fall through to shorter comparison
       } else {
-        const thisWeekAvg = thisWeek.reduce((sum, d) => sum + d.compliance, 0) / thisWeek.length;
-        const lastWeekAvg = lastWeek.reduce((sum, d) => sum + d.compliance, 0) / lastWeek.length;
-        const complianceChange = thisWeekAvg - lastWeekAvg;
+        const thisWeekAvg = thisWeek.reduce((sum, d) => sum + d.onTrack, 0) / thisWeek.length;
+        const lastWeekAvg = lastWeek.reduce((sum, d) => sum + d.onTrack, 0) / lastWeek.length;
+        const onTrackChange = thisWeekAvg - lastWeekAvg;
         
         // Response time week-over-week
         let responseTimeChange = null;
@@ -2327,11 +2548,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         
         return {
           label: 'Last 7 Days vs Previous 7 Days',
-          compliance: {
+          onTrack: {
             thisWeek: Math.round(thisWeekAvg),
             lastWeek: Math.round(lastWeekAvg),
-            change: Math.round(complianceChange),
-            direction: complianceChange > 0 ? 'up' : complianceChange < 0 ? 'down' : 'stable'
+            change: Math.round(onTrackChange),
+            direction: onTrackChange > 0 ? 'up' : onTrackChange < 0 ? 'down' : 'stable'
           },
           responseTime: responseTimeChange !== null && thisWeekAvgRT !== null && lastWeekAvgRT !== null ? {
             thisWeek: Math.round(thisWeekAvgRT * 10) / 10,
@@ -2344,16 +2565,16 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     }
     
     // Fallback: Compare most recent period vs previous period (at least 2 days needed)
-    if (complianceTrendData.length >= 2) {
-      const availableDays = Math.min(complianceTrendData.length, 7);
-      const recentPeriod = complianceTrendData.slice(-availableDays);
-      const previousPeriod = complianceTrendData.slice(-availableDays * 2, -availableDays);
+    if (onTrackTrendData.length >= 2) {
+      const availableDays = Math.min(onTrackTrendData.length, 7);
+      const recentPeriod = onTrackTrendData.slice(-availableDays);
+      const previousPeriod = onTrackTrendData.slice(-availableDays * 2, -availableDays);
       
       if (previousPeriod.length === 0) return null;
       
-      const recentAvg = recentPeriod.reduce((sum, d) => sum + d.compliance, 0) / recentPeriod.length;
-      const previousAvg = previousPeriod.reduce((sum, d) => sum + d.compliance, 0) / previousPeriod.length;
-      const complianceChange = recentAvg - previousAvg;
+      const recentAvg = recentPeriod.reduce((sum, d) => sum + d.onTrack, 0) / recentPeriod.length;
+      const previousAvg = previousPeriod.reduce((sum, d) => sum + d.onTrack, 0) / previousPeriod.length;
+      const onTrackChange = recentAvg - previousAvg;
       
       // Response time comparison
       let responseTimeChange = null;
@@ -2369,11 +2590,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       
       return {
         label: `Last ${availableDays} Days vs Previous ${availableDays} Days`,
-        compliance: {
+        onTrack: {
           thisWeek: Math.round(recentAvg),
           lastWeek: Math.round(previousAvg),
-          change: Math.round(complianceChange),
-          direction: complianceChange > 0 ? 'up' : complianceChange < 0 ? 'down' : 'stable'
+          change: Math.round(onTrackChange),
+          direction: onTrackChange > 0 ? 'up' : onTrackChange < 0 ? 'down' : 'stable'
         },
         responseTime: responseTimeChange !== null && recentAvgRT !== null && previousAvgRT !== null ? {
           thisWeek: Math.round(recentAvgRT * 10) / 10,
@@ -2385,33 +2606,33 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     }
     
     return null;
-  }, [complianceTrendData, responseTimeTrendData]);
+  }, [onTrackTrendData, responseTimeTrendData]);
 
   // Calculate best/worst day in last 7 days
   const bestWorstDay = useMemo(() => {
-    if (!complianceTrendData || complianceTrendData.length === 0) return null;
+    if (!onTrackTrendData || onTrackTrendData.length === 0) return null;
     
-    const sorted = [...complianceTrendData].sort((a, b) => b.compliance - a.compliance);
+    const sorted = [...onTrackTrendData].sort((a, b) => b.onTrack - a.onTrack);
     const best = sorted[0];
     const worst = sorted[sorted.length - 1];
     
     return {
       best: {
         date: best.displayLabel,
-        compliance: best.compliance
+        onTrack: best.onTrack
       },
       worst: {
         date: worst.displayLabel,
-        compliance: worst.compliance
+        onTrack: worst.onTrack
       }
     };
-  }, [complianceTrendData]);
+  }, [onTrackTrendData]);
 
   // Calculate volatility
   const volatility = useMemo(() => {
-    if (!complianceTrendData || complianceTrendData.length < 2) return null;
+    if (!onTrackTrendData || onTrackTrendData.length < 2) return null;
     
-    const values = complianceTrendData.map(d => d.compliance);
+    const values = onTrackTrendData.map(d => d.onTrack);
     const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
     const variance = values.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / values.length;
     const stdDev = Math.round(Math.sqrt(variance));
@@ -2420,66 +2641,73 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       value: stdDev,
       interpretation: stdDev < 5 ? 'stable' : stdDev < 10 ? 'moderate' : 'volatile'
     };
-  }, [complianceTrendData]);
+  }, [onTrackTrendData]);
 
   // Calculate moving averages for charts
-  const complianceTrendWithMovingAvg = useMemo(() => {
-    if (!complianceTrendData || complianceTrendData.length === 0) return [];
+  const onTrackTrendWithMovingAvg = useMemo(() => {
+    if (!onTrackTrendData || onTrackTrendData.length === 0) return [];
     
-    return complianceTrendData.map((item, index) => {
+    return onTrackTrendData.map((item, index) => {
       if (index < 2) {
-        return { ...item, movingAvg: item.compliance };
+        return { ...item, movingAvg: item.onTrack };
       }
-      const window = complianceTrendData.slice(Math.max(0, index - 2), index + 1);
-      const avg = window.reduce((sum, d) => sum + d.compliance, 0) / window.length;
+      const window = onTrackTrendData.slice(Math.max(0, index - 2), index + 1);
+      const avg = window.reduce((sum, d) => sum + d.onTrack, 0) / window.length;
       return { ...item, movingAvg: Math.round(avg) };
     });
-  }, [complianceTrendData]);
+  }, [onTrackTrendData]);
 
   const responseTimeTrendWithMovingAvg = useMemo(() => {
     if (!responseTimeTrendData || responseTimeTrendData.length === 0) return [];
     
     return responseTimeTrendData.map((item, index) => {
       if (index < 2) {
-        return { ...item, movingAvg: item.percentage };
+        return { 
+          ...item, 
+          movingAvg5Plus: item.percentage5Plus
+        };
       }
       const window = responseTimeTrendData.slice(Math.max(0, index - 2), index + 1);
-      const avg = window.reduce((sum, d) => sum + d.percentage, 0) / window.length;
-      return { ...item, movingAvg: Math.round(avg * 10) / 10 };
+      const avg5Plus = window.reduce((sum, d) => sum + d.percentage5Plus, 0) / window.length;
+      return { 
+        ...item, 
+        movingAvg5Plus: Math.round(avg5Plus * 10) / 10,
+        movingAvg: Math.round(avg5Plus * 10) / 10 // Keep for backward compatibility
+      };
     });
   }, [responseTimeTrendData]);
 
-  // Calculate current response time percentage (most recent day)
-  const currentResponseTimePct = useMemo(() => {
+  // Calculate current response time percentages (most recent day)
+  const currentResponseTimePct5Plus = useMemo(() => {
     if (responseTimeTrendData.length === 0) return 0;
-    return Math.round(responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage || 0);
+    return Math.round(responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage5Plus || 0);
   }, [responseTimeTrendData]);
 
-  // Calculate average response time percentage (last 7 days)
-  const avgResponseTimePct = useMemo(() => {
+  // Calculate average response time percentages (last 7 days)
+  const avgResponseTimePct5Plus = useMemo(() => {
     if (responseTimeTrendData.length === 0) return 0;
-    const sum = responseTimeTrendData.reduce((acc, item) => acc + (item.percentage || 0), 0);
+    const sum = responseTimeTrendData.reduce((acc, item) => acc + (item.percentage5Plus || 0), 0);
     return Math.round((sum / responseTimeTrendData.length) * 10) / 10; // Round to 1 decimal
   }, [responseTimeTrendData]);
 
-  // Calculate current compliance from historical data (to match Historical tab)
-  const currentCompliance = useMemo(() => {
-    if (complianceTrendData.length === 0) return 0;
-    // Use the most recent snapshot's compliance value
-    return complianceTrendData[complianceTrendData.length - 1]?.compliance || 0;
-  }, [complianceTrendData]);
+  // Calculate current on-track from historical data (to match Historical tab)
+  const currentOnTrack = useMemo(() => {
+    if (onTrackTrendData.length === 0) return 0;
+    // Use the most recent snapshot's on-track value
+    return onTrackTrendData[onTrackTrendData.length - 1]?.onTrack || 0;
+  }, [onTrackTrendData]);
 
   // Calculate trend indicators
-  const complianceTrend = useMemo(() => {
-    if (complianceTrendData.length < 2) return { direction: 'stable', change: 0 };
-    const first = complianceTrendData[0].compliance;
-    const last = complianceTrendData[complianceTrendData.length - 1].compliance;
+  const onTrackTrend = useMemo(() => {
+    if (onTrackTrendData.length < 2) return { direction: 'stable', change: 0 };
+    const first = onTrackTrendData[0].onTrack;
+    const last = onTrackTrendData[onTrackTrendData.length - 1].onTrack;
     const change = last - first;
     return {
       direction: change > 0 ? 'up' : change < 0 ? 'down' : 'stable',
       change: Math.abs(change)
     };
-  }, [complianceTrendData]);
+  }, [onTrackTrendData]);
 
   const responseTimeTrend = useMemo(() => {
     if (responseTimeTrendData.length < 2) return { direction: 'stable', change: 0 };
@@ -2492,6 +2720,35 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     };
   }, [responseTimeTrendData]);
 
+  // Combine on-track and response time data for the trends chart
+  const onTrackAndResponseTrendData = useMemo(() => {
+    if (!onTrackTrendData.length || !responseTimeTrendData.length) return [];
+    
+    // Create a map of on-track data by date
+    const onTrackByDate = {};
+    onTrackTrendData.forEach(item => {
+      onTrackByDate[item.date] = item.onTrack;
+    });
+    
+    // Combine with response time data
+    const combined = responseTimeTrendData
+      .map(rtItem => {
+        const onTrack = onTrackByDate[rtItem.date];
+        if (onTrack === undefined) return null;
+        
+        return {
+          date: rtItem.date,
+          displayLabel: rtItem.displayLabel,
+          onTrack: onTrack,
+          slowResponsePct: rtItem.percentage5Plus || 0
+        };
+      })
+      .filter(item => item !== null)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    return combined;
+  }, [onTrackTrendData, responseTimeTrendData]);
+
   return (
     <div className="modern-overview">
       {/* Quick Insights Section */}
@@ -2502,15 +2759,15 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             <h4 className="insight-title">{weekOverWeek.label}</h4>
             <div className="insight-content">
               <div className="insight-metric">
-                <span className="insight-label">Compliance</span>
+                <span className="insight-label">On Track</span>
                 <div className="insight-comparison">
-                  <span className="insight-value">{weekOverWeek.compliance.thisWeek}%</span>
+                  <span className="insight-value">{weekOverWeek.onTrack.thisWeek}%</span>
                   <span className="insight-arrow">→</span>
-                  <span className={`insight-value ${weekOverWeek.compliance.direction === 'up' ? 'positive' : weekOverWeek.compliance.direction === 'down' ? 'negative' : ''}`}>
-                    {weekOverWeek.compliance.lastWeek}%
+                  <span className={`insight-value ${weekOverWeek.onTrack.direction === 'up' ? 'positive' : weekOverWeek.onTrack.direction === 'down' ? 'negative' : ''}`}>
+                    {weekOverWeek.onTrack.lastWeek}%
                   </span>
-                  <span className={`insight-change ${weekOverWeek.compliance.direction}`}>
-                    {weekOverWeek.compliance.change > 0 ? '+' : ''}{weekOverWeek.compliance.change}%
+                  <span className={`insight-change ${weekOverWeek.onTrack.direction}`}>
+                    {weekOverWeek.onTrack.change > 0 ? '+' : ''}{weekOverWeek.onTrack.change}%
                   </span>
                 </div>
               </div>
@@ -2537,20 +2794,20 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         {/* Best/Worst Day */}
         {bestWorstDay && (
           <div className="insight-card">
-            <h4 className="insight-title">Last 7 Days</h4>
+            <h4 className="insight-title">On Track % - Last 7 Days</h4>
             <div className="insight-content">
               <div className="insight-metric">
                 <span className="insight-label">Best Day</span>
                 <div className="insight-single">
                   <span className="insight-date">{bestWorstDay.best.date}</span>
-                  <span className="insight-value positive">{bestWorstDay.best.compliance}%</span>
+                  <span className="insight-value positive">{bestWorstDay.best.onTrack}%</span>
                 </div>
               </div>
               <div className="insight-metric">
                 <span className="insight-label">Worst Day</span>
                 <div className="insight-single">
                   <span className="insight-date">{bestWorstDay.worst.date}</span>
-                  <span className="insight-value negative">{bestWorstDay.worst.compliance}%</span>
+                  <span className="insight-value negative">{bestWorstDay.worst.onTrack}%</span>
                 </div>
               </div>
             </div>
@@ -2609,7 +2866,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         {/* Region Breakdown */}
         {regionBreakdown && regionBreakdown.length > 0 && (
           <div className="insight-card region-breakdown">
-            <h4 className="insight-title">Region Compliance</h4>
+            <h4 className="insight-title">Region On Track</h4>
             <div className="insight-content">
               {regionBreakdown.map(region => {
                 const iconUrl = REGION_ICONS[region.region];
@@ -2626,10 +2883,10 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                       )}
                     </span>
                     <div className="insight-single">
-                      <span className={`insight-value ${region.compliance >= 80 ? 'positive' : region.compliance >= 60 ? 'warning' : 'negative'}`}>
-                        {region.compliance}%
+                      <span className={`insight-value ${region.onTrack >= 80 ? 'positive' : region.onTrack >= 60 ? 'warning' : 'negative'}`}>
+                        {region.onTrack}%
                       </span>
-                      <span className="insight-subtext">{region.compliant}/{region.total} TSEs</span>
+                      <span className="insight-subtext">{region.onTrackCount}/{region.total} TSEs</span>
                     </div>
                   </div>
                 );
@@ -2646,14 +2903,80 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           <h3 className="kpi-section-title">Today / Realtime Metrics</h3>
           <div className="kpi-section-cards">
             <div className="kpi-card primary">
-              <div className="kpi-label">Realtime Compliance</div>
-              <div className="kpi-value">{metrics.complianceOverall || 0}%</div>
+              <div className="kpi-label">Realtime On Track</div>
+              <div className="kpi-content-with-viz">
+                <div className="kpi-value">{metrics.onTrackOverall || 0}%</div>
+                <div className="kpi-viz-container">
+                  <svg className="kpi-circular-progress" viewBox="0 0 60 60" width="60" height="60">
+                    <circle
+                      className="kpi-progress-bg"
+                      cx="30"
+                      cy="30"
+                      r="26"
+                      fill="none"
+                      stroke="#e0e0e0"
+                      strokeWidth="4"
+                    />
+                    <circle
+                      className="kpi-progress-fill"
+                      cx="30"
+                      cy="30"
+                      r="26"
+                      fill="none"
+                      stroke="#35a1b4"
+                      strokeWidth="4"
+                      strokeDasharray={`${(metrics.onTrackOverall || 0) * 1.634} 163.4`}
+                      strokeDashoffset="41"
+                      strokeLinecap="round"
+                      transform="rotate(-90 30 30)"
+                    />
+                  </svg>
+                </div>
+              </div>
               <div className="kpi-subtitle">Current snapshot</div>
             </div>
 
             <div className="kpi-card primary">
-              <div className="kpi-label">10+ Min Wait Rate</div>
-              <div className="kpi-value">{currentResponseTimePct}%</div>
+              <div className="kpi-label">Wait Rate</div>
+              <div className="kpi-content-with-viz">
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                  <span style={{ fontSize: '24px', fontWeight: 700 }}>{currentResponseTimePct5Plus}%</span>
+                  <span style={{ fontSize: '14px', color: '#666' }}>5+ min</span>
+                </div>
+                {responseTimeTrendData.length >= 2 && (() => {
+                  const dataPoints = responseTimeTrendData.slice(-7);
+                  const maxValue = Math.max(...dataPoints.map(p => p.percentage), 1);
+                  const minValue = Math.min(...dataPoints.map(p => p.percentage), 0);
+                  const range = maxValue - minValue || 1;
+                  
+                  return (
+                    <div className="kpi-sparkline-container">
+                      <svg className="kpi-sparkline" viewBox="0 0 80 30" width="80" height="30">
+                        {dataPoints.map((point, idx) => {
+                          if (idx === 0) return null;
+                          const prevPoint = dataPoints[idx - 1];
+                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * 80;
+                          const y = 30 - ((point.percentage - minValue) / range) * 30;
+                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * 80;
+                          const prevY = 30 - ((prevPoint.percentage - minValue) / range) * 30;
+                          return (
+                            <line
+                              key={idx}
+                              x1={prevX}
+                              y1={prevY}
+                              x2={x}
+                              y2={y}
+                              stroke={responseTimeTrend.direction === 'down' ? '#4cec8c' : responseTimeTrend.direction === 'up' ? '#fd8789' : '#999'}
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                            />
+                          );
+                        })}
+                      </svg>
+                    </div>
+                  );
+                })()}
+              </div>
               {responseTimeTrendData.length >= 2 && (
                 <div className={`kpi-trend ${responseTimeTrend.direction}`}>
                   {responseTimeTrend.direction === 'up' ? '↓' : responseTimeTrend.direction === 'down' ? '↑' : '→'}
@@ -2663,6 +2986,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               <div className="kpi-subtitle">Most recent day</div>
             </div>
 
+
             <div 
               className="kpi-card kpi-card-clickable"
               onClick={() => onNavigateToConversations && onNavigateToConversations("open")}
@@ -2670,56 +2994,90 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             >
               <div className="kpi-card-click-icon">→</div>
               <div className="kpi-label">OPEN CHATS</div>
-              <div className="kpi-value">{metrics.totalOpen}</div>
+              <div className="kpi-content-with-viz">
+                <div className="kpi-value">{metrics.totalOpen}</div>
+                <div className="kpi-bar-indicator">
+                  <div 
+                    className="kpi-bar-fill" 
+                    style={{ 
+                      width: `${Math.min((metrics.totalOpen / 20) * 100, 100)}%`,
+                      backgroundColor: metrics.totalOpen <= 5 ? '#4cec8c' : metrics.totalOpen <= 6 ? '#ffc107' : '#fd8789'
+                    }}
+                  />
+                </div>
+              </div>
               <div className="kpi-subtitle">Currently open</div>
             </div>
 
-            <div 
-              className="kpi-card kpi-card-clickable"
-              onClick={() => onNavigateToConversations && onNavigateToConversations("waitingontse")}
-              style={{ cursor: onNavigateToConversations ? 'pointer' : 'default' }}
-            >
-              <div className="kpi-card-click-icon">→</div>
-              <div className="kpi-label">WAITING ON TSE</div>
-              <div className="kpi-value">{metrics.waitingOnTSE.length}</div>
-              <div className="kpi-subtitle">Requires attention</div>
-            </div>
-
-            <div 
-              className="kpi-card kpi-card-clickable"
-              onClick={() => onNavigateToConversations && onNavigateToConversations("waitingoncustomer")}
-              style={{ cursor: onNavigateToConversations ? 'pointer' : 'default' }}
-            >
-              <div className="kpi-card-click-icon">→</div>
-              <div className="kpi-label">WAITING ON CUSTOMER</div>
-              <div className="kpi-value">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div>
-                    <span style={{ fontSize: '14px', fontWeight: 'normal' }}>Resolved: </span>
-                    <span style={{ fontSize: '24px', fontWeight: 'bold' }}>
-                      {metrics.waitingOnCustomer ? metrics.waitingOnCustomer.filter(conv => {
-                        const tags = conv.tags || [];
-                        return tags.some(t => 
-                          (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
-                          (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
-                        );
-                      }).length : 0}
-                    </span>
+            <div className="kpi-card">
+              <div className="kpi-label">SNOOZED</div>
+              {(() => {
+                const waitingOnTSECount = metrics.waitingOnTSE.length;
+                const waitingOnCustomerResolved = metrics.waitingOnCustomer ? metrics.waitingOnCustomer.filter(conv => {
+                  const tags = Array.isArray(conv.tags) ? conv.tags : [];
+                  return tags.some(t => 
+                    (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
+                    (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
+                  );
+                }).length : 0;
+                const waitingOnCustomerUnresolved = metrics.waitingOnCustomer ? metrics.waitingOnCustomer.filter(conv => {
+                  const tags = Array.isArray(conv.tags) ? conv.tags : [];
+                  return tags.some(t => 
+                    (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
+                    (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
+                  );
+                }).length : 0;
+                
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
+                    <div className="tse-metric-with-viz">
+                      <div className="tse-metric">
+                        <span className="metric-label">Waiting on TSE:</span>
+                        <span className="metric-value">{waitingOnTSECount}</span>
+                      </div>
+                      <div className="kpi-mini-bar">
+                        <div 
+                          className="kpi-mini-bar-fill" 
+                          style={{ 
+                            width: `${Math.min((waitingOnTSECount / 10) * 100, 100)}%`,
+                            backgroundColor: waitingOnTSECount <= 5 ? '#4cec8c' : waitingOnTSECount <= 7 ? '#ffc107' : '#fd8789'
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="tse-metric-with-viz">
+                      <div className="tse-metric">
+                        <span className="metric-label">Waiting On Customer - Resolved:</span>
+                        <span className="metric-value">{waitingOnCustomerResolved}</span>
+                      </div>
+                      <div className="kpi-mini-bar">
+                        <div 
+                          className="kpi-mini-bar-fill" 
+                          style={{ 
+                            width: `${Math.min((waitingOnCustomerResolved / 20) * 100, 100)}%`,
+                            backgroundColor: '#35a1b4'
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="tse-metric-with-viz">
+                      <div className="tse-metric">
+                        <span className="metric-label">Waiting On Customer - Unresolved:</span>
+                        <span className="metric-value">{waitingOnCustomerUnresolved}</span>
+                      </div>
+                      <div className="kpi-mini-bar">
+                        <div 
+                          className="kpi-mini-bar-fill" 
+                          style={{ 
+                            width: `${Math.min((waitingOnCustomerUnresolved / 20) * 100, 100)}%`,
+                            backgroundColor: '#9333ea'
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <span style={{ fontSize: '14px', fontWeight: 'normal' }}>Unresolved: </span>
-                    <span style={{ fontSize: '24px', fontWeight: 'bold' }}>
-                      {metrics.waitingOnCustomer ? metrics.waitingOnCustomer.filter(conv => {
-                        const tags = conv.tags || [];
-                        return tags.some(t => 
-                          (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
-                          (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
-                        );
-                      }).length : 0}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -2729,22 +3087,96 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           <h3 className="kpi-section-title">Last 7 Days Averages</h3>
           <div className="kpi-section-cards">
             <div className="kpi-card primary">
-              <div className="kpi-label">Team Compliance</div>
-              <div className="kpi-value">{currentCompliance}%</div>
-              {complianceTrendData.length >= 2 && (
-                <div className={`kpi-trend ${complianceTrend.direction}`}>
-                  {complianceTrend.direction === 'up' ? '↑' : complianceTrend.direction === 'down' ? '↓' : '→'}
-                  {complianceTrend.change > 0 && ` ${complianceTrend.change}%`}
+              <div className="kpi-label">Team On Track</div>
+              <div className="kpi-content-with-viz">
+                <div className="kpi-value">{currentOnTrack}%</div>
+                {onTrackTrendData.length >= 2 && (() => {
+                  const dataPoints = onTrackTrendData.slice(-7);
+                  const maxValue = Math.max(...dataPoints.map(p => p.onTrack), 1);
+                  const minValue = Math.min(...dataPoints.map(p => p.onTrack), 0);
+                  const range = maxValue - minValue || 1;
+                  
+                  return (
+                    <div className="kpi-sparkline-container">
+                      <svg className="kpi-sparkline" viewBox="0 0 80 30" width="80" height="30">
+                        {dataPoints.map((point, idx) => {
+                          if (idx === 0) return null;
+                          const prevPoint = dataPoints[idx - 1];
+                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * 80;
+                          const y = 30 - ((point.onTrack - minValue) / range) * 30;
+                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * 80;
+                          const prevY = 30 - ((prevPoint.onTrack - minValue) / range) * 30;
+                          return (
+                            <line
+                              key={idx}
+                              x1={prevX}
+                              y1={prevY}
+                              x2={x}
+                              y2={y}
+                              stroke={onTrackTrend.direction === 'up' ? '#4cec8c' : onTrackTrend.direction === 'down' ? '#fd8789' : '#999'}
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                            />
+                          );
+                        })}
+                      </svg>
+                    </div>
+                  );
+                })()}
+              </div>
+              {onTrackTrendData.length >= 2 && (
+                <div className={`kpi-trend ${onTrackTrend.direction}`}>
+                  {onTrackTrend.direction === 'up' ? '↑' : onTrackTrend.direction === 'down' ? '↓' : '→'}
+                  {onTrackTrend.change > 0 && ` ${onTrackTrend.change}%`}
                 </div>
               )}
               <div className="kpi-subtitle">Last 7 days avg</div>
             </div>
 
             <div className="kpi-card primary">
-              <div className="kpi-label">10+ Min Wait Rate</div>
-              <div className="kpi-value">{avgResponseTimePct}%</div>
+              <div className="kpi-label">Wait Rate</div>
+              <div className="kpi-content-with-viz">
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                  <span style={{ fontSize: '24px', fontWeight: 700 }}>{avgResponseTimePct5Plus}%</span>
+                  <span style={{ fontSize: '14px', color: '#666' }}>5+ min</span>
+                </div>
+                {responseTimeTrendData.length >= 2 && (() => {
+                  const dataPoints = responseTimeTrendData.slice(-7);
+                  const maxValue = Math.max(...dataPoints.map(p => p.percentage), 1);
+                  const minValue = Math.min(...dataPoints.map(p => p.percentage), 0);
+                  const range = maxValue - minValue || 1;
+                  
+                  return (
+                    <div className="kpi-sparkline-container">
+                      <svg className="kpi-sparkline" viewBox="0 0 80 30" width="80" height="30">
+                        {dataPoints.map((point, idx) => {
+                          if (idx === 0) return null;
+                          const prevPoint = dataPoints[idx - 1];
+                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * 80;
+                          const y = 30 - ((point.percentage - minValue) / range) * 30;
+                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * 80;
+                          const prevY = 30 - ((prevPoint.percentage - minValue) / range) * 30;
+                          return (
+                            <line
+                              key={idx}
+                              x1={prevX}
+                              y1={prevY}
+                              x2={x}
+                              y2={y}
+                              stroke="#35a1b4"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                            />
+                          );
+                        })}
+                      </svg>
+                    </div>
+                  );
+                })()}
+              </div>
               <div className="kpi-subtitle">Last 7 days avg</div>
             </div>
+
           </div>
         </div>
       </div>
@@ -2753,14 +3185,14 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       <div className="overview-charts">
         <div className="trend-card">
           <div className="trend-header">
-            <h4>Compliance Trend</h4>
+            <h4>On Track Trend</h4>
             <span className="trend-period">7 days</span>
           </div>
-          {complianceTrendWithMovingAvg.length > 0 ? (
+          {onTrackTrendWithMovingAvg.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={complianceTrendWithMovingAvg} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
+              <AreaChart data={onTrackTrendWithMovingAvg} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
                 <defs>
-                  <linearGradient id="complianceGradient" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="onTrackGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#35a1b4" stopOpacity={0.3}/>
                     <stop offset="95%" stopColor="#35a1b4" stopOpacity={0}/>
                   </linearGradient>
@@ -2775,6 +3207,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   stroke="#666"
                   tick={{ fill: '#666', fontSize: 11 }}
                   domain={[0, 100]}
+                  label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: '#666' }}
                 />
                 <Tooltip 
                   contentStyle={{ 
@@ -2782,15 +3215,22 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     border: '1px solid #e0e0e0',
                     borderRadius: '4px'
                   }}
-                  formatter={(value) => [`${value}%`, 'Compliance']}
+                  formatter={(value, name) => {
+                    if (name === 'On Track %') return [`${value.toFixed(1)}%`, 'Daily On Track %'];
+                    if (name === '3-Day Moving Avg') return [`${value.toFixed(1)}%`, '3-Day Moving Average'];
+                    return [`${value.toFixed(1)}%`, name];
+                  }}
+                  labelFormatter={(value) => `Date: ${value}`}
                 />
+                <Legend />
                 <Area 
                   type="monotone" 
-                  dataKey="compliance" 
+                  dataKey="onTrack" 
                   stroke="#35a1b4" 
                   strokeWidth={2}
-                  fill="url(#complianceGradient)"
-                  label={createHolidayLabel(complianceTrendWithMovingAvg)}
+                  fill="url(#onTrackGradient)"
+                  name="On Track %"
+                  label={createHolidayLabel(onTrackTrendWithMovingAvg)}
                 />
                 <Line 
                   type="monotone" 
@@ -2805,7 +3245,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             </ResponsiveContainer>
           ) : (
             <div className="chart-placeholder">
-              <p>No compliance data available</p>
+              <p>No on-track data available</p>
               <span>Snapshots are captured daily at 10pm ET</span>
             </div>
           )}
@@ -2820,9 +3260,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={responseTimeTrendWithMovingAvg} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
                 <defs>
-                  <linearGradient id="responseGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#fd8789" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#fd8789" stopOpacity={0}/>
+                  <linearGradient id="responseGradient5Plus" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#fbbf24" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
@@ -2835,6 +3275,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   stroke="#666"
                   tick={{ fill: '#666', fontSize: 11 }}
                   domain={[0, 'auto']}
+                  label={{ value: 'Wait Rate %', angle: -90, position: 'insideLeft', fill: '#666' }}
                 />
                 <Tooltip 
                   contentStyle={{ 
@@ -2842,24 +3283,31 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     border: '1px solid #e0e0e0',
                     borderRadius: '4px'
                   }}
-                  formatter={(value) => [`${value.toFixed(1)}%`, '10+ Min Wait']}
+                  formatter={(value, name) => {
+                    if (name === '5+ Min Wait %') return [`${value.toFixed(1)}%`, 'Daily 5+ Min Wait %'];
+                    if (name === '5+ Min Moving Avg') return [`${value.toFixed(1)}%`, '3-Day Moving Average'];
+                    return [`${value.toFixed(1)}%`, name];
+                  }}
+                  labelFormatter={(value) => `Date: ${value}`}
                 />
+                <Legend />
                 <Area 
                   type="monotone" 
-                  dataKey="percentage" 
-                  stroke="#fd8789" 
+                  dataKey="percentage5Plus" 
+                  stroke="#fbbf24" 
                   strokeWidth={2}
-                  fill="url(#responseGradient)"
-                  label={createHolidayLabel(responseTimeTrendWithMovingAvg)}
+                  fill="url(#responseGradient5Plus)"
+                  name="5+ Min Wait %"
+                  label={createHolidayLabel(responseTimeTrendWithMovingAvg, false, 'percentage5Plus')}
                 />
                 <Line 
                   type="monotone" 
-                  dataKey="movingAvg" 
-                  stroke="#ff9a74" 
+                  dataKey="movingAvg5Plus" 
+                  stroke="#f59e0b" 
                   strokeWidth={2}
                   strokeDasharray="5 5"
                   dot={false}
-                  name="3-Day Moving Avg"
+                  name="5+ Min Moving Avg"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -2870,12 +3318,84 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             </div>
           )}
         </div>
+
+        {/* On Track and Slow Response Trends Over Time */}
+        {onTrackAndResponseTrendData.length > 0 && (
+          <div className="trend-card">
+            <div className="trend-header">
+              <h4>On Track and Slow Response Trends Over Time</h4>
+              <span className="trend-period">All available data</span>
+            </div>
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={onTrackAndResponseTrendData} margin={{ top: 30, right: 50, left: 50, bottom: 60 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis 
+                  dataKey="displayLabel"
+                  stroke="#666"
+                  tick={{ fill: '#666', fontSize: 11 }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                />
+                <YAxis 
+                  yAxisId="left"
+                  stroke="#666"
+                  tick={{ fill: '#666', fontSize: 11 }}
+                  domain={[0, 100]}
+                  label={{ value: 'On Track %', angle: -90, position: 'left', fill: '#666', offset: 10 }}
+                  tickFormatter={(value) => value.toFixed(0)}
+                />
+                <YAxis 
+                  yAxisId="right"
+                  orientation="right"
+                  stroke="#666"
+                  tick={{ fill: '#666', fontSize: 11 }}
+                  domain={[0, 'dataMax + 5']}
+                  label={{ value: 'Slow Response Rate %', angle: 90, position: 'right', fill: '#666', offset: 10 }}
+                  tickFormatter={(value) => value.toFixed(1)}
+                />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+                  formatter={(value, name) => {
+                    if (name === 'onTrack') return [`${value.toFixed(2)}%`, 'On Track'];
+                    if (name === 'slowResponsePct') return [`${value.toFixed(2)}%`, 'Slow Response Rate'];
+                    return [value, name];
+                  }}
+                  labelFormatter={(value) => {
+                    // value is displayLabel like "1/13"
+                    return value;
+                  }}
+                />
+                <Legend />
+                <Line 
+                  yAxisId="left"
+                  type="monotone" 
+                  dataKey="onTrack" 
+                  stroke="#4cec8c" 
+                  strokeWidth={3}
+                  dot={{ fill: '#4cec8c', r: 4 }}
+                  name="On Track %"
+                />
+                <Line 
+                  yAxisId="right"
+                  type="monotone" 
+                  dataKey="slowResponsePct" 
+                  stroke="#fd8789" 
+                  strokeWidth={2}
+                  dot={{ fill: '#fd8789', r: 3 }}
+                  name="Slow Response Rate %"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
     </div>
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function MetricCard({ title, value, target, status = "info" }) {
   return (
     <div className={`metric-card metric-${status}`}>
@@ -2907,11 +3427,34 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
   // Calculate status for the modal
   const totalOpenCount = open.length;
   const totalWaitingOnTSECount = waitingOnTSE.length;
-  const status = totalOpenCount === 0 && totalWaitingOnTSECount === 0
-    ? "exceeding"
-    : totalOpenCount <= THRESHOLDS.MAX_OPEN_SOFT && totalWaitingOnTSECount <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT
-    ? "success"
-    : "error";
+  const totalWaitingOnCustomerCount = waitingOnCustomer.length;
+  const totalSnoozedCount = totalSnoozed.length;
+  
+  // Determine status - prioritize critical issues (error) over warnings
+  let status;
+  // Outstanding: 0 open and 0 waiting on TSE
+  if (totalOpenCount === 0 && totalWaitingOnTSECount === 0) {
+    status = "exceeding";
+  }
+  // Over Limit - Needs Attention: either >5 open OR >5 waiting on TSE
+  // Check this BEFORE warning to prioritize critical issues
+  else if (totalOpenCount > THRESHOLDS.MAX_OPEN_SOFT || totalWaitingOnTSECount > THRESHOLDS.MAX_WAITING_ON_TSE_SOFT) {
+    status = "error";
+  }
+  // On Track: ≤5 open AND ≤5 waiting on TSE
+  else if (totalOpenCount <= THRESHOLDS.MAX_OPEN_SOFT && totalWaitingOnTSECount <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT) {
+    // Check for warning condition: Total Snoozed > Waiting On TSE + Waiting On Customer
+    // This indicates snoozed conversations without proper tags
+    if (totalSnoozedCount > (totalWaitingOnTSECount + totalWaitingOnCustomerCount)) {
+      status = "warning";
+    } else {
+      status = "success";
+    }
+  }
+  // Fallback (shouldn't reach here, but just in case)
+  else {
+    status = "error";
+  }
 
   // Close tooltip when clicking outside
   useEffect(() => {
@@ -2929,19 +3472,8 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
     }
   }, [clickedTooltip]);
 
-  const formatDate = (timestamp) => {
-    if (!timestamp) return "-";
-    const date = typeof timestamp === "number" ? new Date(timestamp * 1000) : new Date(timestamp);
-    return date.toLocaleString('en-US', { 
-      timeZone: 'UTC', 
-      year: 'numeric', 
-      month: '2-digit', 
-      day: '2-digit', 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: false 
-    }) + ' UTC';
-  };
+  // Use shared date formatting utility
+  const formatDate = formatDateTimeUTC;
 
   const getAuthorEmail = (conv) => {
     return conv.source?.author?.email || 
@@ -3042,6 +3574,18 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
                       ✓
                     </span>
                   )}
+                  {status === "warning" && (
+                    <span 
+                      className="tse-status-icon tse-warning-exclamation clickable-status-icon"
+                      title={`Missing Snooze Tags - ${totalSnoozedCount} total snoozed, but only ${totalWaitingOnTSECount + totalWaitingOnCustomerCount} have proper tags. Please tag snoozed conversations with one of: Waiting On TSE, Waiting On Customer - Resolved, or Waiting On Customer - Unresolved.`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setClickedTooltip(clickedTooltip === 'status' ? null : 'status');
+                      }}
+                    >
+                      ⚠
+                    </span>
+                  )}
                   {status === "error" && (
                     <span 
                       className="tse-status-icon tse-error-x clickable-status-icon"
@@ -3059,7 +3603,7 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
                       <div className="tooltip-content">
                         <div className="tooltip-header">
                           <span className="tooltip-title">
-                            {status === "exceeding" ? "Outstanding" : status === "success" ? "On Track" : "Over Limit - Needs Attention"}
+                            {status === "warning" ? "Missing Snooze Tags" : status === "exceeding" ? "Outstanding" : status === "success" ? "On Track" : "Over Limit - Needs Attention"}
                           </span>
                           <button 
                             className="tooltip-close"
@@ -3072,12 +3616,34 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
                           </button>
                         </div>
                         <div className="tooltip-body">
-                          <div className="tooltip-metric">
-                            <strong>Open:</strong> {totalOpenCount} (target: ≤{THRESHOLDS.MAX_OPEN_SOFT})
-                          </div>
-                          <div className="tooltip-metric">
-                            <strong>Waiting on TSE:</strong> {totalWaitingOnTSECount} (target: ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})
-                          </div>
+                          {status === "warning" ? (
+                            <>
+                              <div className="tooltip-metric">
+                                <strong>Total Snoozed:</strong> {totalSnoozedCount}
+                              </div>
+                              <div className="tooltip-metric">
+                                <strong>Waiting On TSE:</strong> {totalWaitingOnTSECount}
+                              </div>
+                              <div className="tooltip-metric">
+                                <strong>Waiting On Customer:</strong> {totalWaitingOnCustomerCount}
+                              </div>
+                              <div className="tooltip-metric">
+                                <strong>Missing Tags:</strong> {totalSnoozedCount - (totalWaitingOnTSECount + totalWaitingOnCustomerCount)}
+                              </div>
+                              <div className="tooltip-note" style={{ marginTop: '8px', padding: '8px', backgroundColor: '#fff9e6', borderRadius: '4px', fontSize: '12px', color: '#856404' }}>
+                                Please tag all snoozed conversations with one of: Waiting On TSE, Waiting On Customer - Resolved, or Waiting On Customer - Unresolved.
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="tooltip-metric">
+                                <strong>Open:</strong> {totalOpenCount} (target: ≤{THRESHOLDS.MAX_OPEN_SOFT})
+                              </div>
+                              <div className="tooltip-metric">
+                                <strong>Waiting on TSE:</strong> {totalWaitingOnTSECount} (target: ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3097,7 +3663,8 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
             </div>
           </div>
           <div className="modal-header-right">
-            <div className={`modal-compliance-badge status-${status}`}>
+            <div className={`modal-status-badge status-${status}`}>
+              {status === "warning" && <span>⚠ Missing Snooze Tags</span>}
               {status === "exceeding" && <span>⭐ Outstanding</span>}
               {status === "success" && <span>✓ On Track</span>}
               {status === "error" && <span>✗ Over Limit - Needs Attention</span>}
@@ -3160,7 +3727,6 @@ function ConversationTable({ conversations }) {
     assigned: 150,
     author: 200,
     state: 250,
-    medianReply: 150,
     tags: 200
   });
   const [isResizing, setIsResizing] = useState(null);
@@ -3228,21 +3794,6 @@ function ConversationTable({ conversations }) {
     // Get state
     const state = conv.state || "open";
     
-    // Calculate median time to reply (in seconds)
-    // This is typically the time between conversation creation and first admin reply
-    let medianReplySeconds = null;
-    if (conv.statistics?.first_contact_reply_at) {
-      const firstReply = typeof conv.statistics.first_contact_reply_at === "number" 
-        ? conv.statistics.first_contact_reply_at 
-        : new Date(conv.statistics.first_contact_reply_at).getTime() / 1000;
-      const createdTimestamp = created ? (typeof created === "number" ? created : new Date(created).getTime() / 1000) : null;
-      if (createdTimestamp && firstReply > createdTimestamp) {
-        medianReplySeconds = Math.round(firstReply - createdTimestamp);
-      }
-    } else if (conv.statistics?.time_to_first_admin_reply) {
-      medianReplySeconds = conv.statistics.time_to_first_admin_reply;
-    }
-    
     // Get snoozed until timestamp
     const snoozedUntil = conv.snoozed_until || null;
     const snoozedUntilDate = snoozedUntil ? (typeof snoozedUntil === "number" ? new Date(snoozedUntil * 1000) : new Date(snoozedUntil)) : null;
@@ -3252,7 +3803,6 @@ function ConversationTable({ conversations }) {
       id,
       authorEmail,
       state,
-      medianReplySeconds,
       snoozedUntilDate,
       createdTimestamp: created ? (typeof created === "number" ? created : new Date(created).getTime()) : 0,
       updatedTimestamp: updated ? (typeof updated === "number" ? updated * 1000 : new Date(updated).getTime()) : 0,
@@ -3282,9 +3832,6 @@ function ConversationTable({ conversations }) {
     } else if (sortColumn === 'state') {
       aVal = (a.state || "open").toLowerCase();
       bVal = (b.state || "open").toLowerCase();
-    } else if (sortColumn === 'medianReply') {
-      aVal = a.medianReplySeconds !== null && a.medianReplySeconds !== undefined ? a.medianReplySeconds : -1;
-      bVal = b.medianReplySeconds !== null && b.medianReplySeconds !== undefined ? b.medianReplySeconds : -1;
     } else {
       return 0;
     }
@@ -3371,18 +3918,11 @@ function ConversationTable({ conversations }) {
                 onMouseDown={(e) => handleMouseDown(e, 'state')}
               />
             </th>
-            <th 
-              style={{ width: columnWidths.medianReply, position: 'relative', minWidth: '50px', cursor: 'pointer' }}
-              onClick={() => handleSort('medianReply')}
-              className="sortable-header"
-            >
-              Median Time to Reply (s)
-              {sortColumn === 'medianReply' && (
-                <span className="sort-indicator">{sortDirection === 'asc' ? ' ↑' : ' ↓'}</span>
-              )}
+            <th style={{ width: columnWidths.tags, position: 'relative', minWidth: '50px' }}>
+              Active Snooze Workflow
               <div 
                 className="column-resizer"
-                onMouseDown={(e) => handleMouseDown(e, 'medianReply')}
+                onMouseDown={(e) => handleMouseDown(e, 'tags')}
               />
             </th>
             <th style={{ width: columnWidths.email, position: 'relative', minWidth: '50px' }}>
@@ -3392,70 +3932,75 @@ function ConversationTable({ conversations }) {
                 onMouseDown={(e) => handleMouseDown(e, 'email')}
               />
             </th>
-            <th style={{ width: columnWidths.tags, position: 'relative', minWidth: '50px' }}>
-              Tags
-              <div 
-                className="column-resizer"
-                onMouseDown={(e) => handleMouseDown(e, 'tags')}
-              />
-            </th>
           </tr>
         </thead>
         <tbody>
           {sortedConversations.map((conv) => {
             const id = conv.id;
-            const tags = conv.tags || [];
-            const tagNames = tags.map(t => typeof t === "string" ? t : t.name).join(", ");
+            const tags = Array.isArray(conv.tags) ? conv.tags : [];
+            
+            // Extract tag names
+            const tagNames = tags.map(t => typeof t === "string" ? t : t.name);
+            
+            // Define the three snooze tags we care about (in priority order)
+            const snoozeTags = [
+              "snooze.waiting-on-customer-resolved",
+              "snooze.waiting-on-customer-unresolved",
+              "snooze.waiting-on-tse"
+            ];
+            
+            // Mapping from tag names to display names
+            const tagDisplayMapping = {
+              "snooze.waiting-on-customer-resolved": "Waiting On Customer - Resolved",
+              "snooze.waiting-on-customer-unresolved": "Waiting On Customer - Unresolved",
+              "snooze.waiting-on-tse": "Waiting On TSE - Deep Dive"
+            };
+            
+            // Find the first tag that matches one of our three snooze tags (case-insensitive)
+            const activeWorkflowTag = tagNames.find(tagName => 
+              tagName && snoozeTags.some(snoozeTag => 
+                tagName.toLowerCase() === snoozeTag.toLowerCase()
+              )
+            );
+            
+            // Check if conversation state is "open" (not snoozed)
+            const isOpen = (conv.state || "open").toLowerCase() === "open" && conv.state !== "snoozed";
+            
+            // Map the tag to its display name (case-insensitive lookup)
+            let displayTag = "No Active Snooze Workflows";
+            if (isOpen) {
+              // If state is "Open", show N/A
+              displayTag = "N/A";
+            } else if (activeWorkflowTag) {
+              const normalizedTag = activeWorkflowTag.toLowerCase();
+              displayTag = tagDisplayMapping[normalizedTag] || activeWorkflowTag;
+            }
+            
+            // Determine background color based on display tag
+            const getWorkflowBackgroundColor = (tag) => {
+              if (tag === "N/A") {
+                return "transparent"; // No background for N/A
+              } else if (tag === "Waiting On TSE - Deep Dive") {
+                return "#ffd0d0"; // Red background (darker)
+              } else if (tag === "Waiting On Customer - Unresolved") {
+                return "#fff0c0"; // Yellow background (darker)
+              } else if (tag === "Waiting On Customer - Resolved") {
+                return "#d0f0dc"; // Green background (darker)
+              }
+              return "transparent"; // No background for "No Active Snooze Workflows"
+            };
+            
+            const workflowBackgroundColor = getWorkflowBackgroundColor(displayTag);
             
             const created = conv.created_at || conv.createdAt || conv.first_opened_at;
-            const createdDate = created ? new Date(typeof created === "number" ? created * 1000 : created) : null;
-            const createdDateUTC = createdDate ? createdDate.toLocaleString('en-US', { 
-              timeZone: 'UTC', 
-              year: 'numeric', 
-              month: '2-digit', 
-              day: '2-digit', 
-              hour: '2-digit', 
-              minute: '2-digit', 
-              second: '2-digit',
-              hour12: false 
-            }) + ' UTC' : null;
+            const createdDateUTC = created ? formatTimestampUTC(created) : null;
             
             const updated = conv.updated_at || conv.last_contacted_at;
-            const updatedDate = updated ? new Date(typeof updated === "number" ? updated * 1000 : updated) : null;
-            const updatedDateUTC = updatedDate ? updatedDate.toLocaleString('en-US', { 
-              timeZone: 'UTC', 
-              year: 'numeric', 
-              month: '2-digit', 
-              day: '2-digit', 
-              hour: '2-digit', 
-              minute: '2-digit', 
-              second: '2-digit',
-              hour12: false 
-            }) + ' UTC' : null;
+            const updatedDateUTC = updated ? formatTimestampUTC(updated) : null;
             
             const assigneeName = conv.admin_assignee?.name || 
                                 (typeof conv.admin_assignee === "string" ? conv.admin_assignee : null) ||
                                 "Unassigned";
-
-            // Format median reply time
-            const formatMedianReply = (seconds) => {
-              if (seconds === null || seconds === undefined) return "-";
-              if (seconds < 60) return `${seconds}s`;
-              if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-              return `${Math.round(seconds / 3600)}h`;
-            };
-
-            // Format median reply display - only show formatted version if different from raw seconds
-            const formatMedianReplyDisplay = (seconds) => {
-              if (seconds === null || seconds === undefined) return "-";
-              const formatted = formatMedianReply(seconds);
-              // If formatted is same as raw (e.g., "1s"), just show formatted
-              if (formatted === `${seconds}s`) {
-                return formatted;
-              }
-              // Otherwise show both: "3600s (1h)"
-              return `${seconds}s (${formatted})`;
-            };
 
             return (
               <tr key={id}>
@@ -3483,7 +4028,7 @@ function ConversationTable({ conversations }) {
                       fontWeight: 600,
                       color: '#ff9a74'
                     }}>
-                      Snoozed Until {conv.snoozedUntilDate.toLocaleString()}
+                      Snoozed Until {formatTimestampUTC(conv.snoozedUntilDate)}
                     </span>
                   ) : (
                     <span style={{ 
@@ -3495,11 +4040,8 @@ function ConversationTable({ conversations }) {
                     </span>
                   )}
                 </td>
-                <td style={{ width: columnWidths.medianReply }}>
-                  {formatMedianReplyDisplay(conv.medianReplySeconds)}
-                </td>
+                <td className="tags-cell" style={{ width: columnWidths.tags, backgroundColor: workflowBackgroundColor }}>{displayTag}</td>
                 <td style={{ width: columnWidths.email }}>{conv.authorEmail || "-"}</td>
-                <td className="tags-cell" style={{ width: columnWidths.tags }}>{tagNames || "-"}</td>
               </tr>
             );
           })}
@@ -3529,13 +4071,23 @@ function HelpModal({ onClose }) {
     }
   };
 
+  const scrollToTop = () => {
+    const modalBody = document.querySelector('.help-modal-body');
+    if (modalBody) {
+      modalBody.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content help-modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header help-modal-header">
           <div className="help-header-content">
             <span className="help-header-icon">📚</span>
-            <h2>Dashboard Guide & Documentation</h2>
+            <h2>User Guide</h2>
           </div>
           <button className="modal-close-button" onClick={onClose}>×</button>
         </div>
@@ -3544,83 +4096,205 @@ function HelpModal({ onClose }) {
           <div className="help-toc">
             <h3 className="help-toc-title">📑 Table of Contents</h3>
             <div className="help-toc-links">
-              <button onClick={() => scrollToSection('overview-dashboard')} className="help-toc-link">📊 Overview Dashboard</button>
-              <button onClick={() => scrollToSection('tse-view')} className="help-toc-link">👥 TSE View</button>
-              <button onClick={() => scrollToSection('tse-details-modal')} className="help-toc-link">🔍 TSE Details Modal</button>
-              <button onClick={() => scrollToSection('conversations-view')} className="help-toc-link">💬 Conversations View</button>
-              <button onClick={() => scrollToSection('historical-view')} className="help-toc-link">📅 Historical View</button>
-              <button onClick={() => scrollToSection('alerts-system')} className="help-toc-link">🔔 Alerts System</button>
-              <button onClick={() => scrollToSection('compliance-thresholds')} className="help-toc-link">📏 Compliance Thresholds</button>
-              <button onClick={() => scrollToSection('tips-practices')} className="help-toc-link">💡 Tips & Best Practices</button>
+              {/* General Section */}
+              <div className="help-toc-section">
+                <div className="help-toc-section-title">General</div>
+                <button onClick={() => scrollToSection('status-thresholds')} className="help-toc-link">📏 Status Thresholds</button>
+                <button onClick={() => scrollToSection('alerts-system')} className="help-toc-link">🔔 Alerts System</button>
+              </div>
+              
+              {/* Dashboard Section */}
+              <div className="help-toc-section">
+                <div className="help-toc-section-title">Dashboard</div>
+                <button onClick={() => scrollToSection('overview-dashboard')} className="help-toc-link">📊 Overview Dashboard</button>
+              </div>
+              
+              {/* TSE Queue Health Section */}
+              <div className="help-toc-section">
+                <div className="help-toc-section-title">TSE Queue Health</div>
+                <button onClick={() => scrollToSection('tse-view')} className="help-toc-link">👥 TSE View</button>
+                <button onClick={() => scrollToSection('tse-details-modal')} className="help-toc-link">🔍 TSE Details Modal</button>
+              </div>
+              
+              {/* Intercom Data Section */}
+              <div className="help-toc-section">
+                <div className="help-toc-section-title">Intercom Data</div>
+                <button onClick={() => scrollToSection('conversations-view')} className="help-toc-link">💬 Conversations</button>
+              </div>
+              
+              {/* Analytics Section */}
+              <div className="help-toc-section">
+                <div className="help-toc-section-title">Analytics</div>
+                <button onClick={() => scrollToSection('daily-on-track-trends')} className="help-toc-link">📊 Daily On Track Trends</button>
+                <button onClick={() => scrollToSection('response-time-metrics')} className="help-toc-link">⏱️ Response Time Metrics</button>
+                <button onClick={() => scrollToSection('impact')} className="help-toc-link">🔗 Impact</button>
+              </div>
             </div>
+          </div>
+
+          {/* General Section */}
+          <div className="help-section-divider">
+            <h2 className="help-section-divider-title">General</h2>
+          </div>
+
+          {/* Status Thresholds Section */}
+          <div id="status-thresholds" className="help-section">
+            <div className="help-section-header">
+              <span className="help-section-icon">📏</span>
+              <h3>Status Thresholds</h3>
+            </div>
+            <p className="help-intro">Understanding how status is calculated and what each status means.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">✅</span>
+                <strong>On Track Calculation</strong>
+              </div>
+              <p><strong>Definition:</strong> A TSE is "on track" if they meet BOTH thresholds:</p>
+              <ul>
+                <li>Open conversations ≤ {THRESHOLDS.MAX_OPEN_SOFT}</li>
+                <li>Waiting on TSE conversations ≤ {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}</li>
+              </ul>
+              <p><strong>Note:</strong> "Waiting on TSE" refers to conversations snoozed with tag "snooze.waiting-on-tse".</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">⭐</span>
+                <strong>Status Levels</strong>
+              </div>
+              <div className="help-status-grid">
+                <div className="help-status-item">
+                  <span className="help-status-badge status-exceeding">⭐️</span>
+                  <div>
+                    <strong>Outstanding</strong>
+                    <p>0 open AND 0 waiting on TSE</p>
+                    <p className="help-status-detail">Perfect performance - no active workload</p>
+                  </div>
+                </div>
+                <div className="help-status-item">
+                  <span className="help-status-badge status-success">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="12" cy="12" r="10" fill="#4eec8d"/>
+                      <path d="M9 12L11 14L15 10" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </span>
+                  <div>
+                    <strong>On Track</strong>
+                    <p>≤{THRESHOLDS.MAX_OPEN_SOFT} open AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting</p>
+                    <p className="help-status-detail">Within acceptable limits</p>
+                  </div>
+                </div>
+                <div className="help-status-item">
+                  <span className="help-status-badge status-error">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="12" cy="12" r="10" fill="#fd8789"/>
+                      <path d="M8 8L16 16M16 8L8 16" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </span>
+                  <div>
+                    <strong>Over Limit</strong>
+                    <p>&gt;{THRESHOLDS.MAX_OPEN_SOFT} open OR &gt;{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting</p>
+                    <p className="help-status-detail">Needs attention - exceeds thresholds</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🚨</span>
+                <strong>Alert Thresholds</strong>
+              </div>
+              <p><strong>Open Chats Alert:</strong> Triggered at {THRESHOLDS.MAX_OPEN_ALERT}+ open conversations (soft limit: {THRESHOLDS.MAX_OPEN_SOFT})</p>
+              <p><strong>Waiting On TSE Alert:</strong> Triggered at {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+ waiting conversations (soft limit: {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})</p>
+              <p><strong>Why Different:</strong> Soft limits indicate "On Track" status, alert limits trigger notifications for attention.</p>
+            </div>
+          </div>
+
+          {/* Alerts Section */}
+          <div id="alerts-system" className="help-section">
+            <div className="help-section-header">
+              <span className="help-section-icon">🔔</span>
+              <h3>Alerts System</h3>
+            </div>
+            <p className="help-intro">Stay informed about TSEs exceeding status thresholds with real-time alerts.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🔔</span>
+                <strong>Alert Dropdown</strong>
+              </div>
+              <p><strong>Access:</strong> Click the bell icon (🔔) in the header.</p>
+              <p><strong>What:</strong> Shows count of active alerts. Badge displays total alert count.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">⚠️</span>
+                <strong>Alert Types</strong>
+              </div>
+              <p><strong>Open Chat Alerts:</strong> Triggered when TSE has {THRESHOLDS.MAX_OPEN_ALERT}+ open conversations.</p>
+              <p><strong>Waiting On TSE Alerts:</strong> Triggered when TSE has {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+ conversations waiting on them.</p>
+              <p><strong>Severity:</strong> High (🔴) or Medium (🟡) based on how far over threshold.</p>
+            </div>
+          </div>
+
+          {/* Dashboard Section */}
+          <div className="help-section-divider">
+            <h2 className="help-section-divider-title">Dashboard</h2>
           </div>
 
           {/* Overview Dashboard Section */}
           <div id="overview-dashboard" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">📊</span>
-              <h3>Overview Dashboard</h3>
+              <h3>Overview</h3>
             </div>
-            <p className="help-intro">The Overview Dashboard provides real-time metrics and insights at a glance. All cards are clickable and navigate to filtered views.</p>
+            <p className="help-intro">The Dashboard provides real-time metrics and insights at a glance. All cards are clickable and navigate to filtered views.</p>
             
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">🎯</span>
                 <strong>KPI Cards</strong>
               </div>
-              <p><strong>What:</strong> Three main metric cards showing key conversation counts.</p>
+              <p><strong>What:</strong> Two sections of metric cards showing real-time and historical averages.</p>
+              <p><strong>Today / Realtime Metrics Section:</strong></p>
               <ul>
-                <li><strong>OPEN CHATS</strong> - Total active, non-snoozed conversations</li>
-                <li><strong>WAITING ON TSE</strong> - Conversations snoozed with tag "snooze.waiting-on-tse"</li>
-                <li><strong>WAITING ON CUSTOMER</strong> - Conversations snoozed with tag "snooze.waiting-on-customer"</li>
+                <li><strong>Realtime On Track</strong> (primary card) - Current snapshot on-track percentage</li>
+                <li><strong>Wait Rate</strong> (primary card) - Most recent day's percentage for 5+ minute wait times with trend indicator (improving ↓, worsening ↑, stable →)</li>
+                <li><strong>OPEN CHATS</strong> (clickable card) - Total active, non-snoozed conversations. Click to navigate to Conversations View filtered to open chats</li>
+                <li><strong>SNOOZED</strong> (clickable card) - Combined card showing three rows:
+                  <ul>
+                    <li><strong>Waiting on TSE</strong> - Conversations snoozed with tag "snooze.waiting-on-tse"</li>
+                    <li><strong>Waiting On Customer - Resolved</strong> - Resolved conversations with "snooze.waiting-on-customer-resolved" tag</li>
+                    <li><strong>Waiting On Customer - Unresolved</strong> - Unresolved conversations with "snooze.waiting-on-customer-unresolved" tag</li>
+                  </ul>
+                  Click to navigate to Conversations View filtered to all snoozed conversations
+                </li>
               </ul>
-              <p><strong>How:</strong> Calculated from real-time conversation data, excluding excluded TSEs.</p>
-              <p><strong>Why:</strong> Quick visibility into conversation volume and distribution. Click any card to navigate to filtered Conversations View.</p>
+              <p><strong>Last 7 Days Averages Section:</strong></p>
+              <ul>
+                <li><strong>Team On Track</strong> (primary card) - Average on-track percentage over last 7 days with trend indicator</li>
+                <li><strong>Wait Rate</strong> (primary card) - Average percentage of conversations with 5+ minute wait times over last 7 days</li>
+              </ul>
+              <p><strong>How:</strong> Real-time metrics calculated from current conversation data. Historical averages calculated from daily snapshots and response time metrics.</p>
+              <p><strong>Why:</strong> Quick visibility into current state and recent trends. Clickable cards enable rapid navigation to detailed views.</p>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">🌍</span>
-                <strong>Region Compliance</strong>
+                <strong>Region On Track</strong>
               </div>
-              <p><strong>What:</strong> Compliance percentages by region (UK 🇬🇧, NY 🗽, SF 🌉).</p>
+              <p><strong>What:</strong> On-track percentages by region (UK, NY, SF) with region icons.</p>
               <p><strong>How:</strong> Calculated from the most recent historical snapshot. For each region:</p>
               <ul>
                 <li>Counts TSEs meeting both thresholds: ≤{THRESHOLDS.MAX_OPEN_SOFT} open chats AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE</li>
-                <li>Compliance % = (Compliant TSEs / Total TSEs) × 100</li>
+                <li>On Track % = (On Track TSEs / Total TSEs) × 100</li>
+                <li>Color-coded: Green (≥80%), Yellow (60-79%), Red (&lt;60%)</li>
               </ul>
-              <p><strong>Why:</strong> Identifies regional performance patterns and helps allocate resources.</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">🔥</span>
-                <strong>Outstanding Performance Streaks</strong>
-              </div>
-              <p><strong>What:</strong> TSEs with 3+ consecutive days of Outstanding status (0 open, 0 waiting on TSE).</p>
-              <p><strong>How:</strong> Analyzes historical snapshots to find consecutive Outstanding days. Streaks are calculated backwards from the most recent date. Tiebreakers: (1) Longer streaks, (2) Total outstanding days in history.</p>
-              <p><strong>Why:</strong> Recognizes consistent excellence and motivates continued performance. Click any TSE avatar to view their details.</p>
-              <p><strong>Filtering:</strong> Use region buttons (All Regions, UK, NY, SF) to filter by location.</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">📈</span>
-                <strong>Compliance Trends Chart</strong>
-              </div>
-              <p><strong>What:</strong> Line chart showing compliance percentage over the last 7 days.</p>
-              <p><strong>How:</strong> Uses historical snapshots. Each data point represents daily compliance calculated from all TSEs in that snapshot.</p>
-              <p><strong>Why:</strong> Visualizes trends to identify improving or declining performance patterns.</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">⏱️</span>
-                <strong>Response Time Metrics</strong>
-              </div>
-              <p><strong>What:</strong> Percentage of conversations with 10+ minute first response times.</p>
-              <p><strong>How:</strong> Calculated from response time metrics captured daily at midnight UTC. Shows percentage and trend (improving ↓, worsening ↑, stable →).</p>
-              <p><strong>Why:</strong> Tracks customer experience quality. Lower percentages indicate faster response times.</p>
+              <p><strong>Why:</strong> Identifies regional performance patterns.</p>
             </div>
 
             <div className="help-feature">
@@ -3628,40 +4302,81 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">🔔</span>
                 <strong>Active Alerts Card</strong>
               </div>
-              <p><strong>What:</strong> Summary of TSEs exceeding thresholds.</p>
-              <p><strong>How:</strong> Counts alerts for open chats ({THRESHOLDS.MAX_OPEN_ALERT}+) and waiting on TSE ({THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+).</p>
-              <p><strong>Why:</strong> Quick identification of TSEs needing immediate attention. Click to navigate to TSE View filtered to non-compliant TSEs.</p>
+              <p><strong>What:</strong> Summary of TSEs exceeding alert thresholds. Clickable card.</p>
+              <p><strong>How:</strong> Counts alerts for:</p>
+              <ul>
+                <li>Open chats ({THRESHOLDS.MAX_OPEN_ALERT}+)</li>
+                <li>Snoozed - Waiting On TSE ({THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+)</li>
+              </ul>
+              <p><strong>Why:</strong> Quick identification of TSEs needing immediate attention. Click to navigate to TSE View filtered to over-limit TSEs only.</p>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
-                <span className="help-feature-icon">📅</span>
-                <strong>Week-over-Week Comparison</strong>
+                <span className="help-feature-icon">📈</span>
+                <strong>On Track Trend Chart</strong>
               </div>
-              <p><strong>What:</strong> Compares last 7 days vs previous 7 days for compliance and response time.</p>
-              <p><strong>How:</strong> Calculates averages for each period and shows the difference with direction indicators.</p>
-              <p><strong>Why:</strong> Identifies short-term trends and performance changes.</p>
+              <p><strong>What:</strong> Area chart showing on-track percentage over the last 7 days with 3-day moving average line.</p>
+              <p><strong>Features:</strong></p>
+              <ul>
+                <li>Area chart with gradient fill (blue)</li>
+                <li>Dashed green line showing 3-day moving average</li>
+                <li>Holiday indicators (icons) mark holidays that may affect metrics</li>
+                <li>Tooltips show exact on-track percentage for each day</li>
+              </ul>
+              <p><strong>How:</strong> Uses historical snapshots. Each data point represents daily on-track percentage calculated from all TSEs in that snapshot.</p>
+              <p><strong>Why:</strong> Visualizes trends to identify improving or declining performance patterns. Moving average smooths out daily fluctuations.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">⏱️</span>
+                <strong>Response Time Trend Chart</strong>
+              </div>
+              <p><strong>What:</strong> Area chart showing percentage of conversations with 5+ minute first response times over the last 7 days with 3-day moving average line.</p>
+              <p><strong>Features:</strong></p>
+              <ul>
+                <li>Area chart with gradient fill (red/coral)</li>
+                <li>Dashed orange line showing 3-day moving average</li>
+                <li>Holiday indicators (icons) mark holidays that may affect metrics</li>
+                <li>Tooltips show exact percentage for each day</li>
+              </ul>
+              <p><strong>How:</strong> Calculated from response time metrics captured daily at midnight UTC.</p>
+              <p><strong>Why:</strong> Tracks customer experience quality trends. Lower percentages indicate faster response times. Moving average helps identify underlying trends.</p>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">📊</span>
-                <strong>Best/Worst Day</strong>
+                <strong>On Track and Slow Response Trends Over Time Chart</strong>
               </div>
-              <p><strong>What:</strong> Highlights the best and worst compliance days in the last 7 days.</p>
-              <p><strong>How:</strong> Finds the highest and lowest compliance percentages from daily snapshots.</p>
-              <p><strong>Why:</strong> Helps identify what conditions lead to better or worse performance.</p>
+              <p><strong>What:</strong> Dual-axis line chart showing both on-track percentage (left axis, green line) and slow response rate percentage (right axis, red line) over all available historical data.</p>
+              <p><strong>Features:</strong></p>
+              <ul>
+                <li>Green line with circular markers showing On Track % (left Y-axis)</li>
+                <li>Red line with circular markers showing Slow Response Rate % (right Y-axis)</li>
+                <li>Displays all available historical data (not limited to 7 days)</li>
+                <li>Tooltips show exact values for both metrics on each day</li>
+                <li>Holiday indicators (icons) mark holidays that may affect metrics</li>
+              </ul>
+              <p><strong>How:</strong> Combines on-track data from daily snapshots with response time metrics from the same dates. Shows the relationship between queue health (on-track status) and customer experience (response times).</p>
+              <p><strong>Why:</strong> Visualizes the correlation between maintaining on-track status and response time performance. Helps identify if better queue management leads to faster customer responses.</p>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
-                <span className="help-feature-icon">📉</span>
-                <strong>Volatility Indicator</strong>
+                <span className="help-feature-icon">📐</span>
+                <strong>Chart Layout</strong>
               </div>
-              <p><strong>What:</strong> Measures stability of compliance over the last 7 days.</p>
-              <p><strong>How:</strong> Calculates standard deviation of daily compliance values. Classified as Stable (±&lt;5%), Moderate (±5-10%), or Volatile (±&gt;10%).</p>
-              <p><strong>Why:</strong> Indicates consistency. Stable performance is preferred over volatile swings.</p>
+              <p><strong>What:</strong> The three trend charts (On Track Trend, Response Time Trend, and On Track and Slow Response Trends Over Time) are displayed in equal-width columns on the same row.</p>
+              <p><strong>Layout:</strong> Each chart takes up one-third of the page width, providing a balanced view of all trend metrics side-by-side.</p>
+              <p><strong>Responsive:</strong> On smaller screens, charts automatically adjust to 2 columns or a single column layout for optimal viewing.</p>
             </div>
+          </div>
+
+          {/* TSE Queue Health Section */}
+          <div className="help-section-divider">
+            <h2 className="help-section-divider-title">TSE Queue Health</h2>
           </div>
 
           {/* TSE View Section */}
@@ -3679,9 +4394,34 @@ function HelpModal({ onClose }) {
               </div>
               <p><strong>Status Levels:</strong></p>
               <ul>
-                <li><strong>⭐ Outstanding</strong> - 0 open chats AND 0 waiting on TSE. Purple badge with gold star icon.</li>
-                <li><strong>✓ On Track</strong> - ≤{THRESHOLDS.MAX_OPEN_SOFT} open chats AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE. Green badge with checkmark.</li>
-                <li><strong>✗ Over Limit - Needs Attention</strong> - &gt;{THRESHOLDS.MAX_OPEN_SOFT} open chats OR &gt;{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE. Red badge with X icon.</li>
+                <li>
+                  <strong>
+                    <span className="help-status-icon-inline status-exceeding">⭐️</span>
+                    Outstanding
+                  </strong> - 0 open chats AND 0 waiting on TSE. Purple badge with gold star icon.
+                </li>
+                <li>
+                  <strong>
+                    <span className="help-status-icon-inline status-success">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="12" cy="12" r="10" fill="#4eec8d"/>
+                        <path d="M9 12L11 14L15 10" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                    On Track
+                  </strong> - ≤{THRESHOLDS.MAX_OPEN_SOFT} open chats AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE. Green badge with checkmark.
+                </li>
+                <li>
+                  <strong>
+                    <span className="help-status-icon-inline status-error">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="12" cy="12" r="10" fill="#fd8789"/>
+                        <path d="M8 8L16 16M16 8L8 16" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                    Over Limit - Needs Attention
+                  </strong> - &gt;{THRESHOLDS.MAX_OPEN_SOFT} open chats OR &gt;{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE. Red badge with X icon.
+                </li>
               </ul>
               <p><strong>Tooltips:</strong> Hover or click status icons to see detailed counts and thresholds.</p>
             </div>
@@ -3710,18 +4450,32 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">🔍</span>
                 <strong>Filters</strong>
               </div>
-              <p><strong>Region Filters:</strong> Checkboxes to filter by UK 🇬🇧, NY 🗽, SF 🌉, or Other. Click region icons to select/deselect.</p>
-              <p><strong>Status Filters:</strong> Color-coded buttons to filter by compliance status (Outstanding, On Track, Over Limit).</p>
+              <p><strong>Region Filters:</strong> Checkboxes to filter by 
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', margin: '0 4px' }}>
+                  <img src={REGION_ICONS['UK']} alt="UK" style={{ width: '16px', height: '16px', verticalAlign: 'middle' }} />
+                  UK
+                </span>, 
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', margin: '0 4px' }}>
+                  <img src={REGION_ICONS['NY']} alt="NY" style={{ width: '16px', height: '16px', verticalAlign: 'middle' }} />
+                  NY
+                </span>, 
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', margin: '0 4px' }}>
+                  <img src={REGION_ICONS['SF']} alt="SF" style={{ width: '16px', height: '16px', verticalAlign: 'middle' }} />
+                  SF
+                </span>, or Other. Click region icons to select/deselect.</p>
+              <p><strong>Status Filters:</strong> Color-coded buttons to filter by status (Outstanding, On Track, Over Limit).</p>
               <p><strong>How:</strong> Filters combine - selected regions AND selected statuses.</p>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
-                <span className="help-feature-icon">📋</span>
-                <strong>Region Grouping</strong>
+                <span className="help-feature-icon">🔥</span>
+                <strong>Outstanding Performance Streaks</strong>
               </div>
-              <p><strong>What:</strong> TSEs are grouped by region with region icons displayed.</p>
-              <p><strong>Why:</strong> Easier to scan and compare performance within regions.</p>
+              <p><strong>What:</strong> TSEs with 3+ consecutive days of Outstanding status (0 open, 0 waiting on TSE).</p>
+              <p><strong>How:</strong> Analyzes historical snapshots to find consecutive Outstanding days. Streaks are calculated backwards from the most recent date. Tiebreakers: (1) Longer streaks, (2) Total outstanding days in history.</p>
+              <p><strong>Why:</strong> Recognizes consistent excellence and motivates continued performance. Click any TSE avatar to view their details.</p>
+              <p><strong>Filtering:</strong> Use region buttons (All Regions, UK, NY, SF) to filter by location.</p>
             </div>
           </div>
 
@@ -3731,7 +4485,7 @@ function HelpModal({ onClose }) {
               <span className="help-section-icon">🔍</span>
               <h3>TSE Details Modal</h3>
             </div>
-            <p className="help-intro">Detailed breakdown of a specific TSE's conversations and performance metrics.</p>
+            <p className="help-intro">Detailed breakdown of a specific TSE's conversations and performance metrics. Accessed by clicking on a TSE card in the TSE View.</p>
 
             <div className="help-feature">
               <div className="help-feature-title">
@@ -3766,11 +4520,16 @@ function HelpModal({ onClose }) {
             </div>
           </div>
 
+          {/* Intercom Data Section */}
+          <div className="help-section-divider">
+            <h2 className="help-section-divider-title">Intercom Data</h2>
+          </div>
+
           {/* Conversations View Section */}
           <div id="conversations-view" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">💬</span>
-              <h3>Conversations View</h3>
+              <h3>Conversations</h3>
             </div>
             <p className="help-intro">Browse, search, and filter all conversations with advanced filtering options.</p>
 
@@ -3826,238 +4585,122 @@ function HelpModal({ onClose }) {
             </div>
           </div>
 
+          {/* Analytics Section */}
+          <div className="help-section-divider">
+            <h2 className="help-section-divider-title">TRENDS & INSIGHTS</h2>
+          </div>
+
           {/* Historical View Section */}
           <div id="historical-view" className="help-section">
             <div className="help-section-header">
-              <span className="help-section-icon">📅</span>
-              <h3>Historical View</h3>
+              <span className="help-section-icon">📈</span>
+              <h3>ANALYTICS</h3>
             </div>
             <p className="help-intro">Analyze trends, patterns, and correlations over time with three specialized tabs.</p>
 
-            <div className="help-feature">
+            <div id="daily-on-track-trends" className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">📊</span>
-                <strong>Daily Compliance Trends Tab</strong>
+                <strong>Daily On Track Trends Tab</strong>
               </div>
-              <p><strong>What:</strong> Line chart showing compliance trends for selected TSEs over time.</p>
+              <p><strong>What:</strong> Comprehensive analysis of on-track trends for selected TSEs over time with multiple visualizations and insights.</p>
               <p><strong>Features:</strong></p>
               <ul>
                 <li><strong>Date Range Selector:</strong> Yesterday, Last 7 Weekdays, Last 30 Days, Last 90 Days, or Custom Range</li>
                 <li><strong>TSE Filter:</strong> Select specific TSEs by region (UK, NY, SF, Other) with expandable checkboxes</li>
-                <li><strong>Compliance Chart:</strong> Line graph with moving average (3-day window)</li>
-                <li><strong>Region Comparison:</strong> Bar chart comparing average compliance across regions</li>
-                <li><strong>Detailed Table:</strong> Expandable rows showing daily compliance, open counts, waiting on TSE counts</li>
-                <li><strong>Holiday Indicators:</strong> Icons mark holidays that may affect metrics</li>
+                <li><strong>Summary Cards:</strong> Three cards showing average Overall On Track, Open On Track, and Snoozed On Track percentages</li>
+                <li><strong>On Track Chart:</strong> Multi-line graph showing three trends: Overall On Track (green), Open On Track (blue), and Snoozed On Track (orange) over time</li>
+                <li><strong>Insights Section:</strong>
+                  <ul>
+                    <li><strong>Trend Analysis:</strong> Compares first half vs second half of selected period with trend indicator (improving/declining/stable) and volatility metric</li>
+                    <li><strong>Best/Worst Days:</strong> Highlights the day with highest and lowest on-track, showing breakdown by Open and Snoozed on-track</li>
+                  </ul>
+                </li>
+                <li><strong>Day-of-Week Analysis:</strong> Bar chart showing average on-track patterns by weekday (Monday through Friday)</li>
+                <li><strong>Region Comparison:</strong> Bar chart comparing average on-track across regions (UK, NY, SF)</li>
+                <li><strong>TSE Average On Track:</strong> Horizontal bar chart showing individual TSE average on-track over the selected period, sorted by performance</li>
+                <li><strong>Detailed Table:</strong> Expandable rows showing daily on-track metrics (Overall, Open, Snoozed), TSE counts, open counts, and waiting on TSE counts. Sortable by date, TSE count, or any on-track metric</li>
+                <li><strong>Holiday Indicators:</strong> Icons mark holidays on the chart that may affect metrics</li>
               </ul>
-              <p><strong>How Compliance is Calculated:</strong> For each day, counts TSEs meeting both thresholds (≤{THRESHOLDS.MAX_OPEN_SOFT} open AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE), then calculates percentage.</p>
-              <p><strong>Why:</strong> Identifies trends, patterns, and helps understand what drives compliance changes.</p>
+              <p><strong>How On Track is Calculated:</strong> For each day, counts TSEs meeting both thresholds (≤{THRESHOLDS.MAX_OPEN_SOFT} open AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE), then calculates percentage. Separate calculations for Overall (both thresholds), Open (open threshold only), and Snoozed (waiting on TSE threshold only) on-track.</p>
+              <p><strong>Why:</strong> Identifies trends, patterns, and helps understand what drives on-track changes. The multiple visualizations provide different perspectives: time trends, day patterns, regional differences, and individual TSE performance.</p>
             </div>
 
-            <div className="help-feature">
+            <div id="response-time-metrics" className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">⏱️</span>
                 <strong>Response Time Metrics Tab</strong>
               </div>
-              <p><strong>What:</strong> Analysis of first response times, focusing on conversations with 10+ minute wait times.</p>
+              <p><strong>What:</strong> Comprehensive analysis of first response times, focusing on conversations with 5+ minute wait times, including trends, patterns, and correlations.</p>
               <p><strong>Features:</strong></p>
               <ul>
-                <li><strong>Summary Cards:</strong> Average % with 10+ min wait, Total conversations, Total slow responses</li>
-                <li><strong>Percentage Chart:</strong> Line chart showing daily percentage of slow responses</li>
-                <li><strong>Day-of-Week Analysis:</strong> Bar chart showing patterns by weekday</li>
-                <li><strong>Best/Worst Days:</strong> Highlights days with best and worst response times</li>
-                <li><strong>Trend Analysis:</strong> Compares recent performance vs historical average</li>
-                <li><strong>Detailed Table:</strong> Expandable rows with daily metrics, conversation IDs, and counts</li>
-                <li><strong>Region Filtering:</strong> Filter by TSE region (same as Compliance Trends)</li>
-                <li><strong>Manual Capture:</strong> Button to manually capture current day's metric</li>
+                <li><strong>Date Range Selector:</strong> Yesterday, Last 7 Weekdays, Last 30 Days, Last 90 Days, or Custom Range</li>
+                <li><strong>TSE Filter:</strong> Select specific TSEs by region (UK, NY, SF, Other) with expandable checkboxes</li>
+                <li><strong>Data Collection Banner:</strong> Information banner explaining that data is automatically collected nightly after all shifts complete</li>
+                <li><strong>Summary Cards:</strong> Three cards showing:
+                  <ul>
+                    <li><strong>Avg % Wait Time:</strong> Average percentage for 5+ minute wait times with trend indicator (improving/declining/stable) showing change from previous period</li>
+                    <li><strong>Total Conversations:</strong> Sum of all conversations across selected date range</li>
+                    <li><strong>Total Waits:</strong> Total count of conversations with 5+ minute wait times</li>
+                  </ul>
+                </li>
+                <li><strong>Percentage Chart:</strong> Line chart showing daily percentage of conversations with 5+ minute wait times over time, with holiday indicators</li>
+                <li><strong>Count Chart:</strong> Bar chart showing daily count of conversations with 5+ minute wait times, with holiday indicators</li>
+                <li><strong>Insights Section:</strong>
+                  <ul>
+                    <li><strong>Trend Analysis:</strong> Compares first half vs second half of selected period with trend indicator (improving/declining/stable), volatility metric, and 7-day moving average</li>
+                    <li><strong>Period Comparison:</strong> Compares Previous 7 Days vs Current 7 Days with all-time average and comparison to all-time performance</li>
+                    <li><strong>Best/Worst Days:</strong> Highlights the day with lowest percentage (best) and highest percentage (worst), showing breakdown of slow count vs total conversations</li>
+                  </ul>
+                </li>
+                <li><strong>Day-of-Week Analysis:</strong> Dual-axis bar chart showing both average percentage and average count of slow conversations by weekday (Monday through Friday)</li>
+                <li><strong>Volume vs Performance Correlation:</strong> Scatter chart analyzing correlation between total conversation volume and response time performance, with correlation coefficient and interpretation (weak/moderate/strong, positive/negative)</li>
+                <li><strong>Detailed Table:</strong> Sortable table with expandable rows showing:
+                  <ul>
+                    <li>Date, Total Conversations, 5+ Min Waits count, 5+ Min %</li>
+                    <li>Expandable rows reveal individual conversation IDs with their wait times</li>
+                    <li>Sortable by date, total conversations, count, or percentage</li>
+                  </ul>
+                </li>
+                <li><strong>Holiday Indicators:</strong> Icons mark holidays on charts that may affect metrics</li>
               </ul>
-              <p><strong>How:</strong> Metrics are captured daily at midnight UTC. Calculates percentage of conversations with first response time ≥10 minutes.</p>
-              <p><strong>Why:</strong> Tracks customer experience quality. Lower percentages indicate faster response times and better service.</p>
+              <p><strong>How:</strong> Metrics are automatically collected nightly after all shifts have completed, analyzing metrics from the most recently completed business day. Calculates percentage of conversations with first response time ≥5 minutes. Data collection happens via scheduled cron jobs.</p>
+              <p><strong>Why:</strong> Tracks customer experience quality and identifies patterns. Lower percentages indicate faster response times and better service. The correlation analysis helps understand if volume impacts response time performance.</p>
             </div>
 
-            <div className="help-feature">
+            <div id="impact" className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">🔗</span>
                 <strong>Impact Tab</strong>
               </div>
-              <p><strong>What:</strong> Correlation analysis between compliance and slow response times.</p>
+              <p><strong>What:</strong> Comprehensive correlation analysis between on-track status and slow first response times, showing how maintaining on-track status affects customer experience metrics.</p>
               <p><strong>Features:</strong></p>
               <ul>
-                <li><strong>Correlation Analysis:</strong> Measures relationship between compliance and slow response rates</li>
-                <li><strong>Correlation Strength:</strong> Weak (&lt;0.3), Moderate (0.3-0.7), or Strong (&gt;0.7)</li>
-                <li><strong>Correlation Direction:</strong> Positive (higher compliance → higher slow responses) or Negative (higher compliance → lower slow responses)</li>
-                <li><strong>Scatter Plot:</strong> Visual representation of compliance vs slow response percentage</li>
-                <li><strong>Range Statistics:</strong> Breakdown by compliance ranges showing average slow response rates</li>
+                <li><strong>Date Range Selector:</strong> Yesterday, Last 7 Weekdays, Last 30 Days, Last 90 Days, or Custom Range (shared with other tabs)</li>
+                <li><strong>Key Insights Section:</strong>
+                  <ul>
+                    <li><strong>Correlation Analysis Card:</strong> Displays correlation coefficient value, strength (Weak &lt;0.3, Moderate 0.3-0.7, Strong &gt;0.7), direction (Positive/Negative), and interpretation. Color-coded: green for desired (negative correlation), red for concerning (positive correlation)</li>
+                    <li><strong>Overall Averages Card:</strong> Shows average on-track percentage, average slow response rate percentage, and total number of data points (days) in the analysis</li>
+                  </ul>
+                </li>
+                <li><strong>Scatter Plot:</strong> Visual representation of on-track percentage vs slow response rate percentage. Each point represents one day's data, allowing visual identification of patterns and outliers</li>
+                <li><strong>Performance by On Track Range:</strong> Three range cards showing statistics for different on-track levels:
+                  <ul>
+                    <li>Each card displays: on-track range label, number of days in range, average on-track, average slow response rate, total slow responses, and total conversations</li>
+                    <li>Color-coded borders (green/yellow/red) indicate performance levels</li>
+                  </ul>
+                </li>
+                <li><strong>Trend Over Time Chart:</strong> Dual-axis line chart showing both on-track percentage (left axis, green line) and slow response rate percentage (right axis, red line) over the selected time period. Helps visualize how both metrics change together over time</li>
               </ul>
-              <p><strong>How:</strong> Combines compliance data from snapshots with response time metrics, calculates Pearson correlation coefficient.</p>
-              <p><strong>Why:</strong> Understands if maintaining compliance helps or hurts response times. Negative correlation (higher compliance → lower slow responses) is desired.</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">💾</span>
-                <strong>Snapshot Management</strong>
-              </div>
-              <p><strong>Save Current Snapshot:</strong> Button to manually capture current day's compliance data.</p>
-              <p><strong>Why:</strong> Ensures historical data is captured even if automatic snapshots fail.</p>
+              <p><strong>How:</strong> Combines on-track data from daily snapshots with response time metrics from the same dates. Calculates Pearson correlation coefficient to measure the linear relationship between on-track status and slow response rates. Groups data into on-track ranges for detailed analysis.</p>
+              <p><strong>Why:</strong> Understands if maintaining on-track status helps or hurts response times. Negative correlation (higher on-track → lower slow responses) is the desired outcome, indicating that better queue management leads to faster customer responses. Positive correlation would be concerning as it suggests on-track efforts might be slowing down response times.</p>
             </div>
           </div>
 
-          {/* Alerts Section */}
-          <div id="alerts-system" className="help-section">
-            <div className="help-section-header">
-              <span className="help-section-icon">🔔</span>
-              <h3>Alerts System</h3>
-            </div>
-            <p className="help-intro">Stay informed about TSEs exceeding compliance thresholds with real-time alerts.</p>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">🔔</span>
-                <strong>Alert Dropdown</strong>
-              </div>
-              <p><strong>Access:</strong> Click the bell icon (🔔) in the header.</p>
-              <p><strong>What:</strong> Shows count of active alerts. Badge displays total alert count.</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">⚠️</span>
-                <strong>Alert Types</strong>
-              </div>
-              <p><strong>Open Chat Alerts:</strong> Triggered when TSE has {THRESHOLDS.MAX_OPEN_ALERT}+ open conversations.</p>
-              <p><strong>Waiting On TSE Alerts:</strong> Triggered when TSE has {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+ conversations waiting on them.</p>
-              <p><strong>Severity:</strong> High (🔴) or Medium (🟡) based on how far over threshold.</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">📋</span>
-                <strong>Alert Organization</strong>
-              </div>
-              <p><strong>Grouping:</strong> Alerts grouped by TSE, then by type. Expandable regions (UK, NY, SF, Other).</p>
-              <p><strong>Actions:</strong></p>
-              <ul>
-                <li>Click alert → Opens TSE Details Modal</li>
-                <li>Click "View Chats" → Navigates to Conversations View filtered to that TSE and alert type</li>
-                <li>Click "View All" → Navigates to TSE View filtered to all non-compliant TSEs</li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Compliance Thresholds Section */}
-          <div id="compliance-thresholds" className="help-section">
-            <div className="help-section-header">
-              <span className="help-section-icon">📏</span>
-              <h3>Compliance Thresholds & Status</h3>
-            </div>
-            <p className="help-intro">Understanding how compliance is calculated and what each status means.</p>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">✅</span>
-                <strong>Compliance Calculation</strong>
-              </div>
-              <p><strong>Definition:</strong> A TSE is "compliant" if they meet BOTH thresholds:</p>
-              <ul>
-                <li>Open conversations ≤ {THRESHOLDS.MAX_OPEN_SOFT}</li>
-                <li>Waiting on TSE conversations ≤ {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}</li>
-              </ul>
-              <p><strong>Note:</strong> "Waiting on TSE" refers to conversations snoozed with tag "snooze.waiting-on-tse".</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">⭐</span>
-                <strong>Status Levels</strong>
-              </div>
-              <div className="help-status-grid">
-                <div className="help-status-item">
-                  <span className="help-status-badge status-exceeding">⭐</span>
-                  <div>
-                    <strong>Outstanding</strong>
-                    <p>0 open AND 0 waiting on TSE</p>
-                    <p className="help-status-detail">Perfect performance - no active workload</p>
-                  </div>
-                </div>
-                <div className="help-status-item">
-                  <span className="help-status-badge status-success">✓</span>
-                  <div>
-                    <strong>On Track</strong>
-                    <p>≤{THRESHOLDS.MAX_OPEN_SOFT} open AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting</p>
-                    <p className="help-status-detail">Within acceptable limits</p>
-                  </div>
-                </div>
-                <div className="help-status-item">
-                  <span className="help-status-badge status-error">✗</span>
-                  <div>
-                    <strong>Over Limit</strong>
-                    <p>&gt;{THRESHOLDS.MAX_OPEN_SOFT} open OR &gt;{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting</p>
-                    <p className="help-status-detail">Needs attention - exceeds thresholds</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">🚨</span>
-                <strong>Alert Thresholds</strong>
-              </div>
-              <p><strong>Open Chats Alert:</strong> Triggered at {THRESHOLDS.MAX_OPEN_ALERT}+ open conversations (soft limit: {THRESHOLDS.MAX_OPEN_SOFT})</p>
-              <p><strong>Waiting On TSE Alert:</strong> Triggered at {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+ waiting conversations (soft limit: {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})</p>
-              <p><strong>Why Different:</strong> Soft limits indicate "On Track" status, alert limits trigger notifications for attention.</p>
-            </div>
-          </div>
-
-          {/* Tips & Best Practices */}
-          <div id="tips-practices" className="help-section">
-            <div className="help-section-header">
-              <span className="help-section-icon">💡</span>
-              <h3>Tips & Best Practices</h3>
-            </div>
-            
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">🖱️</span>
-                <strong>Navigation Tips</strong>
-              </div>
-              <ul>
-                <li>Look for arrow icons (→) on cards to identify clickable elements</li>
-                <li>Hover over TSE cards to see hover effects indicating interactivity</li>
-                <li>Click any TSE card or avatar to view detailed conversation breakdown</li>
-                <li>Use filters to narrow down views by region, status, or TSE</li>
-                <li>Click conversation IDs to open them directly in Intercom</li>
-              </ul>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">📊</span>
-                <strong>Using Historical Data</strong>
-              </div>
-              <ul>
-                <li>Select specific TSEs to analyze individual performance trends</li>
-                <li>Use region filters to compare regional performance</li>
-                <li>Check day-of-week patterns to identify workload patterns</li>
-                <li>Review correlation analysis to understand compliance impact on response times</li>
-                <li>Use custom date ranges to analyze specific time periods</li>
-              </ul>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">🎯</span>
-                <strong>Performance Monitoring</strong>
-              </div>
-              <ul>
-                <li>Monitor Outstanding Performance Streaks to recognize consistent excellence</li>
-                <li>Use alerts to quickly identify TSEs needing support</li>
-                <li>Review region compliance to allocate resources effectively</li>
-                <li>Track response time trends to maintain customer experience quality</li>
-                <li>Check volatility indicators to assess consistency</li>
-              </ul>
-            </div>
-          </div>
+          {/* Back to Top Button */}
+          <button className="help-back-to-top" onClick={scrollToTop} aria-label="Back to top">
+            ↑ Back to Top
+          </button>
         </div>
       </div>
     </div>

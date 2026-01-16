@@ -267,9 +267,23 @@ export default async function handler(req, res) {
   }
 
   try {
-    const authHeader = INTERCOM_TOKEN.startsWith('Bearer ')
-      ? INTERCOM_TOKEN
-      : `Bearer ${INTERCOM_TOKEN}`;
+    // Get user's access token from cookie (preferred) or fall back to server token
+    const userAccessToken = req.cookies?.intercom_access_token;
+    let authHeader;
+    
+    if (userAccessToken) {
+      // Use user's token
+      authHeader = `Bearer ${userAccessToken}`;
+    } else if (INTERCOM_TOKEN) {
+      // Fall back to server token if no user token (for backward compatibility)
+      authHeader = INTERCOM_TOKEN.startsWith('Bearer ')
+        ? INTERCOM_TOKEN
+        : `Bearer ${INTERCOM_TOKEN}`;
+    } else {
+      res.setHeader("Access-Control-Allow-Origin", originToUse);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      return res.status(401).json({ error: "Authentication required" });
+    }
     
     // Fetch both conversations and team members in parallel
     const [conversations, teamMembers] = await Promise.all([
@@ -289,6 +303,14 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error(err);
+    // If error is 401, it might be an expired token
+    if (err.message && err.message.includes('401')) {
+      res.setHeader("Access-Control-Allow-Origin", originToUse);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      return res.status(401).json({ error: "Invalid or expired token", requiresAuth: true });
+    }
+    res.setHeader("Access-Control-Allow-Origin", originToUse);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.status(500).json({ error: err.message });
   }
 }

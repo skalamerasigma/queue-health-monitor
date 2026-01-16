@@ -1,0 +1,96 @@
+Operational Live Chat Metrics & Dashboard Targets
+This document outlines the high-level targets for the new dashboard. The goal is to define where we expect operational live chat metrics to be in order to better manage the live chat queue.
+
+Proposed Metrics & Targets
+
+## Response Time & Customer Experience Metrics
+Initial Response Time: 2 min
+% of Conversations with <10 Min Response Time: [TBD] (Currently tracking 10+ min rate)
+Average Response Time: [TBD]
+Median Response Time: [TBD]
+Time to First Response (P50/P95): [TBD]
+CSAT: 4.8
+
+## Queue Health & Compliance Metrics
+Compliance Rate (% TSEs meeting both thresholds): 80%+ (Target from rollout doc)
+- Open Chats Compliance: ≤5 per TSE (Soft Limit)
+- Waiting on TSE Compliance: ≤5 per TSE (Soft Limit)
+Alert Frequency (threshold violations per day): [TBD]
+- Open Chats Alerts: 6+ per TSE
+- Waiting on TSE Alerts: 7+ per TSE
+Unassigned Conversations: [TBD]
+- Total Unassigned Count: [TBD]
+- Median Wait Time for Unassigned: [TBD] hours
+Oldest Ticket in Queue: [TBD] hours
+Average Open Conversations per TSE: [TBD] (Target: ≤5)
+
+## Volume & Capacity Metrics
+Number of Tickets Taken by TSE: 13
+Average Conversations per TSE per Day: [TBD]
+Total Daily Conversation Volume: [TBD]
+Peak Hours Load Distribution: [TBD]
+TSE Utilization Rate: [TBD]%
+Coverage Hours: [TBD] (Note: Target differs for 6 chat hours)
+
+## Resolution & Closure Metrics
+Time to Close: [TBD]
+Average Handle Time: [TBD]
+% of Tickets Closed Same Day: [TBD]
+First Contact Resolution Rate: [TBD]%
+Resolution Rate (within SLA): [TBD]%
+Average Conversations per Resolution: [TBD]
+
+## Snooze & Workflow Metrics
+Number of Tickets Snoozed by EOW: [TBD]
+Average Snooze Duration: [TBD]
+- Waiting on TSE Snoozes: [TBD] hours (48hr auto-reassign)
+- Waiting on Customer Resolved: [TBD] hours (24hr auto-close)
+- Waiting on Customer Unresolved: [TBD] hours (72hr auto-close)
+Snooze Rate (% of conversations snoozed): [TBD]
+Reassignment Frequency: [TBD]
+Auto-close Rate (% closed by automation): [TBD]
+
+## Efficiency & Productivity Metrics
+Efficiency: 2.5 (Note: Target differs for 6 chat hours)
+Availability: 210 (Note: Target differs for 6 chat hours)
+Conversations per Hour per TSE: [TBD]
+Average Active Conversations per TSE: [TBD]
+Queue Backlog Growth Rate: [TBD]% (week-over-week)
+
+## Quality & Escalation Metrics
+Escalation Rate (% escalated): [TBD]
+Escalation Time (time to escalate): [TBD]
+Customer Wait Time (for waiting-on-customer conversations): [TBD]
+- Resolved: [TBD] hours
+- Unresolved: [TBD] hours
+Follow-up Rate (% requiring follow-up): [TBD]
+
+## Regional & Team Metrics
+Regional Compliance Comparison: [TBD]
+- UK Region Compliance: [TBD]%
+- NY Region Compliance: [TBD]%
+- SF Region Compliance: [TBD]%
+- Other Region Compliance: [TBD]%
+Team-wide Compliance Trend: Improving (vs. worsening/stable)
+Region Load Distribution: [TBD]
+
+## Historical & Trend Metrics
+7-Day Moving Average Compliance: [TBD]%
+Week-over-Week Compliance Change: [TBD]%
+Monthly Compliance Trend: [TBD] (improving/worsening/stable)
+Response Time Trend: [TBD] (improving/worsening/stable)
+Volatility (Standard Deviation): [TBD] (lower = more consistent)
+
+## Additional Considerations
+Zendesk Statuses: Potential to integrate ZD statuses into the dashboard.
+ZD/JIRA Tickets: Consider tracking the number of tickets (needs further definition).
+Away Mode Impact: Track TSEs with away mode enabled and impact on queue distribution.
+Performance Streaks: Track consecutive days of compliance (3+ days = streak).
+Customer Satisfaction Correlation: Analyze relationship between response time and CSAT.
+
+## Next Steps
+Verify Data: Cross-reference proposed numbers with Glean, Confluence, or Support Daily stats to ensure accuracy.
+Review: Discuss which of the listed targets are most relevant for the dashboard and queue management.
+Prioritize: Identify which metrics are most critical for immediate implementation vs. future enhancements.
+Set Baselines: Establish current performance baselines before setting improvement targets.
+Define SLAs: If applicable, define Service Level Agreements for response time, resolution time, etc.

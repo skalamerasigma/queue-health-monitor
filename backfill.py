@@ -14,8 +14,8 @@ Requirements:
 The script will:
 1. Find the last 10 weekdays (excluding weekends)
 2. For each weekday, fetch conversations created on that day (LA timezone)
-3. Calculate metrics (10+ minute wait times, percentages, etc.)
-4. Store conversation IDs for conversations with 10+ minute waits
+3. Calculate metrics (5+ and 10+ minute wait times, percentages, etc.)
+4. Store conversation IDs for conversations with 5+ and 10+ minute waits
 5. Insert/update records in the response_time_metrics table
 """
 
@@ -34,6 +34,7 @@ from psycopg2 import sql
 INTERCOM_BASE_URL = "https://api.intercom.io"
 INTERCOM_TOKEN = os.getenv("INTERCOM_TOKEN")
 TEAM_ASSIGNEE_ID = "5480079"
+FIVE_MINUTES_SECONDS = 300
 TEN_MINUTES_SECONDS = 600
 MAX_PAGES = 10
 BATCH_SIZE = 10
@@ -234,8 +235,10 @@ def fetch_conversations_for_date(start_seconds, end_seconds):
 
 def calculate_metrics(conversations):
     """Calculate response time metrics from conversations."""
+    count_5_plus_min = 0
     count_10_plus_min = 0
     total_with_response = 0
+    conversation_ids_5_plus_min = []
     conversation_ids_10_plus_min = []
     
     for conv in conversations:
@@ -254,6 +257,16 @@ def calculate_metrics(conversations):
         if wait_time_seconds is not None and wait_time_seconds >= 0:
             total_with_response += 1
             
+            if wait_time_seconds >= FIVE_MINUTES_SECONDS:
+                count_5_plus_min += 1
+                if conv.get("id"):
+                    # Store conversation ID and wait time
+                    conversation_ids_5_plus_min.append({
+                        "id": str(conv["id"]),
+                        "waitTimeSeconds": wait_time_seconds,
+                        "waitTimeMinutes": round(wait_time_seconds / 60, 2)  # Round to 2 decimal places
+                    })
+            
             if wait_time_seconds >= TEN_MINUTES_SECONDS:
                 count_10_plus_min += 1
                 if conv.get("id"):
@@ -264,12 +277,16 @@ def calculate_metrics(conversations):
                         "waitTimeMinutes": round(wait_time_seconds / 60, 2)  # Round to 2 decimal places
                     })
     
+    percentage_5_plus_min = (count_5_plus_min / total_with_response * 100) if total_with_response > 0 else 0
     percentage_10_plus_min = (count_10_plus_min / total_with_response * 100) if total_with_response > 0 else 0
     
     return {
+        "count_5_plus_min": count_5_plus_min,
         "count_10_plus_min": count_10_plus_min,
         "total_with_response": total_with_response,
+        "percentage_5_plus_min": round(percentage_5_plus_min, 2),
         "percentage_10_plus_min": round(percentage_10_plus_min, 2),
+        "conversation_ids_5_plus_min": conversation_ids_5_plus_min,
         "conversation_ids_10_plus_min": conversation_ids_10_plus_min
     }
 
@@ -371,23 +388,29 @@ def save_metric_to_db(conn, date_str, metric, total_conversations):
         # Insert or update
         cursor.execute("""
             INSERT INTO response_time_metrics 
-                (timestamp, date, count_10_plus_min, total_conversations, percentage_10_plus_min, conversation_ids_10_plus_min)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (timestamp, date, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (date) 
             DO UPDATE SET 
                 timestamp = EXCLUDED.timestamp,
+                count_5_plus_min = EXCLUDED.count_5_plus_min,
                 count_10_plus_min = EXCLUDED.count_10_plus_min,
                 total_conversations = EXCLUDED.total_conversations,
+                percentage_5_plus_min = EXCLUDED.percentage_5_plus_min,
                 percentage_10_plus_min = EXCLUDED.percentage_10_plus_min,
+                conversation_ids_5_plus_min = EXCLUDED.conversation_ids_5_plus_min,
                 conversation_ids_10_plus_min = EXCLUDED.conversation_ids_10_plus_min,
                 created_at = NOW()
             RETURNING id, date, timestamp;
         """, (
             datetime.now(pytz.UTC).replace(tzinfo=None),  # Remove timezone for PostgreSQL TIMESTAMP
             date_str,
+            metric["count_5_plus_min"],
             metric["count_10_plus_min"],
             total_conversations,
+            metric["percentage_5_plus_min"],
             metric["percentage_10_plus_min"],
+            Json(metric["conversation_ids_5_plus_min"]),
             Json(metric["conversation_ids_10_plus_min"])
         ))
         
@@ -448,7 +471,9 @@ def main():
             metrics = calculate_metrics(conversations)
             print(f"  Total conversations: {len(conversations)}")
             print(f"  Conversations with response: {metrics['total_with_response']}")
+            print(f"  5+ minute waits: {metrics['count_5_plus_min']} ({metrics['percentage_5_plus_min']}%)")
             print(f"  10+ minute waits: {metrics['count_10_plus_min']} ({metrics['percentage_10_plus_min']}%)")
+            print(f"  Conversation IDs with 5+ min waits: {len(metrics['conversation_ids_5_plus_min'])}")
             print(f"  Conversation IDs with 10+ min waits: {len(metrics['conversation_ids_10_plus_min'])}")
             
             # Save to database
@@ -457,22 +482,33 @@ def main():
             print(f"  ✓ Saved: ID={result[0]}, Date={result[1]}, Timestamp={result[2]}")
             
             # Format conversation IDs with wait times for CSV
-            conversation_details = []
-            for conv_data in metrics['conversation_ids_10_plus_min']:
+            conversation_details_5_plus = []
+            for conv_data in metrics['conversation_ids_5_plus_min']:
                 if isinstance(conv_data, dict):
-                    conversation_details.append(f"{conv_data['id']} ({conv_data['waitTimeMinutes']} min)")
+                    conversation_details_5_plus.append(f"{conv_data['id']} ({conv_data['waitTimeMinutes']} min)")
                 else:
                     # Backward compatibility with old format (just ID)
-                    conversation_details.append(str(conv_data))
+                    conversation_details_5_plus.append(str(conv_data))
+            
+            conversation_details_10_plus = []
+            for conv_data in metrics['conversation_ids_10_plus_min']:
+                if isinstance(conv_data, dict):
+                    conversation_details_10_plus.append(f"{conv_data['id']} ({conv_data['waitTimeMinutes']} min)")
+                else:
+                    # Backward compatibility with old format (just ID)
+                    conversation_details_10_plus.append(str(conv_data))
             
             # Add to CSV data
             csv_rows.append({
                 "Date": date_str,
                 "Total Conversations": len(conversations),
                 "Conversations with Response": metrics['total_with_response'],
+                "5+ Minute Waits": metrics['count_5_plus_min'],
+                "Percentage 5+ Min": f"{metrics['percentage_5_plus_min']}%",
+                "Conversation IDs (5+ min)": ", ".join(conversation_details_5_plus),
                 "10+ Minute Waits": metrics['count_10_plus_min'],
                 "Percentage 10+ Min": f"{metrics['percentage_10_plus_min']}%",
-                "Conversation IDs (10+ min)": ", ".join(conversation_details),
+                "Conversation IDs (10+ min)": ", ".join(conversation_details_10_plus),
                 "Database ID": result[0],
                 "Timestamp": result[2].isoformat() if result[2] else ""
             })
