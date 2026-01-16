@@ -37,26 +37,42 @@
   gap: 12px;
 }
 
+.header-icon-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #e0e0e0;
+  border-radius: 6px;
+}
+
 .button-group {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .logout-button {
   background: #ef4444;
   color: white;
   border: none;
-  padding: 6px 12px;
+  padding: 0 12px;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s, transform 0.1s;
-  line-height: 1.4;
-  height: auto;
+  line-height: 1;
+  height: 32px;
+  min-width: 88px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .logout-button:hover {
@@ -85,8 +101,8 @@
 }
 
 .help-icon {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   display: block;
 }
 
@@ -111,14 +127,14 @@
 }
 
 .alerts-icon {
-  width: 35px;
-  height: 35px;
+  width: 22px;
+  height: 22px;
   display: block;
 }
 
 .alerts-icon-with-badge {
-  width: 35px;
-  height: 35px;
+  width: 22px;
+  height: 22px;
 }
 
 .streaks-icon-button {
@@ -143,8 +159,8 @@
 }
 
 .streaks-icon {
-  width: 35px;
-  height: 35px;
+  width: 22px;
+  height: 22px;
   display: block;
   transition: transform 0.2s;
 }
@@ -445,7 +461,7 @@
   display: flex;
   gap: 4px;
   background: #e0e0e0;
-  padding: 4px;
+  padding: 6px;
   border-radius: 6px;
 }
 
@@ -1341,13 +1357,22 @@
   background-color: #35a1b4;
   color: white;
   border: none;
-  padding: 6px 12px;
+  padding: 0 12px;
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
-  line-height: 1.4;
-  height: auto;
-  margin-top: 8px;
+  font-weight: 500;
+  line-height: 1;
+  height: 32px;
+  min-width: 88px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  box-sizing: border-box;
+  vertical-align: middle;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .refresh-button:hover {

@@ -1359,65 +1359,66 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
           </div>
         </div>
         <div className="header-actions">
-          <button
-            className="help-icon-button"
-            onClick={() => setIsHelpModalOpen(true)}
-            aria-label="Help"
-            title="Help"
-          >
-            <img 
-              src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513679/3_150_x_150_px_12_zhkdig.svg" 
-              alt="Help" 
-              className="help-icon"
-              style={{ width: 32, height: 32 }}
+          <div className="header-icon-group">
+            <button
+              className="help-icon-button"
+              onClick={() => setIsHelpModalOpen(true)}
+              aria-label="Help"
+              title="Help"
+            >
+              <img 
+                src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513679/3_150_x_150_px_12_zhkdig.svg" 
+                alt="Help" 
+                className="help-icon"
+              />
+            </button>
+            <button
+              className="streaks-icon-button"
+              onClick={() => setIsStreaksModalOpen(true)}
+              aria-label="Outstanding Performance Streaks"
+              title="Outstanding Performance Streaks"
+              disabled={!performanceStreaks.streak3 || performanceStreaks.streak3.length === 0}
+            >
+              <img 
+                src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513305/3_150_x_150_px_11_a6potb.svg" 
+                alt="Outstanding Performance Streaks" 
+                className="streaks-icon"
+              />
+            </button>
+            <AlertsDropdown 
+              alerts={metrics.alerts || []}
+              isOpen={alertsDropdownOpen}
+              onToggle={() => setAlertsDropdownOpen(!alertsDropdownOpen)}
+              onClose={() => setAlertsDropdownOpen(false)}
+              onTSEClick={(tseId, tseName) => {
+                setAlertsDropdownOpen(false);
+                // Find TSE object from metrics
+                const tse = (metrics.byTSE || []).find(t => 
+                  String(t.id) === String(tseId) || t.name === tseName
+                );
+                if (tse) {
+                  handleTSECardClick(tse);
+                  setAlertsDropdownOpen(false); // Close dropdown when opening modal
+                }
+              }}
+              onViewAll={() => {
+                setActiveView("tse");
+                setSelectedColors(new Set(['error'])); // Over Limit - Needs Attention only
+                setSelectedRegions(new Set(['UK', 'NY', 'SF', 'Other'])); // All regions
+                setAlertsDropdownOpen(false); // Close dropdown
+              }}
+              onViewChats={(tseId, alertType) => {
+                setActiveView("conversations");
+                if (alertType === "open") {
+                  setFilterTag("open");
+                } else if (alertType === "snoozed") {
+                  setFilterTag("waitingontse");
+                }
+                setFilterTSE(String(tseId));
+                setAlertsDropdownOpen(false); // Close dropdown
+              }}
             />
-          </button>
-          <button
-            className="streaks-icon-button"
-            onClick={() => setIsStreaksModalOpen(true)}
-            aria-label="Outstanding Performance Streaks"
-            title="Outstanding Performance Streaks"
-            disabled={!performanceStreaks.streak3 || performanceStreaks.streak3.length === 0}
-          >
-            <img 
-              src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513305/3_150_x_150_px_11_a6potb.svg" 
-              alt="Outstanding Performance Streaks" 
-              className="streaks-icon"
-            />
-          </button>
-          <AlertsDropdown 
-            alerts={metrics.alerts || []}
-            isOpen={alertsDropdownOpen}
-            onToggle={() => setAlertsDropdownOpen(!alertsDropdownOpen)}
-            onClose={() => setAlertsDropdownOpen(false)}
-            onTSEClick={(tseId, tseName) => {
-              setAlertsDropdownOpen(false);
-              // Find TSE object from metrics
-              const tse = (metrics.byTSE || []).find(t => 
-                String(t.id) === String(tseId) || t.name === tseName
-              );
-              if (tse) {
-                handleTSECardClick(tse);
-                setAlertsDropdownOpen(false); // Close dropdown when opening modal
-              }
-            }}
-            onViewAll={() => {
-              setActiveView("tse");
-              setSelectedColors(new Set(['error'])); // Over Limit - Needs Attention only
-              setSelectedRegions(new Set(['UK', 'NY', 'SF', 'Other'])); // All regions
-              setAlertsDropdownOpen(false); // Close dropdown
-            }}
-            onViewChats={(tseId, alertType) => {
-              setActiveView("conversations");
-              if (alertType === "open") {
-                setFilterTag("open");
-              } else if (alertType === "snoozed") {
-                setFilterTag("waitingontse");
-              }
-              setFilterTSE(String(tseId));
-              setAlertsDropdownOpen(false); // Close dropdown
-            }}
-          />
+          </div>
           <div className="view-tabs">
             <button 
               type="button"
@@ -2745,8 +2746,8 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       })
       .filter(item => item !== null)
       .sort((a, b) => a.date.localeCompare(b.date));
-    
-    return combined;
+
+    return combined.slice(-7);
   }, [onTrackTrendData, responseTimeTrendData]);
 
   return (
@@ -2948,17 +2949,19 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   const maxValue = Math.max(...dataPoints.map(p => p.percentage), 1);
                   const minValue = Math.min(...dataPoints.map(p => p.percentage), 0);
                   const range = maxValue - minValue || 1;
+                  const sparkWidth = 140;
+                  const sparkHeight = 30;
                   
                   return (
                     <div className="kpi-sparkline-container">
-                      <svg className="kpi-sparkline" viewBox="0 0 80 30" width="80" height="30">
+                      <svg className="kpi-sparkline" viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} width={sparkWidth} height={sparkHeight}>
                         {dataPoints.map((point, idx) => {
                           if (idx === 0) return null;
                           const prevPoint = dataPoints[idx - 1];
-                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * 80;
-                          const y = 30 - ((point.percentage - minValue) / range) * 30;
-                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * 80;
-                          const prevY = 30 - ((prevPoint.percentage - minValue) / range) * 30;
+                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
+                          const y = sparkHeight - ((point.percentage - minValue) / range) * sparkHeight;
+                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
+                          const prevY = sparkHeight - ((prevPoint.percentage - minValue) / range) * sparkHeight;
                           return (
                             <line
                               key={idx}
@@ -3095,17 +3098,19 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   const maxValue = Math.max(...dataPoints.map(p => p.onTrack), 1);
                   const minValue = Math.min(...dataPoints.map(p => p.onTrack), 0);
                   const range = maxValue - minValue || 1;
+                  const sparkWidth = 440;
+                  const sparkHeight = 30;
                   
                   return (
                     <div className="kpi-sparkline-container">
-                      <svg className="kpi-sparkline" viewBox="0 0 80 30" width="80" height="30">
+                      <svg className="kpi-sparkline" viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} width={sparkWidth} height={sparkHeight}>
                         {dataPoints.map((point, idx) => {
                           if (idx === 0) return null;
                           const prevPoint = dataPoints[idx - 1];
-                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * 80;
-                          const y = 30 - ((point.onTrack - minValue) / range) * 30;
-                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * 80;
-                          const prevY = 30 - ((prevPoint.onTrack - minValue) / range) * 30;
+                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
+                          const y = sparkHeight - ((point.onTrack - minValue) / range) * sparkHeight;
+                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
+                          const prevY = sparkHeight - ((prevPoint.onTrack - minValue) / range) * sparkHeight;
                           return (
                             <line
                               key={idx}
@@ -3145,17 +3150,19 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   const maxValue = Math.max(...dataPoints.map(p => p.percentage), 1);
                   const minValue = Math.min(...dataPoints.map(p => p.percentage), 0);
                   const range = maxValue - minValue || 1;
+                  const sparkWidth = 440;
+                  const sparkHeight = 30;
                   
                   return (
                     <div className="kpi-sparkline-container">
-                      <svg className="kpi-sparkline" viewBox="0 0 80 30" width="80" height="30">
+                      <svg className="kpi-sparkline" viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} width={sparkWidth} height={sparkHeight}>
                         {dataPoints.map((point, idx) => {
                           if (idx === 0) return null;
                           const prevPoint = dataPoints[idx - 1];
-                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * 80;
-                          const y = 30 - ((point.percentage - minValue) / range) * 30;
-                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * 80;
-                          const prevY = 30 - ((prevPoint.percentage - minValue) / range) * 30;
+                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
+                          const y = sparkHeight - ((point.percentage - minValue) / range) * sparkHeight;
+                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
+                          const prevY = sparkHeight - ((prevPoint.percentage - minValue) / range) * sparkHeight;
                           return (
                             <line
                               key={idx}
@@ -3324,7 +3331,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           <div className="trend-card">
             <div className="trend-header">
               <h4>On Track and Slow Response Trends Over Time</h4>
-              <span className="trend-period">All available data</span>
+              <span className="trend-period">Last 7 days</span>
             </div>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={onTrackAndResponseTrendData} margin={{ top: 30, right: 50, left: 50, bottom: 60 }}>
