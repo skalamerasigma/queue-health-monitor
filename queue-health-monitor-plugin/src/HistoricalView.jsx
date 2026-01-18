@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ScatterChart, Scatter, Cell } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ScatterChart, Scatter, Cell, ReferenceLine } from 'recharts';
 import { formatTimestampUTC, formatDateForChart, formatDateForTooltip, formatDateFull, formatDateUTC } from './utils/dateUtils';
+import { useTheme } from './ThemeContext';
 import './HistoricalView.css';
 
 // TSE Region mapping
@@ -203,7 +204,92 @@ const THRESHOLDS = {
   MAX_ACTIONABLE_SNOOZED_SOFT: 5
 };
 
+// Info Icon Component with Tooltip
+const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const iconRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (iconRef.current && !iconRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  const tooltipStyle = {
+    position: 'absolute',
+    top: '0',
+    zIndex: 1000,
+    minWidth: '280px',
+    maxWidth: '400px',
+    backgroundColor: isDarkMode ? '#1e1e1e' : 'white',
+    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`,
+    borderRadius: '8px',
+    padding: '12px 16px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+    fontSize: '12px',
+    lineHeight: '1.5',
+    color: isDarkMode ? '#e5e5e5' : '#292929',
+    pointerEvents: 'auto',
+    whiteSpace: 'normal',
+    textAlign: 'left'
+  };
+
+  if (position === 'left') {
+    tooltipStyle.right = '24px';
+  } else {
+    tooltipStyle.left = '24px';
+  }
+
+  return (
+    <span ref={iconRef} style={{ position: 'relative', display: 'inline-block', marginLeft: '6px', verticalAlign: 'middle' }}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: isDarkMode ? '#999' : '#666',
+          cursor: 'pointer',
+          padding: '2px',
+          display: 'flex',
+          alignItems: 'center',
+          fontSize: '14px',
+          lineHeight: 1,
+          borderRadius: '50%',
+          width: '18px',
+          height: '18px',
+          justifyContent: 'center'
+        }}
+        onMouseEnter={() => setIsOpen(true)}
+        onMouseLeave={() => setIsOpen(false)}
+        title="Click for more information"
+      >
+        ℹ️
+      </button>
+      {isOpen && (
+        <div
+          style={tooltipStyle}
+          onMouseEnter={() => setIsOpen(true)}
+          onMouseLeave={() => setIsOpen(false)}
+        >
+          {content}
+        </div>
+      )}
+    </span>
+  );
+};
+
 function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
+  const { isDarkMode } = useTheme();
   const [snapshots, setSnapshots] = useState([]);
   const [responseTimeMetrics, setResponseTimeMetrics] = useState([]);
   
@@ -247,10 +333,15 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const [resultsDateRange] = useState('30'); // days: 7, 14, 30, 60, 90
   const [expandedDates, setExpandedDates] = useState(new Set());
   const [expandedResponseTimeDates, setExpandedResponseTimeDates] = useState(new Set());
-  const [onTrackSortConfig, setOnTrackSortConfig] = useState({ key: null, direction: 'asc' });
-  const [responseTimeSortConfig, setResponseTimeSortConfig] = useState({ key: null, direction: 'asc' });
+  const [selectedRanges, setSelectedRanges] = useState(new Set(['80-100', '60-79', '40-59', '20-39', '0-19'])); // All ranges selected by default
+  const [selectedHeatmapRegions, setSelectedHeatmapRegions] = useState(new Set(['UK', 'NY', 'SF', 'Other'])); // All regions selected by default
+  const [onTrackSortConfig, setOnTrackSortConfig] = useState({ key: 'date', direction: 'desc' });
+  const [responseTimeSortConfig, setResponseTimeSortConfig] = useState({ key: 'date', direction: 'desc' });
+  const [onTrackDaysToShow, setOnTrackDaysToShow] = useState(7);
+  const [responseTimeDaysToShow, setResponseTimeDaysToShow] = useState(7);
   const [expandedRegions, setExpandedRegions] = useState(new Set()); // All collapsed by default
   const [hasManuallyCleared, setHasManuallyCleared] = useState(false); // Track if user manually cleared selection
+  const [showPeriodComparison, setShowPeriodComparison] = useState(false); // Toggle for period comparison
 
   // Close tooltip when clicking outside
   useEffect(() => {
@@ -618,14 +709,17 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     setExpandedRegions(newExpanded);
   };
 
-  const fetchSnapshots = async () => {
+  const fetchSnapshots = async (overrideStartDate = null, overrideEndDate = null) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
+      // Use override dates if provided, otherwise use state dates
+      const useStartDate = overrideStartDate !== null ? overrideStartDate : startDate;
+      const useEndDate = overrideEndDate !== null ? overrideEndDate : endDate;
       // Only add date filters if dates are set; otherwise fetch all
-      if (startDate && endDate) {
-        params.append('startDate', startDate);
-        params.append('endDate', endDate);
+      if (useStartDate && useEndDate) {
+        params.append('startDate', useStartDate);
+        params.append('endDate', useEndDate);
       }
       // Removed selectedTSEs filtering - we always fetch all snapshots
       // The filtering happens in the useMemo hooks for chart calculations
@@ -654,14 +748,17 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     }
   };
 
-  const fetchResponseTimeMetrics = async () => {
+  const fetchResponseTimeMetrics = async (overrideStartDate = null, overrideEndDate = null) => {
     setLoadingMetrics(true);
     try {
       const params = new URLSearchParams();
+      // Use override dates if provided, otherwise use state dates
+      const useStartDate = overrideStartDate !== null ? overrideStartDate : startDate;
+      const useEndDate = overrideEndDate !== null ? overrideEndDate : endDate;
       // If dates are set, use them; otherwise fetch all
-      if (startDate && endDate) {
-        params.append('startDate', startDate);
-        params.append('endDate', endDate);
+      if (useStartDate && useEndDate) {
+        params.append('startDate', useStartDate);
+        params.append('endDate', useEndDate);
       } else {
         // Fetch all metrics if no date range is specified
         params.append('all', 'true');
@@ -765,10 +862,13 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       return;
     }
     
+    // Update state first
     setStartDate(customStartDate);
     setEndDate(customEndDate);
-    fetchSnapshots();
-    fetchResponseTimeMetrics();
+    
+    // Pass dates directly to fetch functions to avoid race condition with state updates
+    fetchSnapshots(customStartDate, customEndDate);
+    fetchResponseTimeMetrics(customStartDate, customEndDate);
   };
 
   // Calculate on-track metrics for chart
@@ -777,7 +877,15 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
     const dataByDate = {};
     
-    snapshots.forEach(snapshot => {
+    snapshots
+      .filter(snapshot => {
+        // Filter by date range if dates are set
+        if (startDate && endDate && snapshot.date) {
+          return snapshot.date >= startDate && snapshot.date <= endDate;
+        }
+        return true;
+      })
+      .forEach(snapshot => {
       const date = snapshot.date;
       if (!dataByDate[date]) {
         dataByDate[date] = {
@@ -789,7 +897,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         };
       }
 
-      const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+      const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
       let tseData = selectedTSEs.length > 0
         ? snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)))
         : snapshot.tseData;
@@ -819,7 +927,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         overallOnTrack: d.totalTSEs > 0 ? Math.round((d.onTrackBoth / d.totalTSEs) * 100) : 0
       }))
       .sort((a, b) => new Date(a.date) - new Date(b.date));
-  }, [snapshots, selectedTSEs]);
+  }, [snapshots, selectedTSEs, startDate, endDate]);
 
   // Day-of-week analysis
   const dayOfWeekAnalysis = useMemo(() => {
@@ -893,7 +1001,15 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     
     const regionStats = { 'UK': [], 'NY': [], 'SF': [], 'Other': [] };
     
-    snapshots.forEach(snapshot => {
+    snapshots
+      .filter(snapshot => {
+        // Filter by date range if dates are set
+        if (startDate && endDate && snapshot.date) {
+          return snapshot.date >= startDate && snapshot.date <= endDate;
+        }
+        return true;
+      })
+      .forEach(snapshot => {
       const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
       let tseData = snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)));
       tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
@@ -925,7 +1041,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       const avg = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
       return { region, average: avg, count: values.length };
     }).filter(r => r !== null && r.region !== 'Other');
-  }, [snapshots, selectedTSEs]);
+  }, [snapshots, selectedTSEs, startDate, endDate]);
 
   // Trend analysis with moving averages
   const trendAnalysis = useMemo(() => {
@@ -953,17 +1069,237 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     };
   }, [chartData]);
 
+
+  // Calculate chart data with 3-day moving averages
+  const chartDataWithMovingAvg = useMemo(() => {
+    if (!chartData.length) return [];
+    
+    return chartData.map((item, index) => {
+      if (index < 2) {
+        return { 
+          ...item, 
+          movingAvgOverall: item.overallOnTrack,
+          movingAvgOpen: item.openOnTrack,
+          movingAvgSnoozed: item.snoozedOnTrack
+        };
+      }
+      const window = chartData.slice(Math.max(0, index - 2), index + 1);
+      const avgOverall = window.reduce((sum, d) => sum + d.overallOnTrack, 0) / window.length;
+      const avgOpen = window.reduce((sum, d) => sum + d.openOnTrack, 0) / window.length;
+      const avgSnoozed = window.reduce((sum, d) => sum + d.snoozedOnTrack, 0) / window.length;
+      
+      return { 
+        ...item, 
+        movingAvgOverall: Math.round(avgOverall * 10) / 10,
+        movingAvgOpen: Math.round(avgOpen * 10) / 10,
+        movingAvgSnoozed: Math.round(avgSnoozed * 10) / 10
+      };
+    });
+  }, [chartData]);
+
+  // Calculate actionable metrics for summary cards
+  const actionableMetrics = useMemo(() => {
+    if (!chartData.length) return null;
+
+    const TARGET_PERCENTAGE = 100; // Target is 100% on-track
+    
+    // Days meeting target (100% overall on-track)
+    const daysMeetingTarget = chartData.filter(d => d.overallOnTrack === TARGET_PERCENTAGE).length;
+    const daysMeetingTargetPct = Math.round((daysMeetingTarget / chartData.length) * 100);
+
+    // Current streak (consecutive days at 100%)
+    let currentStreak = 0;
+    for (let i = chartData.length - 1; i >= 0; i--) {
+      if (chartData[i].overallOnTrack === TARGET_PERCENTAGE) {
+        currentStreak++;
+      } else {
+        break;
+      }
+    }
+
+    // Best streak
+    let bestStreak = 0;
+    let tempStreak = 0;
+    chartData.forEach(d => {
+      if (d.overallOnTrack === TARGET_PERCENTAGE) {
+        tempStreak++;
+        bestStreak = Math.max(bestStreak, tempStreak);
+      } else {
+        tempStreak = 0;
+      }
+    });
+
+    // Trend direction (comparing last 3 days vs previous 3 days)
+    let trendDirection = 'stable';
+    let trendChange = 0;
+    if (chartData.length >= 6) {
+      const recent3 = chartData.slice(-3);
+      const previous3 = chartData.slice(-6, -3);
+      const recentAvg = recent3.reduce((sum, d) => sum + d.overallOnTrack, 0) / recent3.length;
+      const previousAvg = previous3.reduce((sum, d) => sum + d.overallOnTrack, 0) / previous3.length;
+      trendChange = Math.round((recentAvg - previousAvg) * 10) / 10;
+      if (trendChange > 2) trendDirection = 'improving';
+      else if (trendChange < -2) trendDirection = 'worsening';
+    } else if (chartData.length >= 2) {
+      const recent = chartData[chartData.length - 1].overallOnTrack;
+      const previous = chartData[chartData.length - 2].overallOnTrack;
+      trendChange = Math.round((recent - previous) * 10) / 10;
+      if (trendChange > 2) trendDirection = 'improving';
+      else if (trendChange < -2) trendDirection = 'worsening';
+    }
+
+    return {
+      daysMeetingTarget,
+      daysMeetingTargetPct,
+      currentStreak,
+      bestStreak,
+      trendDirection,
+      trendChange
+    };
+  }, [chartData]);
+
+  // Trend acceleration metric (is the trend accelerating, decelerating, or stable?)
+  const trendAcceleration = useMemo(() => {
+    if (!chartData.length || chartData.length < 6) return null;
+
+    // Compare rate of change in first half vs second half
+    const firstHalf = chartData.slice(0, Math.ceil(chartData.length / 2));
+    const secondHalf = chartData.slice(Math.ceil(chartData.length / 2));
+
+    // Calculate rate of change for first half
+    const firstHalfStart = firstHalf[0].overallOnTrack;
+    const firstHalfEnd = firstHalf[firstHalf.length - 1].overallOnTrack;
+    const firstHalfChange = firstHalf.length > 1 
+      ? (firstHalfEnd - firstHalfStart) / (firstHalf.length - 1)
+      : 0;
+
+    // Calculate rate of change for second half
+    const secondHalfStart = secondHalf[0].overallOnTrack;
+    const secondHalfEnd = secondHalf[secondHalf.length - 1].overallOnTrack;
+    const secondHalfChange = secondHalf.length > 1
+      ? (secondHalfEnd - secondHalfStart) / (secondHalf.length - 1)
+      : 0;
+
+    const acceleration = Math.round((secondHalfChange - firstHalfChange) * 100) / 100;
+    
+    let status = 'stable';
+    if (acceleration > 0.5) status = 'accelerating';
+    else if (acceleration < -0.5) status = 'decelerating';
+
+    return {
+      acceleration,
+      status,
+      firstHalfRate: Math.round(firstHalfChange * 10) / 10,
+      secondHalfRate: Math.round(secondHalfChange * 10) / 10
+    };
+  }, [chartData]);
+
+  // Period comparison data (current period vs previous period)
+  const periodComparison = useMemo(() => {
+    if (!chartData.length || chartData.length < 4) return null;
+
+    const midPoint = Math.ceil(chartData.length / 2);
+    const currentPeriod = chartData.slice(midPoint);
+    const previousPeriod = chartData.slice(0, midPoint);
+
+    if (previousPeriod.length === 0) return null;
+
+    const currentAvg = currentPeriod.reduce((sum, d) => sum + d.overallOnTrack, 0) / currentPeriod.length;
+    const previousAvg = previousPeriod.reduce((sum, d) => sum + d.overallOnTrack, 0) / previousPeriod.length;
+    const change = Math.round((currentAvg - previousAvg) * 10) / 10;
+    const changePct = previousAvg > 0 ? Math.round((change / previousAvg) * 100 * 10) / 10 : 0;
+
+    return {
+      currentPeriod: {
+        avg: Math.round(currentAvg * 10) / 10,
+        startDate: formatDateForChart(currentPeriod[0].date),
+        endDate: formatDateForChart(currentPeriod[currentPeriod.length - 1].date),
+        days: currentPeriod.length
+      },
+      previousPeriod: {
+        avg: Math.round(previousAvg * 10) / 10,
+        startDate: formatDateForChart(previousPeriod[0].date),
+        endDate: formatDateForChart(previousPeriod[previousPeriod.length - 1].date),
+        days: previousPeriod.length
+      },
+      change,
+      changePct,
+      direction: change > 0 ? 'improving' : change < 0 ? 'worsening' : 'stable'
+    };
+  }, [chartData]);
+
+  // Week-over-week comparison
+  const weekOverWeekComparison = useMemo(() => {
+    if (!chartData.length || chartData.length < 7) return null;
+
+    // Get last 7 days (this week)
+    const thisWeek = chartData.slice(-7);
+    // Get previous 7 days (last week)
+    const lastWeek = chartData.slice(-14, -7);
+
+    if (lastWeek.length === 0) return null;
+
+    const thisWeekAvg = thisWeek.reduce((sum, d) => sum + d.overallOnTrack, 0) / thisWeek.length;
+    const lastWeekAvg = lastWeek.reduce((sum, d) => sum + d.overallOnTrack, 0) / lastWeek.length;
+    const change = Math.round((thisWeekAvg - lastWeekAvg) * 10) / 10;
+    const changePct = lastWeekAvg > 0 ? Math.round((change / lastWeekAvg) * 100 * 10) / 10 : 0;
+
+    return {
+      thisWeek: Math.round(thisWeekAvg * 10) / 10,
+      lastWeek: Math.round(lastWeekAvg * 10) / 10,
+      change,
+      changePct,
+      direction: change > 0 ? 'improving' : change < 0 ? 'worsening' : 'stable',
+      thisWeekDates: {
+        start: formatDateForChart(thisWeek[0].date),
+        end: formatDateForChart(thisWeek[thisWeek.length - 1].date)
+      },
+      lastWeekDates: {
+        start: formatDateForChart(lastWeek[0].date),
+        end: formatDateForChart(lastWeek[lastWeek.length - 1].date)
+      }
+    };
+  }, [chartData]);
+
+  // Distribution histogram data
+  const distributionData = useMemo(() => {
+    if (!chartData.length) return null;
+
+    const bins = [
+      { range: '0-50%', min: 0, max: 50, count: 0 },
+      { range: '50-75%', min: 50, max: 75, count: 0 },
+      { range: '75-90%', min: 75, max: 90, count: 0 },
+      { range: '90-100%', min: 90, max: 100, count: 0 },
+      { range: '100%', min: 100, max: 100, count: 0 }
+    ];
+
+    chartData.forEach(d => {
+      const value = d.overallOnTrack;
+      bins.forEach(bin => {
+        if (value >= bin.min && value <= bin.max) {
+          bin.count++;
+        }
+      });
+    });
+
+    return bins.map(bin => ({
+      range: bin.range,
+      count: bin.count,
+      percentage: Math.round((bin.count / chartData.length) * 100)
+    }));
+  }, [chartData]);
+
+
   // Calculate average on-track per TSE across selected date range
   const tseAverageOnTrack = useMemo(() => {
     if (!snapshots.length) return [];
 
-    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
     const tseStats = {};
     
     snapshots.forEach(snapshot => {
-      let tseData = selectedTSEs.length > 0
-        ? snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)))
-        : snapshot.tseData;
+      // Always use all TSEs (independent of main page filters), but exclude specified TSEs
+      let tseData = snapshot.tseData;
       
       // Filter out excluded TSEs
       tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
@@ -1008,7 +1344,33 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           : 0
       }))
       .sort((a, b) => b.overallOnTrack - a.overallOnTrack); // Sort by overall on-track descending
-  }, [snapshots, selectedTSEs]);
+  }, [snapshots]);
+
+  // Filter TSEs based on selected ranges and regions
+  const filteredTseAverageOnTrack = useMemo(() => {
+    if (selectedRanges.size === 0) return []; // If no ranges selected, show nothing
+    if (selectedHeatmapRegions.size === 0) return []; // If no regions selected, show nothing
+    
+    const rangeMap = {
+      '80-100': (value) => value >= 80 && value <= 100,
+      '60-79': (value) => value >= 60 && value < 80,
+      '40-59': (value) => value >= 40 && value < 60,
+      '20-39': (value) => value >= 20 && value < 40,
+      '0-19': (value) => value >= 0 && value < 20
+    };
+
+    return tseAverageOnTrack.filter(tse => {
+      // Check if TSE is in selected region
+      const tseRegion = getTSERegion(tse.name);
+      if (!selectedHeatmapRegions.has(tseRegion)) return false;
+      
+      // Check if TSE is in selected range
+      return Array.from(selectedRanges).some(range => {
+        const checkRange = rangeMap[range];
+        return checkRange && checkRange(tse.overallOnTrack);
+      });
+    });
+  }, [tseAverageOnTrack, selectedRanges, selectedHeatmapRegions]);
 
   // Prepare table data grouped by date
   const groupedTableData = useMemo(() => {
@@ -1109,8 +1471,21 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       sorted = sorted.sort((a, b) => new Date(b.date) - new Date(a.date));
     }
     
-    return sorted;
-  }, [snapshots, selectedTSEs, onTrackSortConfig]);
+    // Limit to last N days
+    return sorted.slice(0, onTrackDaysToShow);
+  }, [snapshots, selectedTSEs, onTrackSortConfig, onTrackDaysToShow]);
+  
+  // Calculate total available days for On Track data
+  const onTrackTotalDays = useMemo(() => {
+    if (!snapshots || snapshots.length === 0) return 0;
+    const groupedByDate = {};
+    snapshots.forEach(snapshot => {
+      if (!groupedByDate[snapshot.date]) {
+        groupedByDate[snapshot.date] = true;
+      }
+    });
+    return Object.keys(groupedByDate).length;
+  }, [snapshots]);
 
   const toggleDate = (date) => {
     const newExpanded = new Set(expandedDates);
@@ -1216,7 +1591,18 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     }
     
     return responseTimeMetrics
-      .filter(metric => metric.date) // Only include metrics with a date
+      .filter(metric => {
+        // Only include metrics with a date
+        if (!metric.date) return false;
+        
+        // Filter by date range if dates are set
+        if (startDate && endDate) {
+          const metricDate = metric.date;
+          return metricDate >= startDate && metricDate <= endDate;
+        }
+        
+        return true;
+      })
       .map(metric => {
         try {
           // date format: YYYY-MM-DD (e.g., "2025-12-29")
@@ -1232,9 +1618,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
             timestamp: metric.timestamp,
             displayLabel: formatDateForChart(metric.date),
             count5PlusMin: metric.count5PlusMin || 0,
+            count5to10Min: metric.count5to10Min || (metric.count5PlusMin || 0) - (metric.count10PlusMin || 0),
             count10PlusMin: metric.count10PlusMin || 0,
             totalConversations: metric.totalConversations || 0,
             percentage5PlusMin: metric.percentage5PlusMin || 0,
+            percentage5to10Min: metric.percentage5to10Min || 0,
             percentage10PlusMin: metric.percentage10PlusMin || 0,
             conversationIds5PlusMin: metric.conversationIds5PlusMin || [],
             conversationIds10PlusMin: metric.conversationIds10PlusMin || []
@@ -1276,21 +1664,94 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           return 0;
         }
         
-        // Default: sort by timestamp (oldest first)
-        return new Date(a.timestamp) - new Date(b.timestamp);
-      });
-  }, [responseTimeMetrics, responseTimeSortConfig]);
+        // Default: sort by date (newest first)
+        return new Date(b.date) - new Date(a.date);
+      })
+      // Limit to last N days (only if no date range filter is applied)
+      .slice(0, startDate && endDate ? undefined : responseTimeDaysToShow);
+  }, [responseTimeMetrics, responseTimeSortConfig, responseTimeDaysToShow, startDate, endDate]);
+  
+  // Calculate total available days for Response Time data
+  const responseTimeTotalDays = useMemo(() => {
+    if (!responseTimeMetrics || responseTimeMetrics.length === 0) return 0;
+    const uniqueDates = new Set();
+    responseTimeMetrics.forEach(metric => {
+      if (metric.date) uniqueDates.add(metric.date);
+    });
+    return uniqueDates.size;
+  }, [responseTimeMetrics]);
+  
+  // Calculate min/max for heat map colors (per column)
+  const responseTimeHeatMapRanges = useMemo(() => {
+    if (!responseTimeChartData || responseTimeChartData.length === 0) {
+      return {
+        percentage5PlusMin: { min: 0, max: 0 },
+        percentage5to10Min: { min: 0, max: 0 },
+        percentage10PlusMin: { min: 0, max: 0 }
+      };
+    }
+    
+    const percentage5PlusMinValues = responseTimeChartData.map(d => d.percentage5PlusMin || 0);
+    const percentage5to10MinValues = responseTimeChartData.map(d => d.percentage5to10Min || 0);
+    const percentage10PlusMinValues = responseTimeChartData.map(d => d.percentage10PlusMin || 0);
+    
+    return {
+      percentage5PlusMin: {
+        min: Math.min(...percentage5PlusMinValues),
+        max: Math.max(...percentage5PlusMinValues)
+      },
+      percentage5to10Min: {
+        min: Math.min(...percentage5to10MinValues),
+        max: Math.max(...percentage5to10MinValues)
+      },
+      percentage10PlusMin: {
+        min: Math.min(...percentage10PlusMinValues),
+        max: Math.max(...percentage10PlusMinValues)
+      }
+    };
+  }, [responseTimeChartData]);
+  
+  // Function to get heat map color (blue with varying opacity - lowest is transparent, highest is opaque)
+  const getHeatMapColor = (value, min, max) => {
+    // If all values are the same, return medium opacity
+    if (max === min) {
+      return 'rgba(53, 161, 180, 0.4)'; // Medium transparent blue
+    }
+    
+    // Calculate position in range (0 = min, 1 = max)
+    const ratio = (value - min) / (max - min);
+    
+    // Interpolate opacity from 0.4 (readable but light) to 1.0 (fully opaque)
+    // Using blue color: #35a1b4 (RGB: 53, 161, 180)
+    const opacity = 0.4 + (0.6 * ratio); // Range from 0.4 to 1.0
+    
+    return `rgba(53, 161, 180, ${opacity})`;
+  };
+
+  // Calculate date range for response time data
+  const responseTimeDateRange = useMemo(() => {
+    if (!responseTimeChartData || responseTimeChartData.length === 0) return null;
+    
+    const dates = responseTimeChartData.map(d => d.date).sort();
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
+    
+    return {
+      start: formatDateFull(startDate),
+      end: formatDateFull(endDate)
+    };
+  }, [responseTimeChartData]);
 
   // Day-of-week analysis for response time
   const responseTimeDayOfWeek = useMemo(() => {
     if (!responseTimeChartData.length) return null;
     
     const dayStats = {
-      'Monday': { count: 0, percentage: 0, percentage5Plus: 0, totalConversations: 0, slowConversations: 0, slowConversations5Plus: 0 },
-      'Tuesday': { count: 0, percentage: 0, percentage5Plus: 0, totalConversations: 0, slowConversations: 0, slowConversations5Plus: 0 },
-      'Wednesday': { count: 0, percentage: 0, percentage5Plus: 0, totalConversations: 0, slowConversations: 0, slowConversations5Plus: 0 },
-      'Thursday': { count: 0, percentage: 0, percentage5Plus: 0, totalConversations: 0, slowConversations: 0, slowConversations5Plus: 0 },
-      'Friday': { count: 0, percentage: 0, percentage5Plus: 0, totalConversations: 0, slowConversations: 0, slowConversations5Plus: 0 }
+      'Monday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 },
+      'Tuesday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 },
+      'Wednesday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 },
+      'Thursday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 },
+      'Friday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 }
     };
     
     responseTimeChartData.forEach(d => {
@@ -1300,24 +1761,38 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       
       if (dayStats[dayName]) {
         dayStats[dayName].count++;
-        dayStats[dayName].percentage += d.percentage5PlusMin;
         dayStats[dayName].percentage5Plus += d.percentage5PlusMin;
-        dayStats[dayName].totalConversations += d.totalConversations;
-        dayStats[dayName].slowConversations += d.count5PlusMin;
-        dayStats[dayName].slowConversations5Plus += d.count5PlusMin;
+        dayStats[dayName].count5PlusMin += d.count5PlusMin;
+        
+        // Calculate totalWithResponse from percentage and count
+        // percentage5PlusMin = (count5PlusMin / totalWithResponse) * 100
+        // So: totalWithResponse = (count5PlusMin / percentage5PlusMin) * 100
+        if (d.percentage5PlusMin > 0 && d.count5PlusMin > 0) {
+          const totalWithResponse = (d.count5PlusMin / d.percentage5PlusMin) * 100;
+          dayStats[dayName].totalWithResponse += totalWithResponse;
+        } else {
+          // If no 5+ min waits, we can't calculate totalWithResponse from this metric
+          // Use totalConversations as an approximation (though it's not exact)
+          dayStats[dayName].totalWithResponse += d.totalConversations;
+        }
       }
     });
     
-    return Object.entries(dayStats).map(([day, stats]) => ({
-      day: day.substring(0, 3),
-      fullDay: day,
-      avgPercentage: stats.count > 0 ? Math.round((stats.percentage / stats.count) * 100) / 100 : 0,
-      avgPercentage5Plus: stats.count > 0 ? Math.round((stats.percentage5Plus / stats.count) * 100) / 100 : 0,
-      avgTotalConversations: stats.count > 0 ? Math.round(stats.totalConversations / stats.count) : 0,
-      avgSlowConversations: stats.count > 0 ? Math.round(stats.slowConversations / stats.count) : 0,
-      avgSlowConversations5Plus: stats.count > 0 ? Math.round(stats.slowConversations5Plus / stats.count) : 0,
-      count: stats.count
-    })).filter(d => d.count > 0);
+    return Object.entries(dayStats).map(([day, stats]) => {
+      const avgTotalWithResponse = stats.count > 0 ? Math.round((stats.totalWithResponse / stats.count) * 100) / 100 : 0;
+      const avgCount5PlusMin = stats.count > 0 ? Math.round((stats.count5PlusMin / stats.count) * 100) / 100 : 0;
+      const avgPercentage5Plus = stats.count > 0 ? Math.round((stats.percentage5Plus / stats.count) * 100) / 100 : 0;
+      
+      return {
+        day: day.substring(0, 3),
+        fullDay: day,
+        avgTotalWithResponse: avgTotalWithResponse,
+        avgCount5PlusMin: avgCount5PlusMin,
+        avgPercentage5Plus: avgPercentage5Plus,
+        avgOtherResponses: Math.max(0, avgTotalWithResponse - avgCount5PlusMin), // Responses under 5 min
+        count: stats.count
+      };
+    }).filter(d => d.count > 0);
   }, [responseTimeChartData]);
 
   // Best/worst days for response time
@@ -1496,11 +1971,25 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   // Calculate response time summary metrics
   const responseTimeSummary = useMemo(() => {
     if (responseTimeMetrics.length === 0) {
-      return { avgPercentage5Plus: 0, totalCount5Plus: 0, trend: 'no-data', change: 0 };
+      return { avgPercentage5Plus: 0, totalCount5Plus: 0, trend: 'no-data', change: 0, comparisonText: '' };
+    }
+    
+    // Filter metrics by date range if dates are set (same as responseTimeChartData)
+    const filteredMetrics = responseTimeMetrics.filter(metric => {
+      if (!metric.date) return false;
+      if (startDate && endDate) {
+        const metricDate = metric.date;
+        return metricDate >= startDate && metricDate <= endDate;
+      }
+      return true;
+    });
+    
+    if (filteredMetrics.length === 0) {
+      return { avgPercentage5Plus: 0, totalCount5Plus: 0, trend: 'no-data', change: 0, comparisonText: '' };
     }
     
     // Sort metrics by date to ensure chronological order
-    const sortedMetrics = [...responseTimeMetrics].sort((a, b) => {
+    const sortedMetrics = [...filteredMetrics].sort((a, b) => {
       return new Date(a.date) - new Date(b.date);
     });
     
@@ -1515,6 +2004,10 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     // Otherwise, compare last half vs first half
     let previousPeriodAvg = 0;
     let lastPeriodAvg = 0;
+    let previousPeriodStart = null;
+    let previousPeriodEnd = null;
+    let lastPeriodStart = null;
+    let lastPeriodEnd = null;
     
     if (sortedMetrics.length >= 14) {
       // Last 7 days vs previous 7 days
@@ -1527,6 +2020,15 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       lastPeriodAvg = last7Days.length > 0 
         ? last7Days.reduce((sum, m) => sum + (m.percentage5PlusMin || 0), 0) / last7Days.length 
         : 0;
+      
+      if (previous7Days.length > 0) {
+        previousPeriodStart = previous7Days[0].date;
+        previousPeriodEnd = previous7Days[previous7Days.length - 1].date;
+      }
+      if (last7Days.length > 0) {
+        lastPeriodStart = last7Days[0].date;
+        lastPeriodEnd = last7Days[last7Days.length - 1].date;
+      }
     } else if (sortedMetrics.length >= 2) {
       // Fallback: compare last half vs first half
       const midPoint = Math.floor(sortedMetrics.length / 2);
@@ -1539,13 +2041,42 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       lastPeriodAvg = secondHalf.length > 0 
         ? secondHalf.reduce((sum, m) => sum + (m.percentage5PlusMin || 0), 0) / secondHalf.length 
         : 0;
+      
+      if (firstHalf.length > 0) {
+        previousPeriodStart = firstHalf[0].date;
+        previousPeriodEnd = firstHalf[firstHalf.length - 1].date;
+      }
+      if (secondHalf.length > 0) {
+        lastPeriodStart = secondHalf[0].date;
+        lastPeriodEnd = secondHalf[secondHalf.length - 1].date;
+      }
     }
     
     const trend = lastPeriodAvg < previousPeriodAvg ? 'improving' : lastPeriodAvg > previousPeriodAvg ? 'worsening' : 'stable';
     const change = Math.round(previousPeriodAvg - lastPeriodAvg); // Positive change means improvement (reduction)
     
-    return { avgPercentage5Plus, totalCount5Plus, trend, change };
-  }, [responseTimeMetrics]);
+    // Determine comparison period text with actual dates
+    let comparisonText = '';
+    if (lastPeriodStart && lastPeriodEnd && previousPeriodStart && previousPeriodEnd) {
+      const formatDateShort = (dateStr) => {
+        if (!dateStr) return '';
+        const [, month, day] = dateStr.split('-');
+        return `${month}/${day}`;
+      };
+      
+      if (sortedMetrics.length >= 14) {
+        comparisonText = `${formatDateShort(lastPeriodStart)}-${formatDateShort(lastPeriodEnd)} vs ${formatDateShort(previousPeriodStart)}-${formatDateShort(previousPeriodEnd)}`;
+      } else {
+        comparisonText = `${formatDateShort(lastPeriodStart)}-${formatDateShort(lastPeriodEnd)} vs ${formatDateShort(previousPeriodStart)}-${formatDateShort(previousPeriodEnd)}`;
+      }
+    } else if (sortedMetrics.length >= 14) {
+      comparisonText = 'vs previous 7 days';
+    } else if (sortedMetrics.length >= 2) {
+      comparisonText = 'vs earlier period';
+    }
+    
+    return { avgPercentage5Plus, totalCount5Plus, trend, change, comparisonText };
+  }, [responseTimeMetrics, startDate, endDate]);
 
   return (
     <div className="historical-view">
@@ -1659,7 +2190,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     'SF': 'San Francisco',
                     'Other': 'Other'
                   };
-                  const iconUrl = REGION_ICONS[region];
+                  // Use dark mode icon for NY when in dark mode
+                  let iconUrl = REGION_ICONS[region];
+                  if (region === 'NY' && isDarkMode) {
+                    iconUrl = 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg';
+                  }
 
                   const allRegionTSEsSelected = regionTSEs.every(tse => selectedTSEs.includes(String(tse.id)));
                   const anyRegionTSEsSelected = regionTSEs.some(tse => selectedTSEs.includes(String(tse.id)));
@@ -1735,56 +2270,225 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               Automated snapshots are captured nightly after all shifts have completed, providing a comprehensive view of each TSE's queue status at the end of each business day.
             </span>
           </div>
+          <div className="cron-info-banner">
+            <span className="cron-info-text">
+              <span className="cron-info-line">
+                <span className="emoji-spacer">✅</span>
+                <span><strong>"On Track"</strong> means a TSE meets both criteria on a given day: (1) open conversations ≤ 5, and (2) snoozed conversations with "waiting-on-tse" tag ≤ 5.</span>
+              </span>
+              <span className="cron-info-line">
+                <span className="emoji-spacer">📊</span>
+                <span><strong>For an individual TSE over time:</strong> The percentage is calculated as <strong>(number of days the TSE was on track) ÷ (total days in the selected date range)</strong>.</span>
+              </span>
+              <span className="cron-info-line">
+                <span className="emoji-spacer">👥</span>
+                <span><strong>For a group of TSEs over time:</strong> Each day's percentage is calculated as (number of TSEs on track that day) ÷ (total TSEs that day), shown as a daily trend.</span>
+              </span>
+            </span>
+          </div>
           {loading && (
             <div className="loading-state">Loading historical data...</div>
           )}
 
           {!loading && chartData.length > 0 && (
         <>
-          {/* Average On Track Summary */}
+          {/* Actionable Metrics Summary */}
           <div className="historical-summary">
-            <div className="summary-card">
-              <h4>Overall On Track</h4>
-              <div className="summary-value-large">
-                {Math.round(chartData.reduce((sum, d) => sum + d.overallOnTrack, 0) / chartData.length)}%
-              </div>
-            </div>
-            <div className="summary-card">
-              <h4>Open On Track</h4>
-              <div className="summary-value-large">
-                {Math.round(chartData.reduce((sum, d) => sum + d.openOnTrack, 0) / chartData.length)}%
-              </div>
-            </div>
-            <div className="summary-card">
-              <h4>Snoozed On Track</h4>
-              <div className="summary-value-large">
-                {Math.round(chartData.reduce((sum, d) => sum + d.snoozedOnTrack, 0) / chartData.length)}%
-              </div>
-            </div>
+            {actionableMetrics && (
+              <>
+                <div className="summary-card">
+                  <h4>Days Meeting Target</h4>
+                  <div className="summary-value-large">
+                    {actionableMetrics.daysMeetingTarget}
+                  </div>
+                  <div className="summary-subtext">of {chartData.length} days ({actionableMetrics.daysMeetingTargetPct}%)</div>
+                </div>
+                <div className="summary-card">
+                  <h4>Current Streak</h4>
+                  <div className="summary-value-large">
+                    {actionableMetrics.currentStreak}
+                  </div>
+                  <div className="summary-subtext">consecutive days at 100%</div>
+                </div>
+                <div className="summary-card">
+                  <h4>Best Streak</h4>
+                  <div className="summary-value-large">
+                    {actionableMetrics.bestStreak}
+                  </div>
+                  <div className="summary-subtext">consecutive days at 100%</div>
+                </div>
+                <div className="summary-card">
+                  <h4>
+                    Recent Trend
+                    <InfoIcon 
+                      isDarkMode={isDarkMode}
+                      position="left"
+                      content={
+                        <div style={{ textAlign: 'left' }}>
+                          <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Recent Trend</div>
+                          <div style={{ marginBottom: '6px' }}>
+                            <strong>Calculation:</strong> Compares the average on-track percentage of the last 3 days against the previous 3 days (or last 2 days if fewer than 6 days of data).
+                          </div>
+                          <div style={{ marginBottom: '6px' }}>
+                            <strong>Direction:</strong>
+                            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                              <li><strong>↑ Improving:</strong> Recent average is 2%+ higher than previous</li>
+                              <li><strong>↓ Declining:</strong> Recent average is 2%+ lower than previous</li>
+                              <li><strong>→ Stable:</strong> Change is within ±2%</li>
+                            </ul>
+                          </div>
+                          <div>
+                            This metric helps identify short-term performance trends and whether the team is improving or declining in recent days.
+                          </div>
+                        </div>
+                      }
+                    />
+                  </h4>
+                  <div className={`summary-value-large trend-indicator ${actionableMetrics.trendDirection}`}>
+                    {actionableMetrics.trendDirection === 'improving' && '↑'}
+                    {actionableMetrics.trendDirection === 'worsening' && '↓'}
+                    {actionableMetrics.trendDirection === 'stable' && '→'}
+                    {Math.abs(actionableMetrics.trendChange)}%
+                  </div>
+                  <div className="summary-subtext">
+                    {actionableMetrics.trendDirection === 'improving' ? 'Improving' : actionableMetrics.trendDirection === 'worsening' ? 'Declining' : 'Stable'}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="chart-container">
-            <h3 className="chart-title">Team Daily On Track Percentage Trends</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <h3 className="chart-title" style={{ margin: 0 }}>
+                Team Daily On Track Percentage Trends
+                <InfoIcon 
+                  isDarkMode={isDarkMode}
+                  content={
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Team Daily On Track Trends</div>
+                      <div style={{ marginBottom: '6px' }}>
+                        <strong>Chart Elements:</strong>
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li><strong>Solid lines:</strong> Daily on-track percentages</li>
+                          <li><strong>Dashed lines:</strong> 3-day moving averages (smoothed trend)</li>
+                          <li><strong>Gray dashed line:</strong> Target reference at 80%</li>
+                        </ul>
+                      </div>
+                      <div style={{ marginBottom: '6px' }}>
+                        <strong>Period Comparison:</strong> Click "Show Period Comparison" to see a side-by-side comparison of the first half vs. second half of your selected date range. This helps identify if performance is improving or declining over time.
+                      </div>
+                      <div>
+                        <strong>How to read:</strong> Values above the 80% target line indicate good performance. The moving average lines help smooth out daily fluctuations to show the underlying trend.
+                      </div>
+                    </div>
+                  }
+                />
+              </h3>
+              <button
+                onClick={() => setShowPeriodComparison(!showPeriodComparison)}
+                style={{
+                  background: showPeriodComparison ? '#35a1b4' : 'transparent',
+                  color: showPeriodComparison ? 'white' : (isDarkMode ? '#ffffff' : '#292929'),
+                  border: `1px solid #35a1b4`,
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                {showPeriodComparison ? 'Hide' : 'Show'} Period Comparison
+              </button>
+            </div>
+            {showPeriodComparison && periodComparison && (
+              <div style={{ 
+                marginBottom: '16px', 
+                padding: '12px', 
+                background: isDarkMode ? '#2a2a2a' : '#f8f9fa', 
+                borderRadius: '6px',
+                border: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}`
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Previous Period</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: isDarkMode ? '#ffffff' : '#292929' }}>
+                      {periodComparison.previousPeriod.avg}%
+                    </div>
+                    <div style={{ fontSize: '10px', color: isDarkMode ? '#999' : '#666', marginTop: '2px' }}>
+                      {periodComparison.previousPeriod.startDate} - {periodComparison.previousPeriod.endDate}
+                    </div>
+                    <div style={{ fontSize: '10px', color: isDarkMode ? '#999' : '#666' }}>
+                      ({periodComparison.previousPeriod.days} days)
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '24px', color: '#35a1b4' }}>→</div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Current Period</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: isDarkMode ? '#ffffff' : '#292929' }}>
+                      {periodComparison.currentPeriod.avg}%
+                    </div>
+                    <div style={{ fontSize: '10px', color: isDarkMode ? '#999' : '#666', marginTop: '2px' }}>
+                      {periodComparison.currentPeriod.startDate} - {periodComparison.currentPeriod.endDate}
+                    </div>
+                    <div style={{ fontSize: '10px', color: isDarkMode ? '#999' : '#666' }}>
+                      ({periodComparison.currentPeriod.days} days)
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center', marginLeft: '16px' }}>
+                    <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Change</div>
+                    <div className={`trend-indicator ${periodComparison.direction}`} style={{ fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>
+                      {periodComparison.direction === 'improving' && '↑'}
+                      {periodComparison.direction === 'worsening' && '↓'}
+                      {periodComparison.direction === 'stable' && '→'}
+                      {periodComparison.change > 0 ? '+' : ''}{periodComparison.change}%
+                    </div>
+                    <div style={{ fontSize: '10px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
+                      ({periodComparison.changePct > 0 ? '+' : ''}{periodComparison.changePct}%)
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={chartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+              <LineChart data={chartDataWithMovingAvg} margin={{ top: 70, right: 80, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                 <XAxis 
                   dataKey="date" 
-                  stroke="#292929"
-                  tick={{ fill: '#292929', fontSize: 12 }}
+                  stroke={isDarkMode ? '#ffffff' : '#292929'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                   tickFormatter={formatDateForChart}
                 />
                 <YAxis 
-                  stroke="#292929"
-                  tick={{ fill: '#292929', fontSize: 12 }}
+                  stroke={isDarkMode ? '#ffffff' : '#292929'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                   domain={[0, 100]}
-                  label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                  label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                 />
                 <Tooltip 
-                  contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+                  contentStyle={{ 
+                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                    borderRadius: '4px',
+                    color: isDarkMode ? '#e5e5e5' : '#292929'
+                  }}
                   labelFormatter={formatDateForTooltip}
+                  formatter={(value, name) => {
+                    if (name.includes('Moving Avg')) return [`${value.toFixed(1)}%`, name];
+                    return [`${value}%`, name];
+                  }}
                 />
-                <Legend />
+                <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
+                {/* Target Reference Line */}
+                <ReferenceLine 
+                  y={80} 
+                  stroke="#999" 
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  label={{ value: "Target (80%)", position: "top", fill: isDarkMode ? '#999' : '#666', fontSize: 11, offset: 10 }}
+                />
+                {/* Overall On Track Line */}
                 <Line 
                   type="monotone" 
                   dataKey="overallOnTrack" 
@@ -1792,8 +2496,19 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   strokeWidth={3}
                   dot={{ fill: '#4cec8c', r: 4 }}
                   name="Overall On Track"
-                  label={createHolidayLabel(chartData, false, 'overallOnTrack')}
+                  label={createHolidayLabel(chartDataWithMovingAvg, false, 'overallOnTrack')}
                 />
+                {/* Overall Moving Average */}
+                <Line 
+                  type="monotone" 
+                  dataKey="movingAvgOverall" 
+                  stroke="#4cec8c" 
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="Overall 3-Day Avg"
+                />
+                {/* Open On Track Line */}
                 <Line 
                   type="monotone" 
                   dataKey="openOnTrack" 
@@ -1802,6 +2517,17 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   dot={{ fill: '#35a1b4', r: 3 }}
                   name="Open On Track"
                 />
+                {/* Open Moving Average */}
+                <Line 
+                  type="monotone" 
+                  dataKey="movingAvgOpen" 
+                  stroke="#35a1b4" 
+                  strokeWidth={1.5}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="Open 3-Day Avg"
+                />
+                {/* Snoozed On Track Line */}
                 <Line 
                   type="monotone" 
                   dataKey="snoozedOnTrack" 
@@ -1809,6 +2535,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   strokeWidth={2}
                   dot={{ fill: '#ff9a74', r: 3 }}
                   name="Snoozed On Track"
+                />
+                {/* Snoozed Moving Average */}
+                <Line 
+                  type="monotone" 
+                  dataKey="movingAvgSnoozed" 
+                  stroke="#ff9a74" 
+                  strokeWidth={1.5}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="Snoozed 3-Day Avg"
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -1820,7 +2556,42 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
             {trendAnalysis && bestWorstDays && (
               <div className="insights-row">
                 <div className="summary-card trend-card">
-                  <h4>Trend Analysis</h4>
+                  <h4>
+                    Trend Analysis
+                    <InfoIcon 
+                      isDarkMode={isDarkMode}
+                      content={
+                        <div style={{ textAlign: 'left' }}>
+                          <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Trend Analysis</div>
+                          <div style={{ marginBottom: '6px' }}>
+                            <strong>First Half vs Second Half:</strong> Compares the average on-track percentage of the first half of your selected date range against the second half.
+                          </div>
+                          <div style={{ marginBottom: '6px' }}>
+                            <strong>Trend Direction:</strong>
+                            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                              <li><strong>↑ Improving:</strong> Second half average is 2%+ higher</li>
+                              <li><strong>↓ Worsening:</strong> Second half average is 2%+ lower</li>
+                              <li><strong>→ Stable:</strong> Change is within ±2%</li>
+                            </ul>
+                          </div>
+                          <div style={{ marginBottom: '6px' }}>
+                            <strong>Volatility:</strong> Measures how much the daily on-track percentages vary from the average. Calculated as standard deviation.
+                            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                              <li><strong>Stable:</strong> ±0-5% variation (consistent performance)</li>
+                              <li><strong>Moderate:</strong> ±5-10% variation (some fluctuation)</li>
+                              <li><strong>Volatile:</strong> ±10%+ variation (high fluctuation)</li>
+                            </ul>
+                          </div>
+                          <div style={{ marginBottom: '6px' }}>
+                            <strong>Acceleration:</strong> Shows if the trend is speeding up or slowing down by comparing the rate of change per day in the first half vs. second half.
+                          </div>
+                          <div>
+                            Lower volatility indicates more consistent performance, while acceleration helps identify if improvements or declines are happening faster over time.
+                          </div>
+                        </div>
+                      }
+                    />
+                  </h4>
                   <div className="trend-content">
                     <div className="trend-comparison">
                       <div className="trend-period">
@@ -1843,6 +2614,17 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                       <span className="volatility-label">Volatility</span>
                       <span className="volatility-value">±{trendAnalysis.volatility}%</span>
                     </div>
+                    {trendAcceleration && (
+                      <div className="volatility-metric">
+                        <span className="volatility-label">Acceleration</span>
+                        <span className={`volatility-value ${trendAcceleration.status === 'accelerating' ? 'trend-indicator improving' : trendAcceleration.status === 'decelerating' ? 'trend-indicator worsening' : ''}`}>
+                          {trendAcceleration.status === 'accelerating' && '↑'}
+                          {trendAcceleration.status === 'decelerating' && '↓'}
+                          {trendAcceleration.status === 'stable' && '→'}
+                          {trendAcceleration.acceleration > 0 ? '+' : ''}{trendAcceleration.acceleration}% per day
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="summary-card best-worst-card">
@@ -1868,6 +2650,40 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               </div>
             )}
 
+            {/* Week-over-Week Comparison */}
+            {weekOverWeekComparison && (
+              <div className="insights-row">
+                <div className="summary-card trend-card">
+                  <h4>Week-over-Week Comparison</h4>
+                  <div className="trend-content">
+                    <div className="trend-comparison">
+                      <div className="trend-period">
+                        <span className="trend-label">Last Week</span>
+                        <span className="trend-value">{weekOverWeekComparison.lastWeek}%</span>
+                        <div style={{ fontSize: '10px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
+                          {weekOverWeekComparison.lastWeekDates.start} - {weekOverWeekComparison.lastWeekDates.end}
+                        </div>
+                      </div>
+                      <div className="trend-arrow">→</div>
+                      <div className="trend-period">
+                        <span className="trend-label">This Week</span>
+                        <span className="trend-value">{weekOverWeekComparison.thisWeek}%</span>
+                        <div style={{ fontSize: '10px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
+                          {weekOverWeekComparison.thisWeekDates.start} - {weekOverWeekComparison.thisWeekDates.end}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={`trend-indicator ${weekOverWeekComparison.direction}`}>
+                      {weekOverWeekComparison.direction === 'improving' && '↑'}
+                      {weekOverWeekComparison.direction === 'worsening' && '↓'}
+                      {weekOverWeekComparison.direction === 'stable' && '→'}
+                      {Math.abs(weekOverWeekComparison.change)}% ({weekOverWeekComparison.changePct > 0 ? '+' : ''}{weekOverWeekComparison.changePct}%)
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Day-of-Week Analysis */}
             {dayOfWeekAnalysis && dayOfWeekAnalysis.length > 0 && (
               <div className="chart-container">
@@ -1875,23 +2691,35 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 <p className="chart-subtitle">Average on-track by weekday</p>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={dayOfWeekAnalysis} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                     <XAxis 
                       dataKey="day" 
-                      stroke="#292929"
-                      tick={{ fill: '#292929', fontSize: 12 }}
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                     />
                     <YAxis 
-                      stroke="#292929"
-                      tick={{ fill: '#292929', fontSize: 12 }}
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                       domain={[0, 100]}
-                      label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                      label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                     />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
-                      formatter={(value) => [`${value}%`, '']}
+                      contentStyle={{ 
+                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                    borderRadius: '4px',
+                    color: isDarkMode ? '#e5e5e5' : '#292929'
+                  }}
+                      formatter={(value, name) => {
+                        const labelMap = {
+                          'overallOnTrack': 'Overall On Track',
+                          'openOnTrack': 'Open On Track',
+                          'snoozedOnTrack': 'Snoozed On Track'
+                        };
+                        return [`${value}%`, labelMap[name] || name];
+                      }}
                     />
-                    <Legend />
+                    <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                     <Bar dataKey="overallOnTrack" fill="#4cec8c" name="Overall On Track" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="openOnTrack" fill="#35a1b4" name="Open On Track" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="snoozedOnTrack" fill="#ff9a74" name="Snoozed On Track" radius={[4, 4, 0, 0]} />
@@ -1907,22 +2735,44 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 <p className="chart-subtitle">Average on-track by region</p>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={regionComparison} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                     <XAxis 
                       dataKey="region" 
-                      stroke="#292929"
-                      tick={{ fill: '#292929', fontSize: 12 }}
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                     />
                     <YAxis 
-                      stroke="#292929"
-                      tick={{ fill: '#292929', fontSize: 12 }}
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                       domain={[0, 100]}
-                      label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                      label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                     />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
-                      formatter={(value) => [`${value}%`, '']}
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const region = payload[0].payload?.region || '';
+                          const value = payload[0].value || 0;
+                          return (
+                            <div style={{ 
+                              backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                              border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                              borderRadius: '4px',
+                              padding: '8px 12px',
+                              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            }}>
+                              <div style={{ fontSize: '13px', fontWeight: 600, color: isDarkMode ? '#ffffff' : '#292929', marginBottom: '4px' }}>
+                                {region}
+                              </div>
+                              <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929' }}>
+                                {value}%
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
                     />
+                    <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                     <Bar dataKey="average" radius={[4, 4, 0, 0]}>
                       {regionComparison.map((entry, index) => {
                         const regionColors = {
@@ -1939,82 +2789,211 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
             )}
           </div>
 
+            {/* Distribution Histogram */}
+            {distributionData && distributionData.length > 0 && (
+              <div className="chart-container">
+                <h3 className="chart-title">On Track Distribution</h3>
+                <p className="chart-subtitle">Number of days in each percentage range</p>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={distributionData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+                    <XAxis 
+                      dataKey="range" 
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                    />
+                    <YAxis 
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      label={{ value: 'Number of Days', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                        border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                        borderRadius: '4px',
+                        color: isDarkMode ? '#e5e5e5' : '#292929'
+                      }}
+                      itemStyle={{ color: isDarkMode ? '#e5e5e5' : '#292929' }}
+                      labelStyle={{ color: isDarkMode ? '#ffffff' : '#292929', fontWeight: 600 }}
+                      formatter={(value, name) => {
+                        if (name === 'count') {
+                          return [value, 'Days'];
+                        }
+                        return [value, name];
+                      }}
+                      labelFormatter={(label) => `Range: ${label}`}
+                    />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      {distributionData.map((entry, index) => {
+                        const colors = {
+                          '0-50%': '#fd8789',
+                          '50-75%': '#ff9a74',
+                          '75-90%': '#35a1b4',
+                          '90-100%': '#4cec8c',
+                          '100%': '#4cec8c'
+                        };
+                        return <Cell key={`cell-${index}`} fill={colors[entry.range] || '#35a1b4'} />;
+                      })}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
           {/* TSE Average On Track Chart */}
           {tseAverageOnTrack.length > 0 && (
             <div className="chart-container">
               <h3 className="chart-title">TSE Average On Track</h3>
               <p className="chart-subtitle">Average on-track percentage over selected date range</p>
-              <ResponsiveContainer width="100%" height={Math.min(800, Math.max(400, tseAverageOnTrack.length * 35))}>
-                <BarChart 
-                  data={tseAverageOnTrack} 
-                  margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
-                  layout="vertical"
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                  <XAxis 
-                    type="number"
-                    domain={[0, 100]}
-                    stroke="#292929"
-                    tick={{ fill: '#292929', fontSize: 11 }}
-                    label={{ value: 'On Track %', position: 'insideBottom', offset: -5, fill: '#292929' }}
-                  />
-                  <YAxis 
-                    type="category"
-                    dataKey="name"
-                    stroke="#292929"
-                    tick={{ fill: '#292929', fontSize: 11 }}
-                    width={150}
-                  />
-                  <Tooltip 
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        const tseName = payload[0].payload?.name || '';
-                        return (
-                          <div style={{ 
-                            backgroundColor: 'white', 
-                            border: '1px solid #35a1b4', 
-                            borderRadius: '4px',
-                            padding: '8px 12px',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                          }}>
-                            <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px', color: '#292929' }}>
-                              {tseName}
-                            </div>
-                            {payload.map((entry, index) => (
-                              <div key={index} style={{ color: entry.color, marginBottom: '4px', fontSize: '12px' }}>
-                                {entry.name}: {entry.value}%
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  <Legend 
-                    wrapperStyle={{ paddingTop: '10px' }}
-                    iconType="rect"
-                  />
-                  <Bar 
-                    dataKey="overallOnTrack" 
-                    fill="#4cec8c" 
-                    name="Overall On Track"
-                    radius={[0, 4, 4, 0]}
-                  />
-                  <Bar 
-                    dataKey="openOnTrack" 
-                    fill="#35a1b4" 
-                    name="Open On Track"
-                    radius={[0, 4, 4, 0]}
-                  />
-                  <Bar 
-                    dataKey="snoozedOnTrack" 
-                    fill="#ff9a74" 
-                    name="Snoozed On Track"
-                    radius={[0, 4, 4, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="tse-heatmap-container">
+                <div className="heatmap-legend">
+                  <div className="legend-controls">
+                    <button
+                      className="legend-control-button"
+                      onClick={() => setSelectedRanges(new Set(['80-100', '60-79', '40-59', '20-39', '0-19']))}
+                    >
+                      Select All
+                    </button>
+                    <button
+                      className="legend-control-button"
+                      onClick={() => setSelectedRanges(new Set())}
+                    >
+                      Unselect All
+                    </button>
+                  </div>
+                  {[
+                    { range: '80-100', color: '#4cec8c', label: '80-100%' },
+                    { range: '60-79', color: '#9dd866', label: '60-79%' },
+                    { range: '40-59', color: '#ffd93d', label: '40-59%' },
+                    { range: '20-39', color: '#ff9a74', label: '20-39%' },
+                    { range: '0-19', color: '#ff6b6b', label: '0-19%' }
+                  ].map(({ range, color, label }) => {
+                    const isSelected = selectedRanges.has(range);
+                    return (
+                      <div 
+                        key={range}
+                        className={`legend-item ${isSelected ? 'legend-item-selected' : ''}`}
+                        onClick={() => {
+                          const newRanges = new Set(selectedRanges);
+                          if (isSelected) {
+                            newRanges.delete(range);
+                          } else {
+                            newRanges.add(range);
+                          }
+                          setSelectedRanges(newRanges);
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            const newRanges = new Set(selectedRanges);
+                            if (e.target.checked) {
+                              newRanges.add(range);
+                            } else {
+                              newRanges.delete(range);
+                            }
+                            setSelectedRanges(newRanges);
+                          }}
+                          onClick={(e) => e.stopPropagation()} // Prevent parent onClick
+                          className="legend-checkbox"
+                        />
+                        <div className="legend-color" style={{ backgroundColor: color }}></div>
+                        <span>{label}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="legend-separator"></div>
+                  {['UK', 'NY', 'SF', 'Other'].map(region => {
+                    const isSelected = selectedHeatmapRegions.has(region);
+                    const regionLabels = {
+                      'UK': 'UK',
+                      'NY': 'New York',
+                      'SF': 'San Francisco',
+                      'Other': 'Other'
+                    };
+                    // Use dark mode icon for NY when in dark mode
+                    let iconUrl = REGION_ICONS[region];
+                    if (region === 'NY' && isDarkMode) {
+                      iconUrl = 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg';
+                    }
+                    
+                    return (
+                      <div 
+                        key={region}
+                        className={`legend-item ${isSelected ? 'legend-item-selected' : ''}`}
+                        onClick={() => {
+                          const newRegions = new Set(selectedHeatmapRegions);
+                          if (isSelected) {
+                            newRegions.delete(region);
+                          } else {
+                            newRegions.add(region);
+                          }
+                          setSelectedHeatmapRegions(newRegions);
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            const newRegions = new Set(selectedHeatmapRegions);
+                            if (e.target.checked) {
+                              newRegions.add(region);
+                            } else {
+                              newRegions.delete(region);
+                            }
+                            setSelectedHeatmapRegions(newRegions);
+                          }}
+                          onClick={(e) => e.stopPropagation()} // Prevent parent onClick
+                          className="legend-checkbox"
+                        />
+                        {iconUrl && (
+                          <img 
+                            src={iconUrl} 
+                            alt={region} 
+                            className="legend-region-icon"
+                          />
+                        )}
+                        <span>{regionLabels[region]}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="tse-heatmap-grid">
+                  {filteredTseAverageOnTrack.map((tse, index) => {
+                    const getColor = (value) => {
+                      if (value >= 80) return '#4cec8c'; // Green for 80%+
+                      if (value >= 60) return '#9dd866'; // Light green for 60-79%
+                      if (value >= 40) return '#ffd93d'; // Yellow for 40-59%
+                      if (value >= 20) return '#ff9a74'; // Orange for 20-39%
+                      return '#ff6b6b'; // Red for <20%
+                    };
+                    
+                    const getTextColor = (value) => {
+                      return value >= 40 ? '#292929' : '#ffffff';
+                    };
+
+                    return (
+                      <div key={tse.name} className="tse-heatmap-item">
+                        <div 
+                          className="heatmap-cell"
+                          style={{ 
+                            backgroundColor: getColor(tse.overallOnTrack),
+                            color: getTextColor(tse.overallOnTrack)
+                          }}
+                          title={`${tse.name}: Overall On Track ${tse.overallOnTrack}%`}
+                        >
+                          <div className="heatmap-tse-name">{tse.name}</div>
+                          <div className="heatmap-percentage">{tse.overallOnTrack}%</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
@@ -2242,6 +3221,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   })}
                 </tbody>
               </table>
+              {groupedTableData.length < onTrackTotalDays && (
+                <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                  <button 
+                    className="load-more-button"
+                    onClick={() => setOnTrackDaysToShow(prev => prev + 7)}
+                  >
+                    Load More ({onTrackTotalDays - groupedTableData.length} more days)
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </>
@@ -2280,13 +3269,21 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     <span style={{ fontSize: '14px', color: '#666' }}>5+ min</span>
                   </div>
                   {responseTimeSummary.trend !== 'no-data' && (
-                    <div className={`trend-indicator ${responseTimeSummary.trend}`}>
-                      {responseTimeSummary.trend === 'improving' && '↓'}
-                      {responseTimeSummary.trend === 'worsening' && '↑'}
-                      {responseTimeSummary.trend === 'stable' && '→'}
-                      {' '}
-                      {Math.abs(responseTimeSummary.change)}% {responseTimeSummary.trend === 'improving' ? 'improvement' : responseTimeSummary.trend === 'worsening' ? 'increase' : 'no change'}
-                    </div>
+                    <>
+                      <div className={`trend-indicator ${responseTimeSummary.trend}`}>
+                        Trending:{' '}
+                        {responseTimeSummary.trend === 'improving' && '↓'}
+                        {responseTimeSummary.trend === 'worsening' && '↑'}
+                        {responseTimeSummary.trend === 'stable' && '→'}
+                        {' '}
+                        {Math.abs(responseTimeSummary.change)}% {responseTimeSummary.trend === 'improving' ? 'improvement' : responseTimeSummary.trend === 'worsening' ? 'increase' : 'no change'}
+                      </div>
+                      {responseTimeSummary.comparisonText && (
+                        <div style={{ fontSize: '11px', color: isDarkMode ? '#b0b0b0' : '#666', marginTop: '4px', fontStyle: 'italic' }}>
+                          {responseTimeSummary.comparisonText}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 <div className="summary-card">
@@ -2312,25 +3309,30 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 <h3 className="chart-title">Percentage of Conversations with Wait Time</h3>
                 <ResponsiveContainer width="100%" height={400}>
                   <LineChart data={responseTimeChartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                     <XAxis 
                       dataKey="displayLabel" 
-                      stroke="#292929"
-                      tick={{ fill: '#292929', fontSize: 11 }}
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 11 }}
                       angle={-45}
                       textAnchor="end"
                       height={80}
                     />
                     <YAxis 
-                      stroke="#292929"
-                      tick={{ fill: '#292929', fontSize: 12 }}
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                       domain={[0, 100]}
-                      label={{ value: 'Percentage %', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                      label={{ value: 'Percentage %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                     />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+                      contentStyle={{ 
+                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                    borderRadius: '4px',
+                    color: isDarkMode ? '#e5e5e5' : '#292929'
+                  }}
                     />
-                    <Legend />
+                    <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                     <Line 
                       type="monotone" 
                       dataKey="percentage5PlusMin" 
@@ -2349,24 +3351,29 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 <h3 className="chart-title">Count of Conversations with Wait Time</h3>
                 <ResponsiveContainer width="100%" height={400}>
                   <BarChart data={responseTimeChartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                     <XAxis 
                       dataKey="displayLabel" 
-                      stroke="#292929"
-                      tick={{ fill: '#292929', fontSize: 11 }}
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 11 }}
                       angle={-45}
                       textAnchor="end"
                       height={80}
                     />
                     <YAxis 
-                      stroke="#292929"
-                      tick={{ fill: '#292929', fontSize: 12 }}
-                      label={{ value: 'Count', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      label={{ value: 'Count', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                     />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+                      contentStyle={{ 
+                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                    borderRadius: '4px',
+                    color: isDarkMode ? '#e5e5e5' : '#292929'
+                  }}
                     />
-                    <Legend />
+                    <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                     <Bar 
                       dataKey="count5PlusMin" 
                       fill="#fbbf24"
@@ -2477,39 +3484,103 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 {responseTimeDayOfWeek && responseTimeDayOfWeek.length > 0 && (
                   <div className="chart-container">
                     <h3 className="chart-title">Day-of-Week Response Time Patterns</h3>
-                    <p className="chart-subtitle">Wait Times: Average Count and Percentage of Total Chats by day of week</p>
+                    <p className="chart-subtitle">Average total conversations with response and 5+ minute wait times by day of week</p>
                     <ResponsiveContainer width="100%" height={300}>
                       <BarChart data={responseTimeDayOfWeek} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                         <XAxis 
                           dataKey="day" 
-                          stroke="#292929"
-                          tick={{ fill: '#292929', fontSize: 12 }}
+                          stroke={isDarkMode ? '#ffffff' : '#292929'}
+                          tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                         />
                         <YAxis 
-                          yAxisId="left"
-                          stroke="#292929"
-                          tick={{ fill: '#292929', fontSize: 12 }}
-                          label={{ value: 'Percentage %', angle: -90, position: 'insideLeft', fill: '#292929' }}
-                        />
-                        <YAxis 
-                          yAxisId="right"
-                          orientation="right"
-                          stroke="#292929"
-                          tick={{ fill: '#292929', fontSize: 12 }}
-                          label={{ value: 'Count', angle: 90, position: 'insideRight', fill: '#292929' }}
+                          stroke={isDarkMode ? '#ffffff' : '#292929'}
+                          tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                          label={{ value: 'Count', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                         />
                         <Tooltip 
-                          contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
-                          formatter={(value, name) => {
-                            if (name === 'Avg Percentage 5+ Min') return [`${value}%`, name];
-                            if (name === 'Avg Count 5+ Min') return [value, name];
-                            return [value, name];
+                          contentStyle={{ 
+                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                    borderRadius: '4px',
+                    color: isDarkMode ? '#e5e5e5' : '#292929'
+                  }}
+                          formatter={(value, name, props) => {
+                            // Don't show individual bar values, show custom tooltip on hover
+                            return null;
+                          }}
+                          labelFormatter={(label) => {
+                            const data = responseTimeDayOfWeek.find(d => d.day === label);
+                            if (data) {
+                              return (
+                                <div style={{ padding: '4px 0' }}>
+                                  <strong>{data.fullDay}</strong>
+                                </div>
+                              );
+                            }
+                            return label;
+                          }}
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length > 0) {
+                              const data = responseTimeDayOfWeek.find(d => d.day === label);
+                              if (data) {
+                                return (
+                                  <div style={{ 
+                                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white',
+                                    color: isDarkMode ? '#e5e5e5' : '#292929',
+                                    border: '1px solid #35a1b4', 
+                                    borderRadius: '4px',
+                                    padding: '10px'
+                                  }}>
+                                    <div style={{ 
+                                      textAlign: 'center', 
+                                      marginBottom: '8px',
+                                      fontWeight: 'bold',
+                                      fontSize: '14px',
+                                      borderBottom: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+                                      paddingBottom: '6px',
+                                      color: isDarkMode ? '#ffffff' : '#292929'
+                                    }}>
+                                      Averages for {data.fullDay}
+                                    </div>
+                                    {responseTimeDateRange && (
+                                      <div style={{ 
+                                        textAlign: 'center', 
+                                        marginBottom: '8px',
+                                        fontSize: '11px',
+                                        color: isDarkMode ? '#b0b0b0' : '#666',
+                                        fontStyle: 'italic'
+                                      }}>
+                                        {responseTimeDateRange.start} - {responseTimeDateRange.end}
+                                      </div>
+                                    )}
+                                    <div style={{ marginBottom: '6px', color: isDarkMode ? '#ffffff' : '#292929' }}>
+                                      <strong>Total Chats:</strong> {data.avgTotalWithResponse.toFixed(1)}
+                                    </div>
+                                    <div style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>
+                                      <strong>Chats that waited 5+ Min:</strong> {data.avgCount5PlusMin.toFixed(1)}
+                                      {data.avgPercentage5Plus > 0 && (
+                                        <span 
+                                          className="percentage-badge" 
+                                          style={{ 
+                                            marginLeft: '8px',
+                                            backgroundColor: '#fd8789',
+                                            color: 'white'
+                                          }}
+                                        >
+                                          {data.avgPercentage5Plus.toFixed(1)}%
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                            }
+                            return null;
                           }}
                         />
-                        <Legend />
-                        <Bar yAxisId="left" dataKey="avgPercentage5Plus" fill="#fbbf24" name="Avg Percentage 5+ Min" radius={[4, 4, 0, 0]} />
-                        <Bar yAxisId="right" dataKey="avgSlowConversations5Plus" fill="#f59e0b" name="Avg Count 5+ Min" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="avgCount5PlusMin" stackId="responses" fill="#fd8789" name="Avg Count 5+ Min" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="avgOtherResponses" stackId="responses" fill="#e0e0e0" name="Responses < 5 Min" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -2526,29 +3597,48 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     </p>
                     <ResponsiveContainer width="100%" height={400}>
                       <ScatterChart data={volumePerformanceData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                         <XAxis 
                           type="number"
                           dataKey="totalConversations"
                           name="Total Conversations"
-                          stroke="#292929"
-                          tick={{ fill: '#292929', fontSize: 12 }}
-                          label={{ value: 'Total Conversations', position: 'insideBottom', offset: -5, fill: '#292929' }}
+                          stroke={isDarkMode ? '#ffffff' : '#292929'}
+                          tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                          label={{ value: 'Total Conversations', position: 'insideBottom', offset: -5, fill: isDarkMode ? '#ffffff' : '#292929' }}
                         />
                         <YAxis 
                           type="number"
                           dataKey="percentage"
                           name="Percentage 5+ Min"
-                          stroke="#292929"
-                          tick={{ fill: '#292929', fontSize: 12 }}
-                          label={{ value: 'Percentage 5+ Min', angle: -90, position: 'insideLeft', fill: '#292929' }}
+                          stroke={isDarkMode ? '#ffffff' : '#292929'}
+                          tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                          label={{ value: 'Percentage 5+ Min', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                         />
                         <Tooltip 
                           cursor={{ strokeDasharray: '3 3' }}
-                          contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
-                          formatter={(value, name) => {
-                            if (name === 'percentage') return [`${value}%`, 'Percentage'];
-                            return [value, name];
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              const totalConversations = data?.totalConversations || 0;
+                              const percentage = data?.percentage || 0;
+                              return (
+                                <div style={{ 
+                                  backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                                  border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                                  borderRadius: '4px',
+                                  padding: '8px 12px',
+                                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                }}>
+                                  <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929', marginBottom: '4px' }}>
+                                    <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>Total Conversations:</strong> {totalConversations}
+                                  </div>
+                                  <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929' }}>
+                                    <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>Percentage:</strong> {percentage}%
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
                           }}
                         />
                         <Scatter name="Data Points" data={volumePerformanceData} fill="#35a1b4">
@@ -2609,17 +3699,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                             </span>
                           )}
                         </th>
-                        <th 
-                          className="sortable-header" 
-                          onClick={() => handleResponseTimeSort('percentage5Plus')}
-                        >
-                          5+ Min %
-                          {responseTimeSortConfig.key === 'percentage5Plus' && (
-                            <span className="sort-indicator">
-                              {responseTimeSortConfig.direction === 'asc' ? ' ↑' : ' ↓'}
-                            </span>
-                          )}
-                        </th>
+                        <th>5-10 Min Waits</th>
+                        <th>10+ Min Waits</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2640,46 +3721,173 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                                 <strong>{formatDateUTC(row.date)}</strong>
                               </td>
                               <td>{row.totalConversations}</td>
-                              <td>{row.count5PlusMin}</td>
                               <td>
-                                <span className={row.percentage5PlusMin > 0 ? "percentage-badge high" : "percentage-badge good"}>
-                                  {row.percentage5PlusMin.toFixed(1)}%
-                                </span>
+                                {row.count5PlusMin}
+                                {row.percentage5PlusMin > 0 && (
+                                  <span 
+                                    className="percentage-badge" 
+                                    style={{ 
+                                      marginLeft: '8px',
+                                      backgroundColor: getHeatMapColor(
+                                        row.percentage5PlusMin,
+                                        responseTimeHeatMapRanges.percentage5PlusMin.min,
+                                        responseTimeHeatMapRanges.percentage5PlusMin.max
+                                      ),
+                                      color: 'white',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      fontSize: '12px',
+                                      fontWeight: '600'
+                                    }}
+                                  >
+                                    ({row.percentage5PlusMin.toFixed(1)}%)
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                {row.count5to10Min}
+                                {row.percentage5to10Min > 0 && (
+                                  <span 
+                                    className="percentage-badge" 
+                                    style={{ 
+                                      marginLeft: '8px',
+                                      backgroundColor: getHeatMapColor(
+                                        row.percentage5to10Min,
+                                        responseTimeHeatMapRanges.percentage5to10Min.min,
+                                        responseTimeHeatMapRanges.percentage5to10Min.max
+                                      ),
+                                      color: 'white',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      fontSize: '12px',
+                                      fontWeight: '600'
+                                    }}
+                                  >
+                                    ({row.percentage5to10Min.toFixed(1)}%)
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                {row.count10PlusMin}
+                                {row.percentage10PlusMin > 0 && (
+                                  <span 
+                                    className="percentage-badge" 
+                                    style={{ 
+                                      marginLeft: '8px',
+                                      backgroundColor: getHeatMapColor(
+                                        row.percentage10PlusMin,
+                                        responseTimeHeatMapRanges.percentage10PlusMin.min,
+                                        responseTimeHeatMapRanges.percentage10PlusMin.max
+                                      ),
+                                      color: 'white',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      fontSize: '12px',
+                                      fontWeight: '600'
+                                    }}
+                                  >
+                                    ({row.percentage10PlusMin.toFixed(1)}%)
+                                  </span>
+                                )}
                               </td>
                             </tr>
                             {isExpanded && (
                               <tr className="conversations-row">
                                 <td colSpan="5">
                                   <div className="conversations-list">
-                                    {row.conversationIds5PlusMin && row.conversationIds5PlusMin.length > 0 && (
-                                      <div>
-                                        <h4>Conversations with 5+ Minute Wait Time:</h4>
-                                        <ul>
-                                          {row.conversationIds5PlusMin.map((convData, idx) => {
-                                            const convId = typeof convData === 'string' ? convData : convData.id;
-                                            const waitTimeMinutes = typeof convData === 'object' && convData.waitTimeMinutes 
-                                              ? convData.waitTimeMinutes 
-                                              : null;
-                                            
-                                            return (
-                                              <li key={`${convId || idx}`}>
-                                                <a 
-                                                  href={`https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/${convId}`}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  className="conversation-link"
-                                                >
-                                                  {convId}
-                                                </a>
-                                                {waitTimeMinutes !== null && (
-                                                  <span className="wait-time"> ({waitTimeMinutes.toFixed(1)} min)</span>
-                                                )}
-                                              </li>
-                                            );
-                                          })}
-                                        </ul>
-                                      </div>
-                                    )}
+                                    {/* Categorize conversations into 5-10 min and 10+ min buckets */}
+                                    {(() => {
+                                      const conversations5to10Min = [];
+                                      const conversations10Plus = [];
+                                      
+                                      // Separate conversations based on wait time
+                                      if (row.conversationIds5PlusMin && row.conversationIds5PlusMin.length > 0) {
+                                        row.conversationIds5PlusMin.forEach((convData) => {
+                                          // Check if this conversation is in the 10+ min list
+                                          const is10Plus = row.conversationIds10PlusMin && row.conversationIds10PlusMin.some(
+                                            conv10 => {
+                                              const conv10Id = typeof conv10 === 'string' ? conv10 : conv10.id;
+                                              const convDataId = typeof convData === 'string' ? convData : convData.id;
+                                              return conv10Id === convDataId;
+                                            }
+                                          );
+                                          
+                                          if (is10Plus) {
+                                            conversations10Plus.push(convData);
+                                          } else {
+                                            conversations5to10Min.push(convData);
+                                          }
+                                        });
+                                      }
+                                      
+                                      return (
+                                        <>
+                                          {conversations5to10Min.length > 0 && (
+                                            <div style={{ marginBottom: '20px' }}>
+                                              <h4>Conversations with 5-10 Minute Wait Time ({conversations5to10Min.length}):</h4>
+                                              <ul>
+                                                {conversations5to10Min.map((convData, idx) => {
+                                                  const convId = typeof convData === 'string' ? convData : convData.id;
+                                                  const waitTimeMinutes = typeof convData === 'object' && convData.waitTimeMinutes 
+                                                    ? convData.waitTimeMinutes 
+                                                    : null;
+                                                  
+                                                  return (
+                                                    <li key={`${convId || idx}`}>
+                                                      <a 
+                                                        href={`https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/${convId}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="conversation-link"
+                                                      >
+                                                        {convId}
+                                                      </a>
+                                                      {waitTimeMinutes !== null && (
+                                                        <span className="wait-time"> ({waitTimeMinutes.toFixed(1)} min)</span>
+                                                      )}
+                                                    </li>
+                                                  );
+                                                })}
+                                              </ul>
+                                            </div>
+                                          )}
+                                          
+                                          {conversations10Plus.length > 0 && (
+                                            <div>
+                                              <h4>Conversations with 10+ Minute Wait Time ({conversations10Plus.length}):</h4>
+                                              <ul>
+                                                {conversations10Plus.map((convData, idx) => {
+                                                  const convId = typeof convData === 'string' ? convData : convData.id;
+                                                  const waitTimeMinutes = typeof convData === 'object' && convData.waitTimeMinutes 
+                                                    ? convData.waitTimeMinutes 
+                                                    : null;
+                                                  
+                                                  return (
+                                                    <li key={`${convId || idx}`}>
+                                                      <a 
+                                                        href={`https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/${convId}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="conversation-link"
+                                                      >
+                                                        {convId}
+                                                      </a>
+                                                      {waitTimeMinutes !== null && (
+                                                        <span className="wait-time"> ({waitTimeMinutes.toFixed(1)} min)</span>
+                                                      )}
+                                                    </li>
+                                                  );
+                                                })}
+                                              </ul>
+                                            </div>
+                                          )}
+                                          
+                                          {conversations5to10Min.length === 0 && conversations10Plus.length === 0 && (
+                                            <div className="modal-empty-state">No conversations with 5+ minute wait times.</div>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
                                   </div>
                                 </td>
                               </tr>
@@ -2689,6 +3897,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                       })}
                     </tbody>
                   </table>
+                  {responseTimeChartData.length < responseTimeTotalDays && (
+                    <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                      <button 
+                        className="load-more-button"
+                        onClick={() => setResponseTimeDaysToShow(prev => prev + 7)}
+                      >
+                        Load More ({responseTimeTotalDays - responseTimeChartData.length} more days)
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </>
@@ -2719,6 +3937,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
 // Results View Component
 function ResultsView({ data, loading, dateRange, customStartDate, customEndDate }) {
+  const { isDarkMode } = useTheme();
   if (loading) {
     return (
       <div className="results-view">
@@ -2803,15 +4022,15 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
         <p className="chart-subtitle">Each point represents one day's on-track percentage and slow response rate</p>
         <ResponsiveContainer width="100%" height={400}>
           <ScatterChart data={data.dataPoints} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+            <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
             <XAxis 
               type="number"
               dataKey="onTrack"
               name="On Track %"
               domain={[0, 100]}
-              stroke="#292929"
-              tick={{ fill: '#292929', fontSize: 12 }}
-              label={{ value: 'On Track %', position: 'insideBottom', offset: -5, fill: '#292929' }}
+              stroke={isDarkMode ? '#ffffff' : '#292929'}
+              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+              label={{ value: 'On Track %', position: 'insideBottom', offset: -5, fill: isDarkMode ? '#ffffff' : '#292929' }}
               tickFormatter={(value) => value.toFixed(2)}
             />
             <YAxis 
@@ -2819,19 +4038,36 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
               dataKey="slowResponsePct"
               name="Slow Response %"
               domain={[0, 'dataMax + 5']}
-              stroke="#292929"
-              tick={{ fill: '#292929', fontSize: 12 }}
-              label={{ value: 'Slow First Response Rate (%)', angle: -90, position: 'insideLeft', fill: '#292929' }}
+              stroke={isDarkMode ? '#ffffff' : '#292929'}
+              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+              label={{ value: 'Slow First Response Rate (%)', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
               tickFormatter={(value) => value.toFixed(2)}
             />
             <Tooltip 
-              contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
-              formatter={(value, name) => {
-                if (name === 'onTrack') return [`${value.toFixed(2)}%`, 'On Track'];
-                if (name === 'slowResponsePct') return [`${value.toFixed(2)}%`, 'Slow Response Rate'];
-                return [value, name];
+              content={({ active, payload }) => {
+                if (active && payload && payload.length) {
+                  const data = payload[0].payload;
+                  const onTrackValue = data?.onTrack || 0;
+                  const slowResponseValue = data?.slowResponsePct || 0;
+                  return (
+                    <div style={{ 
+                      backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                      border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                      borderRadius: '4px',
+                      padding: '8px 12px',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}>
+                      <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929', marginBottom: '4px' }}>
+                        <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>On Track %:</strong> {onTrackValue.toFixed(2)}%
+                      </div>
+                      <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929' }}>
+                        <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>Slow Response %:</strong> {slowResponseValue.toFixed(2)}%
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
               }}
-              labelFormatter={(label) => `Date: ${label}`}
             />
             <Scatter 
               name="On Track vs Slow Response" 
@@ -2888,11 +4124,11 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
         <p className="chart-subtitle">Dual-axis chart showing both metrics over the analysis period</p>
         <ResponsiveContainer width="100%" height={400}>
           <LineChart data={data.dataPoints} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+            <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
             <XAxis 
               dataKey="date"
-              stroke="#292929"
-              tick={{ fill: '#292929', fontSize: 11 }}
+              stroke={isDarkMode ? '#ffffff' : '#292929'}
+              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 11 }}
               angle={-45}
               textAnchor="end"
               height={80}
@@ -2904,23 +4140,28 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
             />
             <YAxis 
               yAxisId="left"
-              stroke="#292929"
-              tick={{ fill: '#292929', fontSize: 12 }}
+              stroke={isDarkMode ? '#ffffff' : '#292929'}
+              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
               domain={[0, 100]}
-              label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: '#292929' }}
+              label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
               tickFormatter={(value) => value.toFixed(2)}
             />
             <YAxis 
               yAxisId="right"
               orientation="right"
-              stroke="#292929"
-              tick={{ fill: '#292929', fontSize: 12 }}
+              stroke={isDarkMode ? '#ffffff' : '#292929'}
+              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
               domain={[0, 'dataMax + 5']}
-              label={{ value: 'Slow Response Rate %', angle: 90, position: 'insideRight', fill: '#292929' }}
+              label={{ value: 'Slow Response Rate %', angle: 90, position: 'insideRight', fill: isDarkMode ? '#ffffff' : '#292929' }}
               tickFormatter={(value) => value.toFixed(2)}
             />
             <Tooltip 
-              contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+              contentStyle={{ 
+                backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                borderRadius: '4px',
+                color: isDarkMode ? '#e5e5e5' : '#292929'
+              }}
               formatter={(value, name) => {
                 if (name === 'onTrack') return [`${value.toFixed(2)}%`, 'On Track'];
                 if (name === 'slowResponsePct') return [`${value.toFixed(2)}%`, 'Slow Response Rate'];
@@ -2928,7 +4169,7 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
               }}
               labelFormatter={formatDateFull}
             />
-            <Legend />
+            <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
             <Line 
               yAxisId="left"
               type="monotone" 

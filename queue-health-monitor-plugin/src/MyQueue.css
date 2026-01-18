@@ -3,6 +3,9 @@
   margin: 0 auto;
   padding: 20px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .my-queue-header {
@@ -20,13 +23,35 @@
   margin: 0;
   font-size: 32px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: 15px;
+}
+
+.dark-mode-toggle-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 6px;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dark-mode-toggle-button:hover {
+  background: var(--bg-hover);
+}
+
+.dark-mode-icon {
+  width: 30px;
+  height: 30px;
+  display: block;
 }
 
 .button-stack {
@@ -56,6 +81,18 @@
   transform: translateY(0);
 }
 
+.dark-mode .logout-btn {
+  background: transparent;
+  border: 1px solid #fd8789;
+  color: #fd8789;
+}
+
+.dark-mode .logout-btn:hover {
+  background: #fd8789;
+  color: white;
+  transform: translateY(-1px);
+}
+
 .refresh-btn {
   padding: 6px 12px;
   background-color: #0066cc;
@@ -71,6 +108,17 @@
   background-color: #0052a3;
 }
 
+.dark-mode .refresh-btn {
+  background: transparent;
+  border: 1px solid #35a1b4;
+  color: #35a1b4;
+}
+
+.dark-mode .refresh-btn:hover:not(:disabled) {
+  background: #35a1b4;
+  color: white;
+}
+
 .refresh-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -78,49 +126,58 @@
 
 .last-updated {
   font-size: 12px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .tse-info h2 {
   margin: 0;
   font-size: 20px;
-  color: #333;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .my-queue-error {
-  background-color: #fee;
-  border: 1px solid #fcc;
+  background-color: rgba(253, 135, 137, 0.1);
+  border: 1px solid var(--accent-error);
   border-radius: 4px;
   padding: 15px;
   margin-bottom: 20px;
-  color: #c33;
+  color: var(--accent-error);
 }
 
 .debug-info {
   font-size: 12px;
-  color: #999;
+  color: var(--text-tertiary);
   margin-top: 8px;
 }
 
 /* Status Card */
 .status-card {
-  background: white;
+  background: var(--bg-secondary);
   border-radius: 8px;
   padding: 20px;
   margin-bottom: 25px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px var(--shadow-sm);
   border-left: 4px solid;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .status-card.on-track {
-  border-left-color: #4caf50;
-  background-color: #f1f8f4;
+  border-left-color: var(--accent-success);
+  background-color: rgba(76, 236, 140, 0.1);
+}
+
+.dark-mode .status-card.on-track {
+  background-color: rgba(76, 236, 140, 0.15);
 }
 
 .status-card.over-limit {
-  border-left-color: #f44336;
-  background-color: #fff5f5;
+  border-left-color: var(--accent-error);
+  background-color: rgba(253, 135, 137, 0.1);
+}
+
+.dark-mode .status-card.over-limit {
+  background-color: rgba(253, 135, 137, 0.15);
 }
 
 .status-header {
@@ -174,12 +231,20 @@
   padding: 20px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   border: 2px solid transparent;
-  transition: all 0.2s;
+  transition: all 0.2s, background-color 0.3s ease;
+}
+
+.dark-mode .metric-card {
+  background: var(--bg-card);
 }
 
 .metric-card.over-limit {
   border-color: #f44336;
   background-color: #fff5f5;
+}
+
+.dark-mode .metric-card.over-limit {
+  background-color: rgba(253, 135, 137, 0.15);
 }
 
 .metric-label {
@@ -253,6 +318,11 @@
   padding: 20px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   margin-bottom: 25px;
+  transition: background-color 0.3s ease;
+}
+
+.dark-mode .conversations-section {
+  background: var(--bg-card);
 }
 
 .conversations-section h3 {
@@ -410,4 +480,8 @@
   .conversations-table td {
     padding: 8px;
   }
+}
+
+.conversations-table th {
+  background-color: #464646 !important;
 }

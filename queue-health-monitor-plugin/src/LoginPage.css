@@ -14,19 +14,20 @@
 }
 
 .login-card {
-  background: white;
+  background: var(--bg-secondary);
   border-radius: 12px;
   padding: 40px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 40px var(--shadow-lg);
   text-align: center;
   display: flex;
   flex-direction: column;
   gap: 24px;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .login-card h1 {
   margin: 0;
-  color: #333;
+  color: var(--text-primary);
   font-size: 28px;
   font-weight: 600;
 }
@@ -37,8 +38,16 @@
   display: block;
 }
 
+.login-darkmode-svg {
+  max-width: 100%;
+  width: 100%;
+  height: auto;
+  display: block;
+  min-height: 60px;
+}
+
 .login-description {
-  color: #666;
+  color: var(--text-secondary);
   margin: 0;
   font-size: 14px;
   line-height: 1.6;
@@ -77,7 +86,7 @@
 
 .login-help {
   margin: 0;
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 12px;
   order: 3;
 }

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useAuth } from "./AuthContext";
+import { useTheme } from "./ThemeContext";
 import { formatDateTimeUTC } from "./utils/dateUtils";
 import "./MyQueue.css";
 
@@ -14,6 +15,7 @@ const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin
 
 function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loading, error, onRefresh, lastUpdated }) {
   const { logout } = useAuth();
+  const { isDarkMode, toggleDarkMode } = useTheme();
   const [filterTag, setFilterTag] = useState("all");
   const [searchId, setSearchId] = useState("");
 
@@ -197,6 +199,21 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
         <div className="header-content">
           <h1>My Queue</h1>
           <div className="header-actions">
+            <button
+              className="dark-mode-toggle-button"
+              onClick={toggleDarkMode}
+              aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+              title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              <img 
+                src={isDarkMode 
+                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768686539/3_150_x_150_px_14_acgkkq.svg"
+                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1768686539/3_150_x_150_px_15_ytqu5j.svg"
+                }
+                alt={isDarkMode ? "Light mode" : "Dark mode"} 
+                className="dark-mode-icon"
+              />
+            </button>
             <div className="button-stack">
               <button onClick={logout} className="logout-btn">
                 Sign Out

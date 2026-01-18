@@ -130,7 +130,13 @@ export default async function handler(req, res) {
       if (assigneeName && EXCLUDED_TSE_NAMES.includes(assigneeName)) return;
 
       const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
-      const tags = conv.tags || [];
+      // Ensure tags is always an array (handle both array and object formats)
+      const tags = Array.isArray(conv.tags) 
+        ? conv.tags 
+        : (conv.tags && Array.isArray(conv.tags.tags)) 
+          ? conv.tags.tags 
+          : [];
+      
       const hasWaitingOnTSETag = tags.some(t => 
         (t.name && t.name.toLowerCase() === "snooze.waiting-on-tse") || 
         (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-tse")
@@ -341,9 +347,19 @@ async function fetchAllOpenTeamConversations(authHeader) {
               }
             }
             
+            // Extract tags ensuring it's always an array
+            let tags = [];
+            if (Array.isArray(fullConv.tags)) {
+              tags = fullConv.tags;
+            } else if (fullConv.tags && Array.isArray(fullConv.tags.tags)) {
+              tags = fullConv.tags.tags;
+            } else if (Array.isArray(item.tags)) {
+              tags = item.tags;
+            }
+            
             return {
               ...item,
-              tags: fullConv.tags?.tags || fullConv.tags || [],
+              tags: tags,
               admin_assignee_id: fullConv.admin_assignee_id,
               admin_assignee: adminAssignee,
               state: fullConv.state || item.state || "open",
@@ -353,9 +369,15 @@ async function fetchAllOpenTeamConversations(authHeader) {
         } catch (err) {
           console.warn(`Failed to fetch details for conversation ${item.id}:`, err.message);
         }
+        // Ensure tags is always an array in fallback case
+        const fallbackTags = Array.isArray(item.tags) 
+          ? item.tags 
+          : (item.tags && Array.isArray(item.tags.tags)) 
+            ? item.tags.tags 
+            : [];
         return {
           ...item,
-          tags: item.tags || [],
+          tags: fallbackTags,
           state: item.state || "open"
         };
       });

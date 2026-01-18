@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext";
+import { ThemeProvider } from "./ThemeContext";
 import LoginPage from "./LoginPage";
 import Dashboard from "./Dashboard";
 import MyQueue from "./MyQueue";
@@ -182,11 +183,13 @@ function App(props) {
   const currentUserEmail = props?.currentUserEmail || null;
   
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AppContent currentUserEmail={currentUserEmail} />
-      </BrowserRouter>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppContent currentUserEmail={currentUserEmail} />
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

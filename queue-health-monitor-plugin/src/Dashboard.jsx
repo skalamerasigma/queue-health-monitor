@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useAuth } from "./AuthContext";
+import { useTheme } from "./ThemeContext";
 import HistoricalView from "./HistoricalView";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend, BarChart, Bar } from 'recharts';
 import { formatDateTimeUTC, formatTimestampUTC, formatDateForChart } from "./utils/dateUtils";
 import "./Dashboard.css";
 
@@ -58,7 +59,7 @@ const TSE_AVATARS = {
   'Bhavana': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765318568/Untitled_design_21_kuwvcw.svg',
   'Grania': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232388/21_tjy6io.svg',
   'Soheli': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765318474/Untitled_design_20_zsho0q.svg',
-  'Hayden': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765311038/Untitled_design_18_uze5nk.svg',
+  'Hayden': 'https://static.intercomassets.com/avatars/8411107/square_128/IMG_4063-1748968966.JPG',
   'Roshini': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765311036/Untitled_design_19_ls5fat.svg',
   'Abhijeet': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765310522/Untitled_design_16_jffaql.svg',
   'Ratna': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765311039/Untitled_design_17_lchaky.svg',
@@ -250,11 +251,32 @@ const THRESHOLDS = {
   MAX_WAITING_ON_TSE_ALERT: 7
 };
 
-function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh, lastUpdated }) {
+function Dashboard(props) {
+  const { conversations = [], teamMembers = [], loading, error, onRefresh, lastUpdated } = props;
   const { logout } = useAuth();
+  const { isDarkMode, toggleDarkMode } = useTheme();
   const [activeView, setActiveView] = useState("overview");
-  const [filterTag, setFilterTag] = useState("all");
+  const [filterTag, setFilterTag] = useState(["all"]);
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
+  const filterDropdownRef = useRef(null);
   const [filterTSE, setFilterTSE] = useState("all");
+  
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target)) {
+        setFilterDropdownOpen(false);
+      }
+    };
+    
+    if (filterDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [filterDropdownOpen]);
   const [searchId, setSearchId] = useState("");
   const [historicalSnapshots, setHistoricalSnapshots] = useState([]);
   const [responseTimeMetrics, setResponseTimeMetrics] = useState([]);
@@ -979,50 +1001,80 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
     if (!conversations) return [];
     
     const filterByTag = () => {
-      if (filterTag === "all") return conversations;
-      if (filterTag === "snoozed") {
-        return conversations.filter(conv => {
-          const isSnoozed = conv.state === "snoozed" || 
-                           conv.state === "Snoozed" ||
-                           conv.snoozed_until || 
-                           (conv.statistics && conv.statistics.state === "snoozed");
-          return isSnoozed;
+      // If "all" is selected (and it's the only selection), return all conversations
+      if (filterTag.length === 1 && filterTag.includes("all")) return conversations;
+      
+      // If no filters selected, return all
+      if (filterTag.length === 0) return conversations;
+      
+      // Collect all conversations that match ANY of the selected filters (OR logic)
+      const matchedConversations = new Set();
+      
+      filterTag.forEach(tag => {
+        if (tag === "all") {
+          // If "all" is selected with other filters, ignore it
+          return;
+        }
+        
+        let filtered = [];
+        
+        if (tag === "snoozed") {
+          filtered = conversations.filter(conv => {
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
+            return isSnoozed;
+          });
+        } else if (tag === "open") {
+          filtered = conversations.filter(conv => {
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
+            return conv.state === "open" && !isSnoozed;
+          });
+        } else if (tag === "waitingontse") {
+          filtered = metrics.waitingOnTSE || [];
+        } else if (tag === "waitingoncustomer") {
+          filtered = metrics.waitingOnCustomer || [];
+        } else if (tag === "waitingoncustomer-resolved") {
+          filtered = conversations.filter(conv => {
+            const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+            if (!isSnoozed) return false;
+            const tags = Array.isArray(conv.tags) ? conv.tags : [];
+            return tags.some(t => 
+              (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
+              (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
+            );
+          });
+        } else if (tag === "waitingoncustomer-unresolved") {
+          filtered = conversations.filter(conv => {
+            const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+            if (!isSnoozed) return false;
+            const tags = Array.isArray(conv.tags) ? conv.tags : [];
+            return tags.some(t => 
+              (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
+              (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
+            );
+          });
+        }
+        
+        // Add conversation objects to the set (using ID as key)
+        filtered.forEach(conv => {
+          const convId = conv.id || conv.conversation_id;
+          if (convId) {
+            matchedConversations.add(String(convId));
+          }
         });
-      }
-      if (filterTag === "open") {
-        return conversations.filter(conv => {
-          const isSnoozed = conv.state === "snoozed" || 
-                           conv.state === "Snoozed" ||
-                           conv.snoozed_until || 
-                           (conv.statistics && conv.statistics.state === "snoozed");
-          return conv.state === "open" && !isSnoozed;
-        });
-      }
-      if (filterTag === "waitingontse") return metrics.waitingOnTSE || [];
-      if (filterTag === "waitingoncustomer") return metrics.waitingOnCustomer || [];
-      if (filterTag === "waitingoncustomer-resolved") {
-        return conversations.filter(conv => {
-          const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
-          if (!isSnoozed) return false;
-          const tags = Array.isArray(conv.tags) ? conv.tags : [];
-          return tags.some(t => 
-            (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
-            (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
-          );
-        });
-      }
-      if (filterTag === "waitingoncustomer-unresolved") {
-        return conversations.filter(conv => {
-          const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
-          if (!isSnoozed) return false;
-          const tags = Array.isArray(conv.tags) ? conv.tags : [];
-          return tags.some(t => 
-            (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
-            (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
-          );
-        });
-      }
-      return conversations;
+      });
+      
+      // Convert set to array of IDs for filtering
+      const matchedIds = Array.from(matchedConversations);
+      return conversations.filter(conv => {
+        const convId = conv.id || conv.conversation_id;
+        return convId && matchedIds.includes(String(convId));
+      });
     };
     
     let tagFiltered = filterByTag();
@@ -1290,8 +1342,12 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         <div className="loading-content">
           <img 
             src={showCompletion 
-              ? "https://res.cloudinary.com/doznvxtja/image/upload/v1767208870/loading_complete_n2gpbl.gif"
-              : "https://res.cloudinary.com/doznvxtja/image/upload/v1767208765/loading_qoxx0x.gif"
+              ? (isDarkMode 
+                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768690567/darkmode-success_keb0qx.gif"
+                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1767208870/loading_complete_n2gpbl.gif")
+              : (isDarkMode
+                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768690567/darkmode-loading_u1xjdr.gif"
+                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1767208765/loading_qoxx0x.gif")
             } 
             alt={showCompletion ? "Complete" : "Loading..."} 
             className="loading-gif"
@@ -1410,9 +1466,9 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
               onViewChats={(tseId, alertType) => {
                 setActiveView("conversations");
                 if (alertType === "open") {
-                  setFilterTag("open");
+                  setFilterTag(["open"]);
                 } else if (alertType === "snoozed") {
-                  setFilterTag("waitingontse");
+                  setFilterTag(["waitingontse"]);
                 }
                 setFilterTSE(String(tseId));
                 setAlertsDropdownOpen(false); // Close dropdown
@@ -1449,27 +1505,94 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
               Analytics
             </button>
           </div>
+          <button
+            className="dark-mode-toggle-button"
+            onClick={toggleDarkMode}
+            aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+            title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            <img 
+              src={isDarkMode 
+                ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768686539/3_150_x_150_px_14_acgkkq.svg"
+                : "https://res.cloudinary.com/doznvxtja/image/upload/v1768686539/3_150_x_150_px_15_ytqu5j.svg"
+              }
+              alt={isDarkMode ? "Light mode" : "Dark mode"} 
+              className="dark-mode-icon"
+            />
+          </button>
         </div>
       </div>
 
       {/* Filter Bar */}
       {activeView === "conversations" && (
         <div className="filter-bar">
-          <div className="filter-group">
+          <div className="filter-group" style={{ position: 'relative' }} ref={filterDropdownRef}>
             <label>FILTER BY SNOOZE TYPE</label>
-            <select value={filterTag} onChange={(e) => {
-              const newFilterTag = e.target.value;
-              setFilterTag(newFilterTag);
-              // Clear search when changing filter tag
-              setSearchId("");
-            }} className="filter-select">
-              <option value="all">All Conversations</option>
-              <option value="snoozed">All Snoozed</option>
-              <option value="waitingontse">Snoozed - Waiting On TSE</option>
-              <option value="waitingoncustomer">Snoozed - Waiting On Customer</option>
-              <option value="waitingoncustomer-resolved">  └ Resolved</option>
-              <option value="waitingoncustomer-unresolved">  └ Unresolved</option>
-            </select>
+            <div 
+              className="filter-select"
+              onClick={() => setFilterDropdownOpen(!filterDropdownOpen)}
+              style={{ 
+                cursor: 'pointer',
+                position: 'relative',
+                padding: '8px 12px',
+                minHeight: '38px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}
+            >
+              <span>
+                {filterTag.length === 0 ? 'Select filters...' :
+                 filterTag.length === 1 && filterTag[0] === 'all' ? 'All Conversations' :
+                 filterTag.length === 1 ? filterTag[0] :
+                 `${filterTag.length} filters selected`}
+              </span>
+              <span style={{ marginLeft: '8px' }}>{filterDropdownOpen ? '▲' : '▼'}</span>
+            </div>
+            {filterDropdownOpen && (
+              <div className="filter-select-dropdown">
+                {[
+                  { value: 'all', label: 'All Conversations' },
+                  { value: 'snoozed', label: 'All Snoozed' },
+                  { value: 'open', label: 'Open Chats' },
+                  { value: 'waitingontse', label: 'Snoozed - Waiting On TSE' },
+                  { value: 'waitingoncustomer', label: 'Snoozed - Waiting On Customer' },
+                  { value: 'waitingoncustomer-resolved', label: '  └ Resolved' },
+                  { value: 'waitingoncustomer-unresolved', label: '  └ Unresolved' }
+                ].map(option => (
+                  <label
+                    key={option.value}
+                    className="filter-select-dropdown-item"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={filterTag.includes(option.value)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        if (option.value === 'all') {
+                          // If "all" is selected, clear other selections
+                          setFilterTag(['all']);
+                        } else {
+                          // Remove "all" if it's selected and user selects something else
+                          let newFilters = filterTag.filter(t => t !== 'all');
+                          if (e.target.checked) {
+                            newFilters.push(option.value);
+                          } else {
+                            newFilters = newFilters.filter(t => t !== option.value);
+                          }
+                          // If nothing selected, default to "all"
+                          setFilterTag(newFilters.length === 0 ? ['all'] : newFilters);
+                        }
+                        setSearchId("");
+                      }}
+                      style={{ marginRight: '8px' }}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
           <div className="filter-group">
             <label>Filter by TSE:</label>
@@ -1522,7 +1645,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             <button 
               onClick={() => {
                 setFilterTSE("unassigned");
-                setFilterTag("all");
+                setFilterTag(["all"]);
               }} 
               className="filter-button"
             >
@@ -1530,8 +1653,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             </button>
             <button 
               onClick={() => {
-                setFilterTag("snoozed");
-                setFilterTSE("all");
+                setFilterTag(["snoozed"]);
               }} 
               className="filter-button"
             >
@@ -1539,8 +1661,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             </button>
             <button 
               onClick={() => {
-                setFilterTag("open");
-                setFilterTSE("all");
+                setFilterTag(["open"]);
               }} 
               className="filter-button"
             >
@@ -1548,7 +1669,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             </button>
             <button 
               onClick={() => {
-                setFilterTag("all");
+                setFilterTag(["all"]);
                 setFilterTSE("all");
                 setSearchId("");
               }} 
@@ -1565,12 +1686,13 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
       {activeView === "overview" && (
         <OverviewDashboard 
           metrics={metrics}
+          conversations={conversations}
           historicalSnapshots={historicalSnapshots}
           responseTimeMetrics={responseTimeMetrics}
           loadingHistorical={loadingHistorical}
           onNavigateToConversations={(filterTag) => {
             setActiveView("conversations");
-            setFilterTag(filterTag);
+            setFilterTag(Array.isArray(filterTag) ? filterTag : [filterTag]);
           }}
           onNavigateToTSEView={() => {
             setActiveView("tse");
@@ -1709,7 +1831,11 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                     'Other': { text: 'Other' }
                   };
                   const label = regionLabels[region];
-                  const iconUrl = REGION_ICONS[region];
+                  // Use dark mode icon for NY when in dark mode
+                  let iconUrl = REGION_ICONS[region];
+                  if (region === 'NY' && isDarkMode) {
+                    iconUrl = 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg';
+                  }
                   return (
                     <label key={region} className="region-filter-checkbox">
                       <input
@@ -1795,7 +1921,11 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
             if (filteredAndSortedTSEs.length === 0) return null;
 
             const regionText = regionLabels[region];
-            const iconUrl = REGION_ICONS[region];
+            // Use dark mode icon for NY when in dark mode
+            let iconUrl = REGION_ICONS[region];
+            if (region === 'NY' && isDarkMode) {
+              iconUrl = 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg';
+            }
 
             return (
               <div key={region} className="tse-region-group">
@@ -1918,13 +2048,14 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
         <div className="conversations-view">
           <h3 className="section-title">
             {filterTSE === "unassigned" && "Unassigned Conversations"}
-            {filterTag === "open" && filterTSE !== "unassigned" && "Open Conversations"}
-            {filterTag === "all" && filterTSE !== "unassigned" && "All Open & Snoozed Conversations"}
-            {filterTag === "snoozed" && "Total Snoozed Conversations"}
-            {filterTag === "waitingontse" && "Snoozed - Waiting On TSE"}
-            {filterTag === "waitingoncustomer" && "Snoozed - Waiting On Customer"}
-            {filterTag === "waitingoncustomer-resolved" && "Waiting On Customer - Resolved"}
-            {filterTag === "waitingoncustomer-unresolved" && "Waiting On Customer - Unresolved"}
+            {filterTag.length === 1 && filterTag[0] === "open" && filterTSE !== "unassigned" && "Open Conversations"}
+            {filterTag.length === 1 && filterTag[0] === "all" && filterTSE !== "unassigned" && "All Open & Snoozed Conversations"}
+            {filterTag.length === 1 && filterTag[0] === "snoozed" && "Total Snoozed Conversations"}
+            {filterTag.length === 1 && filterTag[0] === "waitingontse" && "Snoozed - Waiting On TSE"}
+            {filterTag.length === 1 && filterTag[0] === "waitingoncustomer" && "Snoozed - Waiting On Customer"}
+            {filterTag.length === 1 && filterTag[0] === "waitingoncustomer-resolved" && "Waiting On Customer - Resolved"}
+            {filterTag.length === 1 && filterTag[0] === "waitingoncustomer-unresolved" && "Waiting On Customer - Unresolved"}
+            {filterTag.length > 1 && `Filtered Conversations (${filterTag.length} filters)`}
             <span className="count-badge">({filteredConversations.length})</span>
           </h3>
           <ConversationTable 
@@ -1959,7 +2090,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
 
       {/* Outstanding Performance Streaks Modal */}
       {isStreaksModalOpen && performanceStreaks.streak3.length > 0 && (
-        <div className="modal-overlay" onClick={() => setIsStreaksModalOpen(false)}>
+        <div className="modal-overlay streaks-modal-overlay" onClick={() => setIsStreaksModalOpen(false)}>
           <div className="modal-content streaks-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="streaks-modal-header">
               <h2 className="streaks-modal-title">🔥 Outstanding Performance Streaks</h2>
@@ -1995,7 +2126,11 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
                   className={`streaks-filter-btn ${streaksRegionFilter === 'NY' ? 'active' : ''}`}
                   onClick={() => setStreaksRegionFilter('NY')}
                 >
-                  <img src={REGION_ICONS['NY']} alt="NY" className="streaks-region-icon" />
+                  <img 
+                    src={isDarkMode ? 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg' : REGION_ICONS['NY']} 
+                    alt="NY" 
+                    className="streaks-region-icon" 
+                  />
                   NY
                 </button>
                 <button
@@ -2066,6 +2201,7 @@ function Dashboard({ conversations, teamMembers = [], loading, error, onRefresh,
 
 // Alerts Dropdown Component
 function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewAll, onViewChats }) {
+  const { isDarkMode } = useTheme();
   const [expandedRegions, setExpandedRegions] = useState(new Set()); // All collapsed by default
   const [expandedTSEs, setExpandedTSEs] = useState(new Set());
   const [expandedAlertTypes, setExpandedAlertTypes] = useState(new Set());
@@ -2241,7 +2377,11 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
                     'SF': 'San Francisco',
                     'Other': 'Other'
                   };
-                  const iconUrl = REGION_ICONS[region];
+                  // Use dark mode icon for NY when in dark mode
+                  let iconUrl = REGION_ICONS[region];
+                  if (region === 'NY' && isDarkMode) {
+                    iconUrl = 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg';
+                  }
 
                   // Calculate total alerts for this region
                   const regionAlertCount = regionTSEs.reduce((sum, tse) => 
@@ -2394,7 +2534,14 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
 }
 
 // Modern Overview Dashboard Component
-function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical, onNavigateToConversations, onNavigateToTSEView, onTSEClick }) {
+function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical, onNavigateToConversations, onNavigateToTSEView, onTSEClick, conversations }) {
+  const { isDarkMode } = useTheme();
+  const [isWaitRateModalOpen, setIsWaitRateModalOpen] = useState(false);
+  const [selectedHour, setSelectedHour] = useState(null); // null = show all, number = filter by hour
+  const [showAllResponders, setShowAllResponders] = useState(false);
+  const [showAllWaits, setShowAllWaits] = useState(false);
+  const [isWaitRateIconHovered, setIsWaitRateIconHovered] = useState(false);
+  const [isOpenChatsIconHovered, setIsOpenChatsIconHovered] = useState(false);
   
   // Prepare on-track trend data (last 7 days)
   const onTrackTrendData = useMemo(() => {
@@ -2452,39 +2599,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       // Don't limit - we need all data for week-over-week comparison
   }, [responseTimeMetrics]);
 
-  // Calculate region breakdown
-  const regionBreakdown = useMemo(() => {
-    if (!historicalSnapshots || historicalSnapshots.length === 0) return null;
-    
-    const latestSnapshot = historicalSnapshots[historicalSnapshots.length - 1];
-    const tseData = latestSnapshot.tse_data || latestSnapshot.tseData || [];
-    
-    const regionStats = { 'UK': { total: 0, onTrack: 0 }, 'NY': { total: 0, onTrack: 0 }, 'SF': { total: 0, onTrack: 0 } };
-    
-    tseData.forEach(tse => {
-      const region = getTSERegion(tse.name);
-      // Skip 'Other' region
-      if (region === 'Other' || !regionStats[region]) return;
-      
-      const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
-      // On-track uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
-      // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
-      // Support both old and new field names for backwards compatibility
-      const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
-      const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
-      
-      regionStats[region].total++;
-      if (meetsOpen && meetsWaitingOnTSE) regionStats[region].onTrack++;
-    });
-    
-    return Object.entries(regionStats).map(([region, stats]) => ({
-      region,
-      onTrack: stats.total > 0 ? Math.round((stats.onTrack / stats.total) * 100) : 0,
-      total: stats.total,
-      onTrackCount: stats.onTrack
-    })).filter(r => r.total > 0 && r.region !== 'Other');
-  }, [historicalSnapshots]);
-
   // Calculate today vs yesterday comparison
   // eslint-disable-next-line no-unused-vars
   const todayVsYesterday = useMemo(() => {
@@ -2518,131 +2632,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       } : null
     };
   }, [onTrackTrendData, responseTimeTrendData]);
-
-  // Calculate week-over-week comparison (or most recent period comparison if less data available)
-  const weekOverWeek = useMemo(() => {
-    if (!onTrackTrendData || onTrackTrendData.length < 2) return null;
-    
-    // If we have at least 7 days, compare last 7 vs previous 7
-    if (onTrackTrendData.length >= 7) {
-      const thisWeek = onTrackTrendData.slice(-7);
-      const lastWeek = onTrackTrendData.slice(-14, -7);
-      
-      if (lastWeek.length === 0) {
-        // Not enough for full comparison, fall through to shorter comparison
-      } else {
-        const thisWeekAvg = thisWeek.reduce((sum, d) => sum + d.onTrack, 0) / thisWeek.length;
-        const lastWeekAvg = lastWeek.reduce((sum, d) => sum + d.onTrack, 0) / lastWeek.length;
-        const onTrackChange = thisWeekAvg - lastWeekAvg;
-        
-        // Response time week-over-week
-        let responseTimeChange = null;
-        let thisWeekAvgRT = null;
-        let lastWeekAvgRT = null;
-        if (responseTimeTrendData && responseTimeTrendData.length >= 14) {
-          const thisWeekRT = responseTimeTrendData.slice(-7);
-          const lastWeekRT = responseTimeTrendData.slice(-14, -7);
-          thisWeekAvgRT = thisWeekRT.reduce((sum, d) => sum + d.percentage, 0) / thisWeekRT.length;
-          lastWeekAvgRT = lastWeekRT.reduce((sum, d) => sum + d.percentage, 0) / lastWeekRT.length;
-          responseTimeChange = thisWeekAvgRT - lastWeekAvgRT;
-        }
-        
-        return {
-          label: 'Last 7 Days vs Previous 7 Days',
-          onTrack: {
-            thisWeek: Math.round(thisWeekAvg),
-            lastWeek: Math.round(lastWeekAvg),
-            change: Math.round(onTrackChange),
-            direction: onTrackChange > 0 ? 'up' : onTrackChange < 0 ? 'down' : 'stable'
-          },
-          responseTime: responseTimeChange !== null && thisWeekAvgRT !== null && lastWeekAvgRT !== null ? {
-            thisWeek: Math.round(thisWeekAvgRT * 10) / 10,
-            lastWeek: Math.round(lastWeekAvgRT * 10) / 10,
-            change: Math.round(responseTimeChange * 10) / 10,
-            direction: responseTimeChange < 0 ? 'up' : responseTimeChange > 0 ? 'down' : 'stable'
-          } : null
-        };
-      }
-    }
-    
-    // Fallback: Compare most recent period vs previous period (at least 2 days needed)
-    if (onTrackTrendData.length >= 2) {
-      const availableDays = Math.min(onTrackTrendData.length, 7);
-      const recentPeriod = onTrackTrendData.slice(-availableDays);
-      const previousPeriod = onTrackTrendData.slice(-availableDays * 2, -availableDays);
-      
-      if (previousPeriod.length === 0) return null;
-      
-      const recentAvg = recentPeriod.reduce((sum, d) => sum + d.onTrack, 0) / recentPeriod.length;
-      const previousAvg = previousPeriod.reduce((sum, d) => sum + d.onTrack, 0) / previousPeriod.length;
-      const onTrackChange = recentAvg - previousAvg;
-      
-      // Response time comparison
-      let responseTimeChange = null;
-      let recentAvgRT = null;
-      let previousAvgRT = null;
-      if (responseTimeTrendData && responseTimeTrendData.length >= availableDays * 2) {
-        const recentRT = responseTimeTrendData.slice(-availableDays);
-        const previousRT = responseTimeTrendData.slice(-availableDays * 2, -availableDays);
-        recentAvgRT = recentRT.reduce((sum, d) => sum + d.percentage, 0) / recentRT.length;
-        previousAvgRT = previousRT.reduce((sum, d) => sum + d.percentage, 0) / previousRT.length;
-        responseTimeChange = recentAvgRT - previousAvgRT;
-      }
-      
-      return {
-        label: `Last ${availableDays} Days vs Previous ${availableDays} Days`,
-        onTrack: {
-          thisWeek: Math.round(recentAvg),
-          lastWeek: Math.round(previousAvg),
-          change: Math.round(onTrackChange),
-          direction: onTrackChange > 0 ? 'up' : onTrackChange < 0 ? 'down' : 'stable'
-        },
-        responseTime: responseTimeChange !== null && recentAvgRT !== null && previousAvgRT !== null ? {
-          thisWeek: Math.round(recentAvgRT * 10) / 10,
-          lastWeek: Math.round(previousAvgRT * 10) / 10,
-          change: Math.round(responseTimeChange * 10) / 10,
-          direction: responseTimeChange < 0 ? 'up' : responseTimeChange > 0 ? 'down' : 'stable'
-        } : null
-      };
-    }
-    
-    return null;
-  }, [onTrackTrendData, responseTimeTrendData]);
-
-  // Calculate best/worst day in last 7 days
-  const bestWorstDay = useMemo(() => {
-    if (!onTrackTrendData || onTrackTrendData.length === 0) return null;
-    
-    const sorted = [...onTrackTrendData].sort((a, b) => b.onTrack - a.onTrack);
-    const best = sorted[0];
-    const worst = sorted[sorted.length - 1];
-    
-    return {
-      best: {
-        date: best.displayLabel,
-        onTrack: best.onTrack
-      },
-      worst: {
-        date: worst.displayLabel,
-        onTrack: worst.onTrack
-      }
-    };
-  }, [onTrackTrendData]);
-
-  // Calculate volatility
-  const volatility = useMemo(() => {
-    if (!onTrackTrendData || onTrackTrendData.length < 2) return null;
-    
-    const values = onTrackTrendData.map(d => d.onTrack);
-    const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
-    const variance = values.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / values.length;
-    const stdDev = Math.round(Math.sqrt(variance));
-    
-    return {
-      value: stdDev,
-      interpretation: stdDev < 5 ? 'stable' : stdDev < 10 ? 'moderate' : 'volatile'
-    };
-  }, [onTrackTrendData]);
 
   // Calculate moving averages for charts
   const onTrackTrendWithMovingAvg = useMemo(() => {
@@ -2690,6 +2679,258 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     const sum = responseTimeTrendData.reduce((acc, item) => acc + (item.percentage5Plus || 0), 0);
     return Math.round((sum / responseTimeTrendData.length) * 10) / 10; // Round to 1 decimal
   }, [responseTimeTrendData]);
+
+  const sameDayClosePct = useMemo(() => {
+    const conversationList = conversations || [];
+    if (conversationList.length === 0) return 0;
+
+    let closedTotal = 0;
+    let closedSameDay = 0;
+
+    const toUtcDate = (timestamp) => {
+      if (!timestamp) return null;
+      const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
+      return new Date(ms).toISOString().slice(0, 10);
+    };
+
+    conversationList.forEach(conv => {
+      const state = (conv.state || "").toLowerCase();
+      if (state !== "closed") return;
+
+      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
+      const closedAt = conv.closed_at || conv.closedAt;
+
+      const createdDate = toUtcDate(createdAt);
+      const closedDate = toUtcDate(closedAt);
+      if (!createdDate || !closedDate) return;
+
+      closedTotal++;
+      if (createdDate === closedDate) closedSameDay++;
+    });
+
+    if (closedTotal === 0) return 0;
+    return Math.round((closedSameDay / closedTotal) * 1000) / 10;
+  }, [conversations]);
+
+  const avgInitialResponseMinutes = useMemo(() => {
+    const conversationList = conversations || [];
+    if (conversationList.length === 0) return 0;
+
+    let totalSeconds = 0;
+    let count = 0;
+
+    conversationList.forEach(conv => {
+      const timeToReply = conv.statistics?.time_to_admin_reply;
+      const firstAdminReplyAt = conv.statistics?.first_admin_reply_at;
+      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
+
+      let responseSeconds = null;
+      if (timeToReply !== null && timeToReply !== undefined) {
+        responseSeconds = timeToReply;
+      } else if (firstAdminReplyAt && createdAt) {
+        responseSeconds = firstAdminReplyAt - createdAt;
+      }
+
+      if (responseSeconds !== null && responseSeconds >= 0) {
+        totalSeconds += responseSeconds;
+        count += 1;
+      }
+    });
+
+    if (count === 0) return 0;
+    return Math.round((totalSeconds / count / 60) * 10) / 10;
+  }, [conversations]);
+
+  const latestResponseMetric = useMemo(() => {
+    if (!responseTimeMetrics || responseTimeMetrics.length === 0) return null;
+    const sorted = [...responseTimeMetrics].sort((a, b) => a.date.localeCompare(b.date));
+    return sorted[sorted.length - 1] || null;
+  }, [responseTimeMetrics]);
+
+  const waitRateDrilldown = useMemo(() => {
+    const conversations5Plus = latestResponseMetric?.conversationIds5PlusMin || [];
+    if (!conversations5Plus.length) {
+      return { hourly: [], assignees: [], conversations: [] };
+    }
+
+    const hourlyCounts = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      label: `${hour % 12 === 0 ? 12 : hour % 12}${hour < 12 ? "a" : "p"}`,
+      count: 0
+    }));
+    const assigneeCounts = {};
+
+    const toHour = (timestamp) => {
+      if (!timestamp) return null;
+      const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
+      const hourStr = new Date(ms).toLocaleString("en-US", {
+        timeZone: "America/Los_Angeles",
+        hour: "2-digit",
+        hour12: false
+      });
+      const hour = parseInt(hourStr, 10);
+      return Number.isNaN(hour) ? null : hour;
+    };
+
+    // Debug: Log first few items to see structure
+    if (conversations5Plus.length > 0) {
+      console.log('Wait Rate Drilldown - Sample conversation item structure:', conversations5Plus[0]);
+      console.log('Wait Rate Drilldown - All field names:', Object.keys(conversations5Plus[0]));
+      console.log('Wait Rate Drilldown - adminAssigneeName value:', conversations5Plus[0].adminAssigneeName);
+      console.log('Wait Rate Drilldown - adminAssigneeId value:', conversations5Plus[0].adminAssigneeId);
+      console.log('Wait Rate Drilldown - admin_assignee value:', conversations5Plus[0].admin_assignee);
+    }
+
+    const normalizedConversations = conversations5Plus.map(item => {
+      const createdAt = item.createdAt || item.created_at;
+      const firstAdminReplyAt = item.firstAdminReplyAt || item.first_admin_reply_at;
+      const hour = toHour(createdAt || firstAdminReplyAt);
+      if (hour !== null) hourlyCounts[hour].count += 1;
+
+      // Try multiple possible field names and structures
+      // Check for null/undefined explicitly, not just falsy values (empty string is valid)
+      let assigneeName = null;
+      
+      if (item.adminAssigneeName && item.adminAssigneeName !== null && item.adminAssigneeName !== 'null') {
+        assigneeName = item.adminAssigneeName;
+      } else if (item.admin_assignee_name && item.admin_assignee_name !== null && item.admin_assignee_name !== 'null') {
+        assigneeName = item.admin_assignee_name;
+      } else if (item.admin_assignee) {
+        if (typeof item.admin_assignee === 'object' && item.admin_assignee.name) {
+          assigneeName = item.admin_assignee.name;
+        } else if (typeof item.admin_assignee === 'string') {
+          assigneeName = item.admin_assignee;
+        }
+      }
+      
+      // If still no assignee name found, check if we have an assignee ID
+      // This indicates the data needs enrichment (which the backfill script will fix)
+      if (!assigneeName && (item.adminAssigneeId || item.admin_assignee_id)) {
+        const assigneeId = item.adminAssigneeId || item.admin_assignee_id;
+        // We have an ID but no name - mark as needing enrichment
+        // The backfill script should fix this, but for now show a placeholder
+        assigneeName = `[Needs Enrichment: ${assigneeId}]`;
+      }
+      
+      // Default to "Unassigned" only if we truly have no assignee information
+      if (!assigneeName || assigneeName === 'null' || assigneeName === null) {
+        assigneeName = "Unassigned";
+      }
+      
+      assigneeCounts[assigneeName] = (assigneeCounts[assigneeName] || 0) + 1;
+
+      return {
+        id: item.id,
+        waitTimeMinutes: item.waitTimeMinutes || item.wait_time_minutes || 0,
+        createdAt,
+        firstAdminReplyAt,
+        assigneeName,
+        hour // Include hour for filtering
+      };
+    });
+
+    const assignees = Object.entries(assigneeCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const conversationsSorted = [...normalizedConversations].sort((a, b) => b.waitTimeMinutes - a.waitTimeMinutes);
+
+    return { hourly: hourlyCounts, assignees, conversations: conversationsSorted };
+  }, [latestResponseMetric]);
+
+  const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
+
+  const agingChartData = useMemo(() => {
+    const conversationList = conversations || [];
+    if (conversationList.length === 0) return [];
+
+    const buckets = [
+      { label: "0-1h", min: 0, max: 1 },
+      { label: "1-4h", min: 1, max: 4 },
+      { label: "4-8h", min: 4, max: 8 },
+      { label: "8-24h", min: 8, max: 24 },
+      { label: "24-48h", min: 24, max: 48 },
+      { label: "48h+", min: 48, max: Infinity }
+    ];
+
+    const data = buckets.map(bucket => ({
+      bucket: bucket.label,
+      open: 0,
+      waitingOnCustomerResolved: 0,
+      waitingOnCustomerUnresolved: 0,
+      waitingOnTse: 0
+    }));
+
+    const nowSeconds = Date.now() / 1000;
+
+    conversationList.forEach(conv => {
+      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
+      if (!createdAt) return;
+
+      const createdSeconds = typeof createdAt === "number"
+        ? (createdAt > 1e12 ? createdAt / 1000 : createdAt)
+        : new Date(createdAt).getTime() / 1000;
+      if (!createdSeconds) return;
+
+      const ageHours = (nowSeconds - createdSeconds) / 3600;
+      const bucketIndex = buckets.findIndex(bucket => ageHours >= bucket.min && ageHours < bucket.max);
+      const idx = bucketIndex === -1 ? buckets.length - 1 : bucketIndex;
+
+      const tags = Array.isArray(conv.tags) ? conv.tags : [];
+      
+      // Check if conversation is snoozed (same logic as metrics calculation)
+      const isSnoozed = conv.state === "snoozed" || 
+                       conv.snoozed_until || 
+                       (conv.statistics && conv.statistics.state === "snoozed") ||
+                       (conv.source && conv.source.type === "snoozed") ||
+                       (conv.conversation_parts && conv.conversation_parts.some(part => part.state === "snoozed"));
+      
+      // Check if conversation state is "open" (not snoozed)
+      const isOpen = conv.state === "open" && !isSnoozed;
+
+      if (isOpen) {
+        // If state is "Open" and not snoozed, count as open
+        data[idx].open += 1;
+        return;
+      }
+
+      // Only categorize snoozed conversations (matching filter logic)
+      if (isSnoozed) {
+        // Extract tag names (same logic as conversations table)
+        const tagNames = tags.map(t => typeof t === "string" ? t : t.name);
+        
+        // Define the three snooze tags we care about (in priority order)
+        const snoozeTags = [
+          "snooze.waiting-on-customer-resolved",
+          "snooze.waiting-on-customer-unresolved",
+          "snooze.waiting-on-tse"
+        ];
+        
+        // Find the first tag that matches one of our three snooze tags (case-insensitive)
+        const activeWorkflowTag = tagNames.find(tagName => 
+          tagName && snoozeTags.some(snoozeTag => 
+            tagName.toLowerCase() === snoozeTag.toLowerCase()
+          )
+        );
+        
+        // Use the same priority-based tag matching as conversations table and filter logic
+        if (activeWorkflowTag) {
+          const normalizedTag = activeWorkflowTag.toLowerCase();
+          if (normalizedTag === "snooze.waiting-on-customer-resolved") {
+            data[idx].waitingOnCustomerResolved += 1;
+          } else if (normalizedTag === "snooze.waiting-on-customer-unresolved") {
+            data[idx].waitingOnCustomerUnresolved += 1;
+          } else if (normalizedTag === "snooze.waiting-on-tse") {
+            data[idx].waitingOnTse += 1;
+          }
+        }
+        // Note: Snoozed conversations without specific tags are not counted in any category
+        // (matching the filter logic which only shows conversations with tags)
+      }
+    });
+
+    return data;
+  }, [conversations]);
 
   // Calculate current on-track from historical data (to match Historical tab)
   const currentOnTrack = useMemo(() => {
@@ -2752,157 +2993,12 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
 
   return (
     <div className="modern-overview">
-      {/* Quick Insights Section */}
-      <div className="overview-insights">
-        {/* Last 7 Days vs Previous 7 Days */}
-        {weekOverWeek && (
-          <div className="insight-card">
-            <h4 className="insight-title">{weekOverWeek.label}</h4>
-            <div className="insight-content">
-              <div className="insight-metric">
-                <span className="insight-label">On Track</span>
-                <div className="insight-comparison">
-                  <span className="insight-value">{weekOverWeek.onTrack.thisWeek}%</span>
-                  <span className="insight-arrow">→</span>
-                  <span className={`insight-value ${weekOverWeek.onTrack.direction === 'up' ? 'positive' : weekOverWeek.onTrack.direction === 'down' ? 'negative' : ''}`}>
-                    {weekOverWeek.onTrack.lastWeek}%
-                  </span>
-                  <span className={`insight-change ${weekOverWeek.onTrack.direction}`}>
-                    {weekOverWeek.onTrack.change > 0 ? '+' : ''}{weekOverWeek.onTrack.change}%
-                  </span>
-                </div>
-              </div>
-              {weekOverWeek.responseTime && (
-                <div className="insight-metric">
-                  <span className="insight-label">Response Time</span>
-                  <div className="insight-comparison">
-                    <span className="insight-value">{weekOverWeek.responseTime.thisWeek.toFixed(1)}%</span>
-                    <span className="insight-arrow">→</span>
-                    <span className={`insight-value ${weekOverWeek.responseTime.direction === 'up' ? 'positive' : weekOverWeek.responseTime.direction === 'down' ? 'negative' : ''}`}>
-                      {weekOverWeek.responseTime.lastWeek.toFixed(1)}%
-                    </span>
-                    <span className={`insight-change ${weekOverWeek.responseTime.direction}`}>
-                      {weekOverWeek.responseTime.change > 0 ? '+' : ''}{weekOverWeek.responseTime.change.toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-
-        {/* Best/Worst Day */}
-        {bestWorstDay && (
-          <div className="insight-card">
-            <h4 className="insight-title">On Track % - Last 7 Days</h4>
-            <div className="insight-content">
-              <div className="insight-metric">
-                <span className="insight-label">Best Day</span>
-                <div className="insight-single">
-                  <span className="insight-date">{bestWorstDay.best.date}</span>
-                  <span className="insight-value positive">{bestWorstDay.best.onTrack}%</span>
-                </div>
-              </div>
-              <div className="insight-metric">
-                <span className="insight-label">Worst Day</span>
-                <div className="insight-single">
-                  <span className="insight-date">{bestWorstDay.worst.date}</span>
-                  <span className="insight-value negative">{bestWorstDay.worst.onTrack}%</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Volatility */}
-        {volatility && (
-          <div className="insight-card">
-            <h4 className="insight-title">Volatility</h4>
-            <div className="insight-content">
-              <div className="insight-metric">
-                <span className="insight-label">Stability</span>
-                <div className="insight-single">
-                  <span className={`insight-value ${volatility.interpretation === 'stable' ? 'positive' : volatility.interpretation === 'moderate' ? 'warning' : 'negative'}`}>
-                    {volatility.interpretation === 'stable' ? 'Stable' : volatility.interpretation === 'moderate' ? 'Moderate' : 'Volatile'}
-                  </span>
-                  <span className="insight-subtext">±{volatility.value}%</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Alerts Summary */}
-        {metrics.alerts && metrics.alerts.length > 0 && (() => {
-          const openChatsAlerts = metrics.alerts.filter(alert => alert.type === "open_threshold").length;
-          const waitingOnTSEAlerts = metrics.alerts.filter(alert => alert.type === "waiting_on_tse_threshold").length;
-          
-          return (
-            <div 
-              className={`insight-card alert-summary ${onNavigateToTSEView ? 'alert-summary-clickable' : ''}`}
-              onClick={onNavigateToTSEView || undefined}
-              style={{ cursor: onNavigateToTSEView ? 'pointer' : 'default' }}
-            >
-              {onNavigateToTSEView && <div className="alert-summary-click-icon">→</div>}
-              <h4 className="insight-title">Active Alerts</h4>
-              <div className="insight-content">
-                <div className="insight-metric">
-                  <span className="insight-label">Open Chats ({THRESHOLDS.MAX_OPEN_ALERT}+)</span>
-                  <div className="insight-single">
-                    <span className="insight-value negative">{openChatsAlerts}</span>
-                  </div>
-                </div>
-                <div className="insight-metric">
-                  <span className="insight-label">Snoozed - Waiting On TSE ({THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+)</span>
-                  <div className="insight-single">
-                    <span className="insight-value negative">{waitingOnTSEAlerts}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Region Breakdown */}
-        {regionBreakdown && regionBreakdown.length > 0 && (
-          <div className="insight-card region-breakdown">
-            <h4 className="insight-title">Region On Track</h4>
-            <div className="insight-content">
-              {regionBreakdown.map(region => {
-                const iconUrl = REGION_ICONS[region.region];
-                return (
-                  <div key={region.region} className="insight-metric">
-                    <span className="insight-label">
-                      {region.region}
-                      {iconUrl && (
-                        <img 
-                          src={iconUrl} 
-                          alt={region.region} 
-                          className="region-breakdown-icon"
-                        />
-                      )}
-                    </span>
-                    <div className="insight-single">
-                      <span className={`insight-value ${region.onTrack >= 80 ? 'positive' : region.onTrack >= 60 ? 'warning' : 'negative'}`}>
-                        {region.onTrack}%
-                      </span>
-                      <span className="insight-subtext">{region.onTrackCount}/{region.total} TSEs</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Key KPIs - Organized by Realtime vs Historical */}
       <div className="overview-kpis">
         {/* Realtime Metrics Section */}
         <div className="kpi-section">
           <h3 className="kpi-section-title">Today / Realtime Metrics</h3>
-          <div className="kpi-section-cards">
+          <div className="kpi-section-cards realtime-kpis">
             <div className="kpi-card primary">
               <div className="kpi-label">Realtime On Track</div>
               <div className="kpi-content-with-viz">
@@ -2937,12 +3033,26 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               <div className="kpi-subtitle">Current snapshot</div>
             </div>
 
-            <div className="kpi-card primary">
+            <div
+              className="kpi-card primary kpi-card-clickable"
+              onClick={() => setIsWaitRateModalOpen(true)}
+              style={{ cursor: 'pointer' }}
+            >
+              <img 
+                src={isWaitRateIconHovered 
+                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768730937/3_150_x_150_px_18_v8m7rw.svg"
+                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1768731268/3_150_x_150_px_19_cpangf.svg"
+                }
+                alt="Wait Rate indicator"
+                className="wait-rate-kpi-gif"
+                onMouseEnter={() => setIsWaitRateIconHovered(true)}
+                onMouseLeave={() => setIsWaitRateIconHovered(false)}
+              />
               <div className="kpi-label">Wait Rate</div>
               <div className="kpi-content-with-viz">
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                   <span style={{ fontSize: '24px', fontWeight: 700 }}>{currentResponseTimePct5Plus}%</span>
-                  <span style={{ fontSize: '14px', color: '#666' }}>5+ min</span>
+                  <span style={{ fontSize: '14px', color: isDarkMode ? '#ffffff' : '#666' }}>5+ min</span>
                 </div>
                 {responseTimeTrendData.length >= 2 && (() => {
                   const dataPoints = responseTimeTrendData.slice(-7);
@@ -2989,13 +3099,37 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               <div className="kpi-subtitle">Most recent day</div>
             </div>
 
+            <div className="kpi-card primary">
+              <div className="kpi-label">Avg Initial Response</div>
+              <div className="kpi-content-with-viz">
+                <div className="kpi-value">{avgInitialResponseMinutes} min</div>
+              </div>
+              <div className="kpi-subtitle">Realtime average</div>
+            </div>
+
+            <div className="kpi-card primary">
+              <div className="kpi-label">Same-Day Close %</div>
+              <div className="kpi-content-with-viz">
+                <div className="kpi-value">{sameDayClosePct}%</div>
+              </div>
+              <div className="kpi-subtitle">Closed same day</div>
+            </div>
 
             <div 
               className="kpi-card kpi-card-clickable"
-              onClick={() => onNavigateToConversations && onNavigateToConversations("open")}
+              onClick={() => onNavigateToConversations && onNavigateToConversations(["open"])}
               style={{ cursor: onNavigateToConversations ? 'pointer' : 'default' }}
             >
-              <div className="kpi-card-click-icon">→</div>
+              <img 
+                src={isOpenChatsIconHovered 
+                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768730937/3_150_x_150_px_18_v8m7rw.svg"
+                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1768731268/3_150_x_150_px_19_cpangf.svg"
+                }
+                alt="Open Chats indicator"
+                className="wait-rate-kpi-gif"
+                onMouseEnter={() => setIsOpenChatsIconHovered(true)}
+                onMouseLeave={() => setIsOpenChatsIconHovered(false)}
+              />
               <div className="kpi-label">OPEN CHATS</div>
               <div className="kpi-content-with-viz">
                 <div className="kpi-value">{metrics.totalOpen}</div>
@@ -3143,7 +3277,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               <div className="kpi-content-with-viz">
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                   <span style={{ fontSize: '24px', fontWeight: 700 }}>{avgResponseTimePct5Plus}%</span>
-                  <span style={{ fontSize: '14px', color: '#666' }}>5+ min</span>
+                  <span style={{ fontSize: '14px', color: isDarkMode ? '#ffffff' : '#666' }}>5+ min</span>
                 </div>
                 {responseTimeTrendData.length >= 2 && (() => {
                   const dataPoints = responseTimeTrendData.slice(-7);
@@ -3204,23 +3338,24 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     <stop offset="95%" stopColor="#35a1b4" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                 <XAxis 
                   dataKey="displayLabel" 
-                  stroke="#666"
-                  tick={{ fill: '#666', fontSize: 11 }}
+                  stroke={isDarkMode ? '#ffffff' : '#666'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
                 />
                 <YAxis 
-                  stroke="#666"
-                  tick={{ fill: '#666', fontSize: 11 }}
+                  stroke={isDarkMode ? '#ffffff' : '#666'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
                   domain={[0, 100]}
-                  label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: '#666' }}
+                  label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#666' }}
                 />
                 <Tooltip 
                   contentStyle={{ 
-                    backgroundColor: 'white', 
-                    border: '1px solid #e0e0e0',
-                    borderRadius: '4px'
+                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                    border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+                    borderRadius: '4px',
+                    color: isDarkMode ? '#e5e5e5' : '#292929'
                   }}
                   formatter={(value, name) => {
                     if (name === 'On Track %') return [`${value.toFixed(1)}%`, 'Daily On Track %'];
@@ -3229,7 +3364,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   }}
                   labelFormatter={(value) => `Date: ${value}`}
                 />
-                <Legend />
+                <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                 <Area 
                   type="monotone" 
                   dataKey="onTrack" 
@@ -3272,23 +3407,24 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     <stop offset="95%" stopColor="#fbbf24" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                 <XAxis 
                   dataKey="displayLabel" 
-                  stroke="#666"
-                  tick={{ fill: '#666', fontSize: 11 }}
+                  stroke={isDarkMode ? '#ffffff' : '#666'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
                 />
                 <YAxis 
-                  stroke="#666"
-                  tick={{ fill: '#666', fontSize: 11 }}
+                  stroke={isDarkMode ? '#ffffff' : '#666'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
                   domain={[0, 'auto']}
-                  label={{ value: 'Wait Rate %', angle: -90, position: 'insideLeft', fill: '#666' }}
+                  label={{ value: 'Wait Rate %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#666' }}
                 />
                 <Tooltip 
                   contentStyle={{ 
-                    backgroundColor: 'white', 
-                    border: '1px solid #e0e0e0',
-                    borderRadius: '4px'
+                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                    border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+                    borderRadius: '4px',
+                    color: isDarkMode ? '#e5e5e5' : '#292929'
                   }}
                   formatter={(value, name) => {
                     if (name === '5+ Min Wait %') return [`${value.toFixed(1)}%`, 'Daily 5+ Min Wait %'];
@@ -3297,7 +3433,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   }}
                   labelFormatter={(value) => `Date: ${value}`}
                 />
-                <Legend />
+                <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                 <Area 
                   type="monotone" 
                   dataKey="percentage5Plus" 
@@ -3335,34 +3471,39 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             </div>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={onTrackAndResponseTrendData} margin={{ top: 30, right: 50, left: 50, bottom: 60 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                 <XAxis 
                   dataKey="displayLabel"
-                  stroke="#666"
-                  tick={{ fill: '#666', fontSize: 11 }}
+                  stroke={isDarkMode ? '#ffffff' : '#666'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
                   angle={-45}
                   textAnchor="end"
                   height={80}
                 />
                 <YAxis 
                   yAxisId="left"
-                  stroke="#666"
-                  tick={{ fill: '#666', fontSize: 11 }}
+                  stroke={isDarkMode ? '#ffffff' : '#666'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
                   domain={[0, 100]}
-                  label={{ value: 'On Track %', angle: -90, position: 'left', fill: '#666', offset: 10 }}
+                  label={{ value: 'On Track %', angle: -90, position: 'left', fill: isDarkMode ? '#ffffff' : '#666', offset: 10 }}
                   tickFormatter={(value) => value.toFixed(0)}
                 />
                 <YAxis 
                   yAxisId="right"
                   orientation="right"
-                  stroke="#666"
-                  tick={{ fill: '#666', fontSize: 11 }}
+                  stroke={isDarkMode ? '#ffffff' : '#666'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
                   domain={[0, 'dataMax + 5']}
-                  label={{ value: 'Slow Response Rate %', angle: 90, position: 'right', fill: '#666', offset: 10 }}
+                  label={{ value: 'Slow Response Rate %', angle: 90, position: 'right', fill: isDarkMode ? '#ffffff' : '#666', offset: 10 }}
                   tickFormatter={(value) => value.toFixed(1)}
                 />
                 <Tooltip 
-                  contentStyle={{ backgroundColor: 'white', border: '1px solid #35a1b4', borderRadius: '4px' }}
+                  contentStyle={{ 
+                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                    borderRadius: '4px',
+                    color: isDarkMode ? '#e5e5e5' : '#292929'
+                  }}
                   formatter={(value, name) => {
                     if (name === 'onTrack') return [`${value.toFixed(2)}%`, 'On Track'];
                     if (name === 'slowResponsePct') return [`${value.toFixed(2)}%`, 'Slow Response Rate'];
@@ -3373,7 +3514,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     return value;
                   }}
                 />
-                <Legend />
+                <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                 <Line 
                   yAxisId="left"
                   type="monotone" 
@@ -3398,6 +3539,327 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         )}
       </div>
 
+      <div className="trend-card aging-card">
+        <div className="trend-header">
+          <h4>Conversation Aging (Open + Snoozed)</h4>
+          <span className="trend-period">Current backlog</span>
+        </div>
+        {agingChartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={agingChartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+              <XAxis dataKey="bucket" stroke={isDarkMode ? '#ffffff' : '#666'} tick={{ fontSize: 11, fill: isDarkMode ? '#ffffff' : '#666' }} />
+              <YAxis allowDecimals={false} stroke={isDarkMode ? '#ffffff' : '#666'} tick={{ fontSize: 11, fill: isDarkMode ? '#ffffff' : '#666' }} />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                  border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`, 
+                  borderRadius: '4px',
+                  color: isDarkMode ? '#e5e5e5' : '#292929'
+                }}
+              />
+              <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
+              <Bar dataKey="open" stackId="aging" fill="#35a1b4" name="Open" />
+              <Bar dataKey="waitingOnCustomerResolved" stackId="aging" fill="#4cec8c" name="Waiting on Customer - Resolved" />
+              <Bar dataKey="waitingOnCustomerUnresolved" stackId="aging" fill="#9333ea" name="Waiting on Customer - Unresolved" />
+              <Bar dataKey="waitingOnTse" stackId="aging" fill="#fbbf24" name="Waiting on TSE - Deep Dive" />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="chart-placeholder">
+            <p>No active conversations available</p>
+            <span>Open and snoozed chats will appear here</span>
+          </div>
+        )}
+      </div>
+
+      {isWaitRateModalOpen && (
+        <div className="modal-overlay" onClick={() => {
+          setIsWaitRateModalOpen(false);
+          setSelectedHour(null); // Reset filter when closing modal
+          setShowAllResponders(false); // Reset show all states
+          setShowAllWaits(false);
+        }}>
+          <div className="modal-content wait-rate-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header wait-rate-modal-header">
+              <div>
+                <h3>Wait Rate Drilldown</h3>
+                <span className="modal-subtitle">5+ min waits • Most recent day</span>
+              </div>
+              <button className="modal-close-button" onClick={() => setIsWaitRateModalOpen(false)}>×</button>
+            </div>
+            <div className="modal-body wait-rate-modal-body">
+              {waitRateDrilldown.conversations.length === 0 ? (
+                <div className="modal-empty-state">No 5+ minute wait conversations available.</div>
+              ) : (() => {
+                // Filter conversations by selected hour
+                const filteredConversations = selectedHour !== null
+                  ? waitRateDrilldown.conversations.filter(conv => conv.hour === selectedHour)
+                  : waitRateDrilldown.conversations;
+
+                // Recalculate assignees based on filtered conversations
+                const filteredAssigneeCounts = {};
+                filteredConversations.forEach(conv => {
+                  filteredAssigneeCounts[conv.assigneeName] = (filteredAssigneeCounts[conv.assigneeName] || 0) + 1;
+                });
+                const filteredAssignees = Object.entries(filteredAssigneeCounts)
+                  .map(([name, count]) => ({ name, count }))
+                  .sort((a, b) => b.count - a.count);
+
+                // Group conversations by responder for filtered view
+                const conversationsByResponder = {};
+                filteredConversations.forEach(conv => {
+                  if (!conversationsByResponder[conv.assigneeName]) {
+                    conversationsByResponder[conv.assigneeName] = [];
+                  }
+                  conversationsByResponder[conv.assigneeName].push(conv);
+                });
+
+                // Sort conversations within each responder group by wait time
+                Object.keys(conversationsByResponder).forEach(responder => {
+                  conversationsByResponder[responder].sort((a, b) => b.waitTimeMinutes - a.waitTimeMinutes);
+                });
+
+                const selectedHourLabel = selectedHour !== null 
+                  ? waitRateDrilldown.hourly.find(h => h.hour === selectedHour)?.label || `${selectedHour}h`
+                  : null;
+
+                return (
+                  <>
+                    {selectedHour !== null && (
+                      <div style={{ marginBottom: '16px', padding: '12px', background: isDarkMode ? 'rgba(53, 161, 180, 0.1)' : 'rgba(53, 161, 180, 0.05)', borderRadius: '8px', border: `1px solid ${isDarkMode ? 'rgba(53, 161, 180, 0.3)' : 'rgba(53, 161, 180, 0.2)'}` }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ color: isDarkMode ? '#ffffff' : '#292929', fontWeight: 600 }}>
+                            Filtered to {selectedHourLabel} ({filteredConversations.length} conversation{filteredConversations.length !== 1 ? 's' : ''})
+                          </span>
+                          <button 
+                            onClick={() => setSelectedHour(null)}
+                            style={{
+                              padding: '6px 12px',
+                              background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#f0f0f0',
+                              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.2)' : '#ddd'}`,
+                              borderRadius: '4px',
+                              color: isDarkMode ? '#ffffff' : '#292929',
+                              cursor: 'pointer',
+                              fontSize: '12px'
+                            }}
+                          >
+                            Clear Filter
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="wait-rate-summary">
+                      <div className="wait-rate-summary-item">
+                        <div className="summary-label">Total 5+ min waits</div>
+                        <div className="summary-value">{filteredConversations.length}</div>
+                      </div>
+                      <div className="wait-rate-summary-item">
+                        <div className="summary-label">Avg wait (minutes)</div>
+                        <div className="summary-value">
+                          {filteredConversations.length > 0 ? Math.round(
+                            (filteredConversations.reduce((sum, conv) => sum + (conv.waitTimeMinutes || 0), 0) /
+                              filteredConversations.length) * 10
+                          ) / 10 : 0}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="wait-rate-chart">
+                      <h4>Waits by Hour (PT)</h4>
+                      <p style={{ 
+                        fontSize: '13px', 
+                        color: isDarkMode ? '#b0b0b0' : '#666', 
+                        marginTop: '4px', 
+                        marginBottom: '12px',
+                        fontStyle: 'italic'
+                      }}>
+                        Click on any hour bar below to filter conversations by that hour
+                      </p>
+                      <ResponsiveContainer width="100%" height={220}>
+                      <BarChart 
+                        data={waitRateDrilldown.hourly}
+                        onClick={(data) => {
+                          if (data && data.activeLabel) {
+                            const clickedHourData = waitRateDrilldown.hourly.find(h => h.label === data.activeLabel);
+                            if (clickedHourData) {
+                              setSelectedHour(clickedHourData.hour === selectedHour ? null : clickedHourData.hour);
+                            }
+                          }
+                        }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+                        <XAxis 
+                          dataKey="label" 
+                          tick={{ fontSize: 11, fill: isDarkMode ? '#ffffff' : '#666' }} 
+                        />
+                        <YAxis 
+                          allowDecimals={false} 
+                          tick={{ fontSize: 11, fill: isDarkMode ? '#ffffff' : '#666' }} 
+                        />
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: isDarkMode ? '#1e1e1e' : 'white',
+                            border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`,
+                            borderRadius: '4px',
+                            color: isDarkMode ? '#e5e5e5' : '#292929'
+                          }}
+                        />
+                        <Bar 
+                          dataKey="count" 
+                          fill="#35a1b4" 
+                          radius={[4, 4, 0, 0]}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {selectedHour !== null ? (
+                      // Show grouped by responder when filtered
+                      <div className="wait-rate-columns" style={{ gridTemplateColumns: '1fr' }}>
+                        <div className="wait-rate-column">
+                          <h4>Conversations by Responder ({selectedHourLabel})</h4>
+                          {filteredAssignees.length === 0 ? (
+                            <p style={{ color: isDarkMode ? '#b0b0b0' : '#666', fontSize: '14px', margin: '16px 0' }}>No conversations found for this hour.</p>
+                          ) : (
+                            filteredAssignees.map(responder => (
+                              <div key={responder.name} style={{ marginBottom: '24px' }}>
+                                <h5 style={{ 
+                                  margin: '0 0 12px 0', 
+                                  fontSize: '14px', 
+                                  fontWeight: 600,
+                                  color: isDarkMode ? '#ffffff' : '#292929',
+                                  paddingBottom: '8px',
+                                  borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#e0e0e0'}`
+                                }}>
+                                  {responder.name} ({responder.count})
+                                </h5>
+                                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                                  {conversationsByResponder[responder.name].map(item => (
+                                    <li key={item.id} style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '8px 10px',
+                                      borderRadius: '6px',
+                                      background: isDarkMode ? 'var(--bg-card)' : '#f9f9f9',
+                                      border: `1px solid ${isDarkMode ? 'var(--border-primary)' : '#e0e0e0'}`,
+                                      fontSize: '12px',
+                                      color: isDarkMode ? '#ffffff' : '#292929',
+                                      marginBottom: '6px'
+                                    }}>
+                                      <a 
+                                        href={`${INTERCOM_BASE_URL}${item.id}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        style={{
+                                          color: '#35a1b4',
+                                          textDecoration: 'none',
+                                          fontWeight: 600
+                                        }}
+                                        onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                                        onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                                      >
+                                        {item.id}
+                                      </a>
+                                      <span>{item.waitTimeMinutes} min</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      // Show original view when not filtered
+                      <div className="wait-rate-columns">
+                        <div className="wait-rate-column">
+                          <h4>Top Responders</h4>
+                          <ul>
+                            {(showAllResponders ? waitRateDrilldown.assignees : waitRateDrilldown.assignees.slice(0, 5)).map(item => (
+                              <li key={item.name}>
+                                <span>{item.name}</span>
+                                <span>{item.count}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          {waitRateDrilldown.assignees.length > 5 && !showAllResponders && (
+                            <button
+                              onClick={() => setShowAllResponders(true)}
+                              style={{
+                                marginTop: '12px',
+                                padding: '8px 16px',
+                                background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#f0f0f0',
+                                border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.2)' : '#ddd'}`,
+                                borderRadius: '4px',
+                                color: isDarkMode ? '#ffffff' : '#292929',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: 500,
+                                width: '100%'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.15)' : '#e0e0e0';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#f0f0f0';
+                              }}
+                            >
+                              Load More ({waitRateDrilldown.assignees.length - 5} more)
+                            </button>
+                          )}
+                        </div>
+                        <div className="wait-rate-column">
+                          <h4>Longest Waits</h4>
+                          <ul>
+                            {(showAllWaits ? waitRateDrilldown.conversations : waitRateDrilldown.conversations.slice(0, 5)).map(item => (
+                              <li key={item.id}>
+                                <a href={`${INTERCOM_BASE_URL}${item.id}`} target="_blank" rel="noopener noreferrer">
+                                  {item.id}
+                                </a>
+                                <span>{item.waitTimeMinutes} min</span>
+                              </li>
+                            ))}
+                          </ul>
+                          {waitRateDrilldown.conversations.length > 5 && !showAllWaits && (
+                            <button
+                              onClick={() => setShowAllWaits(true)}
+                              style={{
+                                marginTop: '12px',
+                                padding: '8px 16px',
+                                background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#f0f0f0',
+                                border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.2)' : '#ddd'}`,
+                                borderRadius: '4px',
+                                color: isDarkMode ? '#ffffff' : '#292929',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: 500,
+                                width: '100%'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.15)' : '#e0e0e0';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#f0f0f0';
+                              }}
+                            >
+                              Load More ({waitRateDrilldown.conversations.length - 5} more)
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -3417,6 +3879,7 @@ function MetricCard({ title, value, target, status = "info" }) {
 
 // TSE Details Modal Component
 function TSEDetailsModal({ tse, conversations, onClose }) {
+  const { isDarkMode } = useTheme();
   const [clickedTooltip, setClickedTooltip] = useState(null);
   const { open, waitingOnTSE, waitingOnCustomer, totalSnoozed } = conversations;
   const avatarUrl = getTSEAvatar(tse.name);
@@ -3505,7 +3968,10 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
           return (
             <div key={convId || idx} className="modal-conversation-item">
               <img 
-                src="https://res.cloudinary.com/doznvxtja/image/upload/v1767370490/Untitled_design_14_wkkhe3.svg"
+                src={isDarkMode 
+                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768727228/3_150_x_150_px_17_btkr0t.svg"
+                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1767370490/Untitled_design_14_wkkhe3.svg"
+                }
                 alt="Intercom"
                 className="modal-conv-icon"
               />
@@ -3637,7 +4103,7 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
                               <div className="tooltip-metric">
                                 <strong>Missing Tags:</strong> {totalSnoozedCount - (totalWaitingOnTSECount + totalWaitingOnCustomerCount)}
                               </div>
-                              <div className="tooltip-note" style={{ marginTop: '8px', padding: '8px', backgroundColor: '#fff9e6', borderRadius: '4px', fontSize: '12px', color: '#856404' }}>
+                              <div className="tooltip-note" style={{ marginTop: '8px', padding: '8px', backgroundColor: isDarkMode ? '#3a3a3a' : '#fff9e6', borderRadius: '4px', fontSize: '12px', color: isDarkMode ? '#fbbf24' : '#856404' }}>
                                 Please tag all snoozed conversations with one of: Waiting On TSE, Waiting On Customer - Resolved, or Waiting On Customer - Unresolved.
                               </div>
                             </>
@@ -3720,6 +4186,7 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
           </div>
         </div>
       </div>
+
     </div>
   );
 }
@@ -4028,7 +4495,7 @@ function ConversationTable({ conversations }) {
                   {updatedDateUTC || "-"}
                 </td>
                 <td style={{ width: columnWidths.assigned }}>{assigneeName}</td>
-                <td style={{ width: columnWidths.state }}>
+                <td className="state-cell" style={{ width: columnWidths.state }}>
                   {conv.state === 'snoozed' && conv.snoozedUntilDate ? (
                     <span style={{ 
                       textTransform: 'capitalize',
@@ -4040,8 +4507,7 @@ function ConversationTable({ conversations }) {
                   ) : (
                     <span style={{ 
                       textTransform: 'capitalize',
-                      fontWeight: 400,
-                      color: '#292929'
+                      fontWeight: 400
                     }}>
                       {conv.state || "open"}
                     </span>
@@ -4060,6 +4526,7 @@ function ConversationTable({ conversations }) {
 
 // Help Modal Component
 function HelpModal({ onClose }) {
+  const { isDarkMode } = useTheme();
   const scrollToSection = (sectionId) => {
     const element = document.getElementById(sectionId);
     if (element) {
@@ -4463,7 +4930,11 @@ function HelpModal({ onClose }) {
                   UK
                 </span>, 
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', margin: '0 4px' }}>
-                  <img src={REGION_ICONS['NY']} alt="NY" style={{ width: '16px', height: '16px', verticalAlign: 'middle' }} />
+                  <img 
+                    src={isDarkMode ? 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg' : REGION_ICONS['NY']} 
+                    alt="NY" 
+                    style={{ width: '16px', height: '16px', verticalAlign: 'middle' }} 
+                  />
                   NY
                 </span>, 
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', margin: '0 4px' }}>

@@ -83,9 +83,11 @@ export default async function handler(req, res) {
           timestamp TIMESTAMP NOT NULL,
           date VARCHAR(10) NOT NULL,
           count_5_plus_min INTEGER NOT NULL DEFAULT 0,
+          count_5_to_10_min INTEGER NOT NULL DEFAULT 0,
           count_10_plus_min INTEGER NOT NULL,
           total_conversations INTEGER NOT NULL,
           percentage_5_plus_min DECIMAL(5,2) NOT NULL DEFAULT 0,
+          percentage_5_to_10_min DECIMAL(5,2) NOT NULL DEFAULT 0,
           percentage_10_plus_min DECIMAL(5,2) NOT NULL,
           conversation_ids_5_plus_min JSONB,
           conversation_ids_10_plus_min JSONB,
@@ -101,27 +103,27 @@ export default async function handler(req, res) {
       // If all=true, return all records regardless of date filters
       if (all === 'true') {
         result = await db.query(`
-          SELECT timestamp, date, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
+          SELECT timestamp, date, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
           FROM response_time_metrics
           ORDER BY date DESC, timestamp DESC
         `);
       } else if (startDate && endDate) {
         result = await db.query(`
-          SELECT timestamp, date, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
+          SELECT timestamp, date, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
           FROM response_time_metrics
           WHERE date >= $1 AND date <= $2
           ORDER BY timestamp ASC
         `, [startDate, endDate]);
       } else if (startDate) {
         result = await db.query(`
-          SELECT timestamp, date, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
+          SELECT timestamp, date, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
           FROM response_time_metrics
           WHERE date >= $1
           ORDER BY timestamp ASC
         `, [startDate]);
       } else if (endDate) {
         result = await db.query(`
-          SELECT timestamp, date, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
+          SELECT timestamp, date, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
           FROM response_time_metrics
           WHERE date <= $1
           ORDER BY timestamp ASC
@@ -133,7 +135,7 @@ export default async function handler(req, res) {
         const startDateStr = sevenDaysAgo.toISOString().slice(0, 10);
         
         result = await db.query(`
-          SELECT timestamp, date, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
+          SELECT timestamp, date, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
           FROM response_time_metrics
           WHERE date >= $1
           ORDER BY timestamp ASC
@@ -144,9 +146,11 @@ export default async function handler(req, res) {
         timestamp: row.timestamp,
         date: row.date,
         count5PlusMin: parseInt(row.count_5_plus_min) || 0,
+        count5to10Min: parseInt(row.count_5_to_10_min) || 0,
         count10PlusMin: parseInt(row.count_10_plus_min) || 0,
         totalConversations: parseInt(row.total_conversations) || 0,
         percentage5PlusMin: parseFloat(row.percentage_5_plus_min) || 0,
+        percentage5to10Min: parseFloat(row.percentage_5_to_10_min) || 0,
         percentage10PlusMin: parseFloat(row.percentage_10_plus_min) || 0,
         conversationIds5PlusMin: row.conversation_ids_5_plus_min || [],
         conversationIds10PlusMin: row.conversation_ids_10_plus_min || []

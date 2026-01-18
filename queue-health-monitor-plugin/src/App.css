@@ -7,6 +7,9 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .header {
@@ -17,30 +20,32 @@
   margin: 0 0 8px 0;
   font-size: 16px;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 .summary {
   margin-bottom: 8px;
-  color: #666;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .refresh-button {
-  background-color: #35a1b4;
+  background-color: var(--bg-button-primary);
   color: white;
   border: none;
   padding: 8px 16px;
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
+  transition: background-color 0.2s;
 }
 
 .refresh-button:hover {
-  background-color: #2a7f8f;
+  background-color: var(--bg-button-primary-hover);
 }
 
 .refresh-button:active {
-  background-color: #1f5f6b;
+  background-color: var(--bg-button-primary-hover);
 }
 
 .loading,
@@ -48,55 +53,62 @@
   padding: 20px;
   text-align: center;
   font-size: 14px;
+  color: var(--text-primary);
 }
 
 .error {
-  color: #fd8789;
+  color: var(--accent-error);
 }
 
 .table-container {
   flex: 1;
   overflow: auto;
-  border: 1px solid #35a1b4;
+  border: 1px solid var(--border-accent);
   border-radius: 4px;
+  transition: border-color 0.3s ease;
 }
 
 .conversations-table {
   border-collapse: collapse;
   width: 100%;
   font-size: 11px;
-  background-color: white;
+  background-color: var(--bg-secondary);
+  transition: background-color 0.3s ease;
 }
 
 .conversations-table thead {
-  background-color: #a8e8f3;
+  background-color: #e2e2e2;
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
+.dark-mode .conversations-table thead {
+  background-color: #3a3a3a;
+}
+
 .conversations-table th {
-  border-bottom: 2px solid #35a1b4;
+  border-bottom: 2px solid var(--border-accent);
   text-align: left;
   padding: 8px;
   font-weight: 600;
-  color: #292929;
+  color: #35a1b4 !important;
 }
 
 .conversations-table td {
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-primary);
   padding: 6px 8px;
-  color: #292929;
+  color: var(--text-primary);
 }
 
 .conversations-table tbody tr:hover {
-  background-color: #f0f0f0;
+  background-color: var(--bg-hover);
 }
 
 .id-cell {
   font-family: 'Courier New', monospace;
   font-size: 10px;
-  color: #292929;
+  color: var(--text-primary);
 }
 
 .title-cell {

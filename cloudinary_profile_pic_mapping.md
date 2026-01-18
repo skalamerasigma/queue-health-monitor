@@ -32,7 +32,7 @@
 | Bhavana | `https://res.cloudinary.com/doznvxtja/image/upload/v1765318568/Untitled_design_21_kuwvcw.svg` |
 | Grania | `https://res.cloudinary.com/doznvxtja/image/upload/v1765232388/21_tjy6io.svg` |
 | Soheli | `https://res.cloudinary.com/doznvxtja/image/upload/v1765318474/Untitled_design_20_zsho0q.svg` |
-| Hayden | `https://res.cloudinary.com/doznvxtja/image/upload/v1765311038/Untitled_design_18_uze5nk.svg` |
+| Hayden | `https://static.intercomassets.com/avatars/8411107/square_128/IMG_4063-1748968966.JPG` |
 | Roshini | `https://res.cloudinary.com/doznvxtja/image/upload/v1765311036/Untitled_design_19_ls5fat.svg` |
 | Abhijeet | `https://res.cloudinary.com/doznvxtja/image/upload/v1765310522/Untitled_design_16_jffaql.svg` |
 | Ratna | `https://res.cloudinary.com/doznvxtja/image/upload/v1765311039/Untitled_design_17_lchaky.svg` |

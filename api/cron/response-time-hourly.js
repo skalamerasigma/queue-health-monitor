@@ -194,7 +194,11 @@ export default async function handler(req, res) {
             conversations5PlusMin.push({
               id: conv.id,
               waitTimeSeconds: waitTimeSeconds,
-              waitTimeMinutes: Math.round(waitTimeSeconds / 60 * 100) / 100 // Round to 2 decimal places
+              waitTimeMinutes: Math.round(waitTimeSeconds / 60 * 100) / 100,
+              createdAt: createdAt || null,
+              firstAdminReplyAt: firstAdminReplyAt || null,
+              adminAssigneeId: conv.admin_assignee?.id || null,
+              adminAssigneeName: conv.admin_assignee?.name || null
             });
           }
         }
@@ -206,7 +210,11 @@ export default async function handler(req, res) {
             conversations10PlusMin.push({
               id: conv.id,
               waitTimeSeconds: waitTimeSeconds,
-              waitTimeMinutes: Math.round(waitTimeSeconds / 60 * 100) / 100 // Round to 2 decimal places
+              waitTimeMinutes: Math.round(waitTimeSeconds / 60 * 100) / 100,
+              createdAt: createdAt || null,
+              firstAdminReplyAt: firstAdminReplyAt || null,
+              adminAssigneeId: conv.admin_assignee?.id || null,
+              adminAssigneeName: conv.admin_assignee?.name || null
             });
           }
         }
@@ -221,6 +229,14 @@ export default async function handler(req, res) {
       ? (count10PlusMin / totalWithResponse) * 100 
       : 0;
 
+    // Calculate count for 5-10 minute range (subset of 5+ min)
+    const count5to10Min = count5PlusMin - count10PlusMin;
+    
+    // Calculate percentage for 5-10 minute range (out of total with response)
+    const percentage5to10Min = totalWithResponse > 0 
+      ? (count5to10Min / totalWithResponse) * 100 
+      : 0;
+
     // Create metric record - use the UTC date we calculated
     const date = dateStr; // Format: YYYY-MM-DD (UTC date, one entry per day)
 
@@ -228,10 +244,12 @@ export default async function handler(req, res) {
       timestamp: now.toISOString(),
       date,
       count5PlusMin,
+      count5to10Min,
       count10PlusMin,
       totalConversations: conversationsToday.length, // Only count conversations created today
       totalWithResponse,
       percentage5PlusMin: Math.round(percentage5PlusMin * 100) / 100,
+      percentage5to10Min: Math.round(percentage5to10Min * 100) / 100,
       percentage10PlusMin: Math.round(percentage10PlusMin * 100) / 100,
       conversationIds5PlusMin: conversations5PlusMin, // Store IDs for expandable table
       conversationIds10PlusMin: conversations10PlusMin // Store IDs for expandable table
@@ -246,9 +264,11 @@ export default async function handler(req, res) {
         timestamp TIMESTAMP NOT NULL,
         date VARCHAR(10) NOT NULL,
         count_5_plus_min INTEGER NOT NULL DEFAULT 0,
+        count_5_to_10_min INTEGER NOT NULL DEFAULT 0,
         count_10_plus_min INTEGER NOT NULL,
         total_conversations INTEGER NOT NULL,
         percentage_5_plus_min DECIMAL(5,2) NOT NULL DEFAULT 0,
+        percentage_5_to_10_min DECIMAL(5,2) NOT NULL DEFAULT 0,
         percentage_10_plus_min DECIMAL(5,2) NOT NULL,
         conversation_ids_5_plus_min JSONB,
         conversation_ids_10_plus_min JSONB,
@@ -292,6 +312,56 @@ export default async function handler(req, res) {
         ADD COLUMN IF NOT EXISTS conversation_ids_10_plus_min JSONB;
       `);
     } catch (migrationError) {
+      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
+    }
+    
+    // Add count_5_to_10_min column if it doesn't exist (for existing tables)
+    try {
+      console.log('[Migration] Adding count_5_to_10_min column if it doesn\'t exist...');
+      await db.query(`
+        ALTER TABLE response_time_metrics 
+        ADD COLUMN IF NOT EXISTS count_5_to_10_min INTEGER DEFAULT 0;
+      `);
+      
+      // Calculate and populate count_5_to_10_min for existing records
+      console.log('[Migration] Calculating count_5_to_10_min for existing records...');
+      const updateResult = await db.query(`
+        UPDATE response_time_metrics 
+        SET count_5_to_10_min = count_5_plus_min - count_10_plus_min
+        WHERE count_5_to_10_min = 0 OR count_5_to_10_min IS NULL;
+      `);
+      console.log(`[Migration] Updated ${updateResult.rowCount} records with count_5_to_10_min`);
+    } catch (migrationError) {
+      console.error('[Migration] Error adding count_5_to_10_min column:', migrationError);
+      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
+    }
+    
+    // Add percentage_5_to_10_min column if it doesn't exist (for existing tables)
+    try {
+      console.log('[Migration] Adding percentage_5_to_10_min column if it doesn\'t exist...');
+      await db.query(`
+        ALTER TABLE response_time_metrics 
+        ADD COLUMN IF NOT EXISTS percentage_5_to_10_min DECIMAL(5,2) DEFAULT 0;
+      `);
+      
+      // Calculate and populate percentage_5_to_10_min for existing records
+      // Note: We need total_with_response to calculate this, but it's not stored
+      // So we'll calculate it from the percentages we have
+      // percentage_5_to_10_min = (count_5_to_10_min / total_with_response) * 100
+      // We can derive total_with_response from: count_5_plus_min / percentage_5_plus_min * 100
+      console.log('[Migration] Calculating percentage_5_to_10_min for existing records...');
+      const updateResult = await db.query(`
+        UPDATE response_time_metrics 
+        SET percentage_5_to_10_min = CASE 
+          WHEN percentage_5_plus_min > 0 AND count_5_plus_min > 0 
+          THEN ROUND((count_5_to_10_min::DECIMAL / (count_5_plus_min::DECIMAL / percentage_5_plus_min * 100.0)) * 100.0, 2)
+          ELSE 0
+        END
+        WHERE percentage_5_to_10_min = 0 OR percentage_5_to_10_min IS NULL;
+      `);
+      console.log(`[Migration] Updated ${updateResult.rowCount} records with percentage_5_to_10_min`);
+    } catch (migrationError) {
+      console.error('[Migration] Error adding percentage_5_to_10_min column:', migrationError);
       console.warn('Migration warning (may be safe to ignore):', migrationError.message);
     }
 
@@ -435,24 +505,28 @@ export default async function handler(req, res) {
     console.log(`[Response Time Hourly] Saving metric for date: ${metric.date}`, {
       timestamp: metric.timestamp,
       count5PlusMin: metric.count5PlusMin,
+      count5to10Min: metric.count5to10Min,
       count10PlusMin: metric.count10PlusMin,
       totalConversations: metric.totalConversations,
       percentage5PlusMin: metric.percentage5PlusMin,
+      percentage5to10Min: metric.percentage5to10Min,
       percentage10PlusMin: metric.percentage10PlusMin,
       conversationIds5PlusMinCount: metric.conversationIds5PlusMin?.length || 0,
       conversationIds10PlusMinCount: metric.conversationIds10PlusMin?.length || 0
     });
 
     const insertResult = await db.query(`
-      INSERT INTO response_time_metrics (timestamp, date, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO response_time_metrics (timestamp, date, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT (date) 
       DO UPDATE SET 
         timestamp = EXCLUDED.timestamp,
         count_5_plus_min = EXCLUDED.count_5_plus_min,
+        count_5_to_10_min = EXCLUDED.count_5_to_10_min,
         count_10_plus_min = EXCLUDED.count_10_plus_min,
         total_conversations = EXCLUDED.total_conversations,
         percentage_5_plus_min = EXCLUDED.percentage_5_plus_min,
+        percentage_5_to_10_min = EXCLUDED.percentage_5_to_10_min,
         percentage_10_plus_min = EXCLUDED.percentage_10_plus_min,
         conversation_ids_5_plus_min = EXCLUDED.conversation_ids_5_plus_min,
         conversation_ids_10_plus_min = EXCLUDED.conversation_ids_10_plus_min,
@@ -462,9 +536,11 @@ export default async function handler(req, res) {
       metric.timestamp,
       metric.date,
       metric.count5PlusMin,
+      metric.count5to10Min,
       metric.count10PlusMin,
       metric.totalConversations,
       metric.percentage5PlusMin,
+      metric.percentage5to10Min,
       metric.percentage10PlusMin,
       JSON.stringify(metric.conversationIds5PlusMin || []),
       JSON.stringify(metric.conversationIds10PlusMin || [])
@@ -474,7 +550,7 @@ export default async function handler(req, res) {
 
     // Verify the data was actually saved
     const verifyResult = await db.query(`
-      SELECT id, date, timestamp, count_5_plus_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
+      SELECT id, date, timestamp, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
       FROM response_time_metrics
       WHERE date = $1
     `, [metric.date]);
@@ -555,8 +631,17 @@ async function fetchTeamConversationsCreatedToday(authHeader, startSeconds, endS
     
     // Check if search results already have statistics (no need to fetch full details)
     // If statistics are missing, fetch full details only for those conversations
-    const itemsNeedingDetails = filteredItems.filter(item => !item.statistics);
-    const enrichedItems = [...filteredItems.filter(item => item.statistics)]; // Keep items with stats
+    // Also fetch details if admin_assignee is missing or incomplete
+    const itemsNeedingDetails = filteredItems.filter(item => 
+      !item.statistics || 
+      !item.admin_assignee || 
+      (item.admin_assignee_id && (!item.admin_assignee.name))
+    );
+    const enrichedItems = filteredItems.filter(item => 
+      item.statistics && 
+      item.admin_assignee && 
+      (!item.admin_assignee_id || item.admin_assignee.name)
+    ); // Keep items with stats and complete admin_assignee
     
     // Only fetch details for conversations missing statistics
     if (itemsNeedingDetails.length > 0) {
@@ -574,7 +659,28 @@ async function fetchTeamConversationsCreatedToday(authHeader, startSeconds, endS
             });
             
             if (convResp.ok) {
-              return await convResp.json();
+              const fullConv = await convResp.json();
+              
+              // Enrich admin_assignee if we have admin_assignee_id but no admin_assignee object with name
+              if (fullConv.admin_assignee_id && (!fullConv.admin_assignee || !fullConv.admin_assignee.name)) {
+                try {
+                  const adminResp = await fetch(`${INTERCOM_BASE_URL}/admins/${fullConv.admin_assignee_id}`, {
+                    headers: {
+                      "Authorization": authHeader,
+                      "Accept": "application/json",
+                      "Intercom-Version": "2.10"
+                    }
+                  });
+                  if (adminResp.ok) {
+                    const adminData = await adminResp.json();
+                    fullConv.admin_assignee = adminData;
+                  }
+                } catch (err) {
+                  console.warn(`Failed to fetch admin ${fullConv.admin_assignee_id} for conversation ${item.id}:`, err.message);
+                }
+              }
+              
+              return fullConv;
             }
           } catch (err) {
             console.warn(`Failed to fetch details for conversation ${item.id}:`, err.message);
