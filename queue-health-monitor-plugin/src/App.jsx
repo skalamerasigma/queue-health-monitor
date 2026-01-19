@@ -97,6 +97,35 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
   const [historicalSnapshots, setHistoricalSnapshots] = useState([]);
   const [responseTimeMetrics, setResponseTimeMetrics] = useState([]);
 
+  // Suppress Intercom launcher warnings (coming from Intercom app, not our code)
+  useEffect(() => {
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    
+    console.warn = (...args) => {
+      const message = args.join(' ');
+      // Suppress Intercom launcher warnings
+      if (message.includes('Launcher is disabled') || (message.includes('Intercom') && message.includes('Launcher'))) {
+        return;
+      }
+      originalWarn.apply(console, args);
+    };
+    
+    console.error = (...args) => {
+      const message = args.join(' ');
+      // Suppress Intercom launcher errors
+      if (message.includes('Launcher is disabled') || (message.includes('Intercom') && message.includes('Launcher'))) {
+        return;
+      }
+      originalError.apply(console, args);
+    };
+    
+    return () => {
+      console.warn = originalWarn;
+      console.error = originalError;
+    };
+  }, []);
+
   async function fetchData(showLoading = true) {
     if (showLoading) {
     setLoading(true);
@@ -118,11 +147,12 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
       console.log('App: Fetch started at:', new Date().toISOString());
       
       // Add timeout to detect hanging requests (only in production to avoid hot reload issues)
+      // Increased to 120 seconds to accommodate longer API response times
       if (process.env.NODE_ENV === 'production') {
         timeoutId = setTimeout(() => {
           controller.abort();
-          console.error('App: Fetch timeout after 30 seconds');
-        }, 30000);
+          console.error('App: Fetch timeout after 120 seconds');
+        }, 120000);
       }
       
       // Only use abort signal in production (avoid hot reload abort issues in dev)

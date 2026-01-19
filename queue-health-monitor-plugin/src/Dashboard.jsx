@@ -3543,6 +3543,14 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         const correlationStrength = Math.abs(correlation) < 0.3 ? 'weak' : Math.abs(correlation) < 0.7 ? 'moderate' : 'strong';
         const correlationDirection = correlation < 0 ? 'negative' : 'positive';
         
+        // Add Overall Impact insight (always include if correlation data is available)
+        const overallImpact = correlationStrength;
+        const isGoodCorrelation = correlationDirection === 'negative';
+        insights.push({
+          type: isGoodCorrelation ? 'positive' : 'warning',
+          text: `Overall Impact: On-track performance has a ${overallImpact} impact on response times${isGoodCorrelation ? ' (higher on-track = lower wait times)' : ' (concerning pattern)'}`
+        });
+        
         // Add correlation insight
         if (Math.abs(correlation) >= 0.3) {
           insights.push({
@@ -3562,7 +3570,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       }
     }
     
-    return insights.slice(0, 4); // Limit to top 4 insights
+    return insights.slice(0, 5); // Limit to top 5 insights (includes Overall Impact)
   }, [metrics.onTrackOverall, currentResponseTimePct10Plus, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, improvementPotential, historicalSnapshots, responseTimeMetrics]);
 
   // Calculate Region Performance Summary

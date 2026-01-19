@@ -1190,11 +1190,13 @@
 }
 
 .sortable-header:hover {
-  background-color:#292929 !important;  
+  background-color: #7dd8e8 !important;  
+  color: #292929 !important;
 }
 
 .dark-mode .sortable-header:hover {
   background-color: var(--bg-hover) !important;
+  color: #ffffff !important;
 }
 
 .sort-indicator {
