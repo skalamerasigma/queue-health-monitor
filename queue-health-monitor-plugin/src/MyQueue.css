@@ -230,9 +230,19 @@
 /* Metrics Grid */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  grid-auto-rows: auto;
   gap: 10px;
   margin-bottom: 30px;
+  width: 100%;
+  max-width: 100%;
+  grid-auto-flow: row;
+}
+
+@media (min-width: 1400px) {
+  .metrics-grid {
+    grid-template-columns: repeat(4, calc((100% - 30px) / 4));
+  }
 }
 
 .metric-card {
@@ -243,6 +253,12 @@
   border: 2px solid transparent;
   transition: all 0.2s, background-color 0.3s ease;
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  word-wrap: break-word;
+  grid-column: span 1;
 }
 
 .dark-mode .metric-card {
@@ -258,12 +274,197 @@
   background-color: rgba(253, 135, 137, 0.15);
 }
 
+/* Colored metric cards */
+.metric-card-status.status-on-track {
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+  border-color: #28a745;
+}
+
+.dark-mode .metric-card-status.status-on-track {
+  background: linear-gradient(135deg, rgba(40, 167, 69, 0.2) 0%, rgba(40, 167, 69, 0.15) 100%);
+  border-color: #28a745;
+}
+
+.metric-card-status.status-over-limit {
+  background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+  border-color: #dc3545;
+}
+
+.dark-mode .metric-card-status.status-over-limit {
+  background: linear-gradient(135deg, rgba(220, 53, 69, 0.2) 0%, rgba(220, 53, 69, 0.15) 100%);
+  border-color: #dc3545;
+}
+
+.metric-card-open {
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  border-color: #2196f3;
+}
+
+.dark-mode .metric-card-open {
+  background: linear-gradient(135deg, rgba(33, 150, 243, 0.2) 0%, rgba(33, 150, 243, 0.15) 100%);
+  border-color: #2196f3;
+}
+
+.metric-card-waiting-tse {
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+  border-color: #ff9800;
+}
+
+.dark-mode .metric-card-waiting-tse {
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.2) 0%, rgba(255, 152, 0, 0.15) 100%);
+  border-color: #ff9800;
+}
+
+.metric-card-waiting-resolved {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  border-color: #4caf50;
+}
+
+.dark-mode .metric-card-waiting-resolved {
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.2) 0%, rgba(76, 175, 80, 0.15) 100%);
+  border-color: #4caf50;
+}
+
+.metric-card-waiting-unresolved {
+  background: linear-gradient(135deg, #fff9c4 0%, #fff59d 100%);
+  border-color: #fbc02d;
+}
+
+.dark-mode .metric-card-waiting-unresolved {
+  background: linear-gradient(135deg, rgba(251, 192, 45, 0.2) 0%, rgba(251, 192, 45, 0.15) 100%);
+  border-color: #fbc02d;
+}
+
+.metric-card-snoozed {
+  background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
+  border-color: #9c27b0;
+}
+
+.dark-mode .metric-card-snoozed {
+  background: linear-gradient(135deg, rgba(156, 39, 176, 0.2) 0%, rgba(156, 39, 176, 0.15) 100%);
+  border-color: #9c27b0;
+}
+
+.metric-card-taken {
+  background: linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%);
+  border-color: #009688;
+}
+
+.dark-mode .metric-card-taken {
+  background: linear-gradient(135deg, rgba(0, 150, 136, 0.2) 0%, rgba(0, 150, 136, 0.15) 100%);
+  border-color: #009688;
+}
+
+.metric-card-auto-closed {
+  background: linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 100%);
+  border-color: #00bcd4;
+}
+
+.dark-mode .metric-card-auto-closed {
+  background: linear-gradient(135deg, rgba(0, 188, 212, 0.2) 0%, rgba(0, 188, 212, 0.15) 100%);
+  border-color: #00bcd4;
+}
+
+/* Update text colors for colored cards */
+.metric-card-status.status-on-track .metric-value,
+.metric-card-status.status-on-track .metric-label {
+  color: #155724;
+}
+
+.dark-mode .metric-card-status.status-on-track .metric-value,
+.dark-mode .metric-card-status.status-on-track .metric-label {
+  color: #4cec8c;
+}
+
+.metric-card-status.status-over-limit .metric-value,
+.metric-card-status.status-over-limit .metric-label {
+  color: #721c24;
+}
+
+.dark-mode .metric-card-status.status-over-limit .metric-value,
+.dark-mode .metric-card-status.status-over-limit .metric-label {
+  color: #fd8789;
+}
+
+.metric-card-open .metric-value,
+.metric-card-open .metric-label {
+  color: #0d47a1;
+}
+
+.dark-mode .metric-card-open .metric-value,
+.dark-mode .metric-card-open .metric-label {
+  color: #64b5f6;
+}
+
+.metric-card-waiting-tse .metric-value,
+.metric-card-waiting-tse .metric-label {
+  color: #e65100;
+}
+
+.dark-mode .metric-card-waiting-tse .metric-value,
+.dark-mode .metric-card-waiting-tse .metric-label {
+  color: #ffb74d;
+}
+
+.metric-card-waiting-resolved .metric-value,
+.metric-card-waiting-resolved .metric-label {
+  color: #1b5e20;
+}
+
+.dark-mode .metric-card-waiting-resolved .metric-value,
+.dark-mode .metric-card-waiting-resolved .metric-label {
+  color: #81c784;
+}
+
+.metric-card-waiting-unresolved .metric-value,
+.metric-card-waiting-unresolved .metric-label {
+  color: #f57f17;
+}
+
+.dark-mode .metric-card-waiting-unresolved .metric-value,
+.dark-mode .metric-card-waiting-unresolved .metric-label {
+  color: #fff176;
+}
+
+.metric-card-snoozed .metric-value,
+.metric-card-snoozed .metric-label {
+  color: #4a148c;
+}
+
+.dark-mode .metric-card-snoozed .metric-value,
+.dark-mode .metric-card-snoozed .metric-label {
+  color: #ba68c8;
+}
+
+.metric-card-taken .metric-value,
+.metric-card-taken .metric-label {
+  color: #004d40;
+}
+
+.dark-mode .metric-card-taken .metric-value,
+.dark-mode .metric-card-taken .metric-label {
+  color: #4db6ac;
+}
+
+.metric-card-auto-closed .metric-value,
+.metric-card-auto-closed .metric-label {
+  color: #006064;
+}
+
+.dark-mode .metric-card-auto-closed .metric-value,
+.dark-mode .metric-card-auto-closed .metric-label {
+  color: #4dd0e1;
+}
+
 .metric-label {
   font-size: 12px;
   color: #666;
   margin-bottom: 6px;
   font-weight: 500;
   line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dark-mode .metric-label {
@@ -276,6 +477,8 @@
   color: #1a1a1a;
   margin-bottom: 6px;
   line-height: 1.2;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .dark-mode .metric-value {
@@ -550,6 +753,16 @@
   color: #ffc107;
 }
 
+.status-badge-small.closed {
+  background-color: #d1ecf1;
+  color: #0c5460;
+}
+
+.dark-mode .status-badge-small.closed {
+  background-color: rgba(23, 162, 184, 0.2);
+  color: #17a2b8;
+}
+
 .tags-list {
   display: flex;
   flex-wrap: wrap;
@@ -645,7 +858,13 @@
   }
 
   .metrics-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  @media (max-width: 480px) {
+    .metrics-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
   .filters-section {

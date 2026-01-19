@@ -35,16 +35,95 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
 
   // Filter conversations for current user only
   const myConversations = useMemo(() => {
-    if (!conversations || !currentTSE) return [];
+    console.log(`[MyQueue] Filtering conversations for current user. Total conversations: ${conversations?.length || 0}`);
+    console.log(`[MyQueue] Current TSE:`, currentTSE);
+    
+    if (!conversations || !currentTSE) {
+      console.log(`[MyQueue] Missing conversations or currentTSE. conversations: ${!!conversations}, currentTSE: ${!!currentTSE}`);
+      return [];
+    }
     
     const tseId = currentTSE.id;
-    if (!tseId) return [];
+    if (!tseId) {
+      console.log(`[MyQueue] No TSE ID found in currentTSE:`, currentTSE);
+      return [];
+    }
     
-    return conversations.filter(conv => {
+    console.log(`[MyQueue] Looking for conversations assigned to TSE ID: ${tseId}`);
+    
+    // Debug: Log sample conversations to see their structure
+    const sampleConvs = conversations.slice(0, 5);
+    console.log(`[MyQueue] Sample conversations (first 5):`, sampleConvs.map(conv => ({
+      id: conv.id || conv.conversation_id,
+      state: conv.state,
+      admin_assignee_id: conv.admin_assignee_id,
+      admin_assignee: conv.admin_assignee,
+      closed_at: conv.closed_at || conv.closedAt
+    })));
+    
+    // Debug: Check ALL conversations for closed state (case-insensitive)
+    const allClosed = conversations.filter(conv => {
+      const state = (conv.state || "").toLowerCase();
+      return state === "closed";
+    });
+    console.log(`[MyQueue] Found ${allClosed.length} conversations with state="closed" (case-insensitive check)`);
+    if (allClosed.length > 0) {
+      console.log(`[MyQueue] Closed conversation IDs:`, allClosed.map(conv => ({
+        id: conv.id || conv.conversation_id,
+        state: conv.state,
+        admin_assignee_id: conv.admin_assignee_id,
+        closed_at: conv.closed_at || conv.closedAt
+      })));
+    }
+    
+    // Debug: Count conversations by state
+    const stateCounts = conversations.reduce((acc, conv) => {
+      const state = (conv.state || "").toLowerCase();
+      acc[state] = (acc[state] || 0) + 1;
+      return acc;
+    }, {});
+    console.log(`[MyQueue] Conversation states in all conversations:`, stateCounts);
+    
+    // Debug: Check closed conversations specifically
+    const closedConvs = conversations.filter(conv => (conv.state || "").toLowerCase() === "closed");
+    console.log(`[MyQueue] Found ${closedConvs.length} closed conversations total`);
+    if (closedConvs.length > 0) {
+      console.log(`[MyQueue] Closed conversation assignment details:`, closedConvs.slice(0, 3).map(conv => ({
+        id: conv.id || conv.conversation_id,
+        admin_assignee_id: conv.admin_assignee_id,
+        admin_assignee: conv.admin_assignee,
+        admin_assignee_type: typeof conv.admin_assignee,
+        closed_at: conv.closed_at || conv.closedAt
+      })));
+    }
+    
+    const filtered = conversations.filter(conv => {
       const convTseId = conv.admin_assignee_id || 
                        (conv.admin_assignee && typeof conv.admin_assignee === "object" ? conv.admin_assignee.id : null);
-      return String(convTseId) === String(tseId);
+      const matches = String(convTseId) === String(tseId);
+      
+      // Debug closed conversations that don't match
+      if ((conv.state || "").toLowerCase() === "closed" && !matches) {
+        console.log(`[MyQueue] Closed conversation ${conv.id || conv.conversation_id} doesn't match:`, {
+          convTseId,
+          tseId,
+          admin_assignee_id: conv.admin_assignee_id,
+          admin_assignee: conv.admin_assignee
+        });
+      }
+      
+      return matches;
     });
+    
+    console.log(`[MyQueue] Filtered to ${filtered.length} conversations for TSE ${tseId}`);
+    const filteredStateCounts = filtered.reduce((acc, conv) => {
+      const state = (conv.state || "").toLowerCase();
+      acc[state] = (acc[state] || 0) + 1;
+      return acc;
+    }, {});
+    console.log(`[MyQueue] Filtered conversation states:`, filteredStateCounts);
+    
+    return filtered;
   }, [conversations, currentTSE]);
 
   // Calculate metrics for current user
@@ -105,14 +184,20 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
         answeredToday++;
       }
 
-      // Check if conversation was closed today
-      const closedAt = conv.closed_at || conv.closedAt;
-      if (closedAt) {
-        const closedAtSeconds = typeof closedAt === "number" 
-          ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
-          : Math.floor(new Date(closedAt).getTime() / 1000);
-        if (closedAtSeconds >= todayStartSeconds && closedAtSeconds < todayEndSeconds) {
-          closedToday++;
+      // Check if conversation has auto-closed tag and was closed today
+      const hasAutoClosedTag = tags.some(t => 
+        (t.name && t.name.toLowerCase() === "snooze.auto-closed") || 
+        (typeof t === "string" && t.toLowerCase() === "snooze.auto-closed")
+      );
+      if (hasAutoClosedTag) {
+        const closedAt = conv.closed_at || conv.closedAt;
+        if (closedAt) {
+          const closedAtSeconds = typeof closedAt === "number" 
+            ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
+            : Math.floor(new Date(closedAt).getTime() / 1000);
+          if (closedAtSeconds >= todayStartSeconds && closedAtSeconds < todayEndSeconds) {
+            closedToday++;
+          }
         }
       }
 
@@ -176,6 +261,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
   const filterOptions = [
     { value: "all", label: "All Conversations" },
     { value: "open", label: "Open Chats" },
+    { value: "closed", label: "Closed" },
     { value: "waitingontse", label: "Waiting on TSE" },
     { value: "waitingoncustomer", label: "Waiting on Customer" },
     { value: "waitingoncustomer-resolved", label: "  └ Waiting on Customer - Resolved" },
@@ -205,11 +291,61 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
 
   // Filter conversations by tag
   const filteredConversations = useMemo(() => {
+    // Calculate today's start and end in seconds (UTC) for closed filter
+    const now = Date.now();
+    const todayStart = new Date(now);
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
+    const todayStartSeconds = Math.floor(todayStart.getTime() / 1000);
+    const todayEndSeconds = Math.floor(todayEnd.getTime() / 1000);
+
+    // Debug: Log conversation states
+    console.log(`[MyQueue] Filtering conversations. Total: ${myConversations.length}`);
+    const stateBreakdown = myConversations.reduce((acc, conv) => {
+      const state = (conv.state || "").toLowerCase();
+      acc[state] = (acc[state] || 0) + 1;
+      return acc;
+    }, {});
+    console.log(`[MyQueue] Conversation states:`, stateBreakdown);
+    
+    // Debug: Log closed conversations details
+    const closedConvs = myConversations.filter(conv => (conv.state || "").toLowerCase() === "closed");
+    if (closedConvs.length > 0) {
+      console.log(`[MyQueue] Found ${closedConvs.length} closed conversations:`);
+      closedConvs.forEach(conv => {
+        const closedAt = conv.closed_at || conv.closedAt;
+        const closedAtSeconds = closedAt ? (typeof closedAt === "number" 
+          ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
+          : Math.floor(new Date(closedAt).getTime() / 1000)) : null;
+        const tags = Array.isArray(conv.tags) ? conv.tags : [];
+        const tagNames = tags.map(t => typeof t === "string" ? t : t.name).filter(Boolean);
+        console.log(`[MyQueue]   - ID: ${conv.id || conv.conversation_id}, closed_at: ${closedAt} (${closedAtSeconds}), tags: [${tagNames.join(", ")}]`);
+      });
+    }
+    console.log(`[MyQueue] Filter tags:`, filterTags);
+    console.log(`[MyQueue] Today range: ${todayStartSeconds} to ${todayEndSeconds} (UTC)`);
+
     let filtered = myConversations;
 
-    // If "all" is selected or no filters, return all conversations
+    // If "all" is selected or no filters, include all conversations (open, snoozed, and closed today)
     if (filterTags.includes("all") || filterTags.length === 0) {
-      // Continue to search filter below
+      // Include all conversations including closed ones from today
+      filtered = filtered.filter(conv => {
+        const state = (conv.state || "").toLowerCase();
+        if (state === "closed") {
+          // Only include closed conversations from today
+          const closedAt = conv.closed_at || conv.closedAt;
+          if (closedAt) {
+            const closedAtSeconds = typeof closedAt === "number" 
+              ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
+              : Math.floor(new Date(closedAt).getTime() / 1000);
+            return closedAtSeconds >= todayStartSeconds && closedAtSeconds < todayEndSeconds;
+          }
+          return false;
+        }
+        return true; // Include all non-closed conversations
+      });
     } else {
       // Apply filters - conversation must match at least one selected filter
       filtered = filtered.filter(conv => {
@@ -217,6 +353,28 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
           if (filterTag === "open") {
             const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
             return conv.state === "open" && !isSnoozed;
+          } else if (filterTag === "closed") {
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") {
+              console.log(`[MyQueue] Filtering out conversation ${conv.id || conv.conversation_id}: state is "${state}", not "closed"`);
+              return false;
+            }
+            // Only include closed conversations from today
+            const closedAt = conv.closed_at || conv.closedAt;
+            if (!closedAt) {
+              console.log(`[MyQueue] Filtering out closed conversation ${conv.id || conv.conversation_id}: no closed_at field`);
+              return false;
+            }
+            const closedAtSeconds = typeof closedAt === "number" 
+              ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
+              : Math.floor(new Date(closedAt).getTime() / 1000);
+            const isInToday = closedAtSeconds >= todayStartSeconds && closedAtSeconds < todayEndSeconds;
+            if (!isInToday) {
+              console.log(`[MyQueue] Filtering out closed conversation ${conv.id || conv.conversation_id}: closed_at ${closedAtSeconds} not in today's range (${todayStartSeconds} to ${todayEndSeconds})`);
+            } else {
+              console.log(`[MyQueue] Including closed conversation ${conv.id || conv.conversation_id}: closed_at ${closedAtSeconds} is in today's range`);
+            }
+            return isInToday;
           } else if (filterTag === "waitingontse") {
             const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
             if (!isSnoozed) return false;
@@ -262,6 +420,21 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
         const convId = conv.id || conv.conversation_id || "";
         return String(convId).toLowerCase().includes(searchTerm);
       });
+    }
+
+    console.log(`[MyQueue] Final filtered count: ${filtered.length} conversations`);
+    if (filterTags.includes("closed")) {
+      const closedFiltered = filtered.filter(conv => (conv.state || "").toLowerCase() === "closed");
+      console.log(`[MyQueue] Closed conversations after filtering: ${closedFiltered.length}`);
+      if (closedFiltered.length > 0) {
+        closedFiltered.forEach(conv => {
+          const closedAt = conv.closed_at || conv.closedAt;
+          const closedAtSeconds = closedAt ? (typeof closedAt === "number" 
+            ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
+            : Math.floor(new Date(closedAt).getTime() / 1000)) : null;
+          console.log(`[MyQueue]   - Included closed: ID ${conv.id || conv.conversation_id}, closed_at: ${closedAtSeconds}`);
+        });
+      }
     }
 
     return filtered;
@@ -496,13 +669,6 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
         </div>
       )}
 
-      {/* Status Badge */}
-      <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'flex-start' }}>
-        <span className={`status-badge ${metrics.status}`}>
-          {metrics.status === "on-track" ? "✓ On Track" : "⚠ Over Limit"}
-        </span>
-      </div>
-
       {/* Key Insights */}
       {tseMetrics.insights.length > 0 && (
         <div className="key-insights-section" style={{
@@ -545,7 +711,17 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
 
       {/* Key Metrics */}
       <div className="metrics-grid">
-        <div className={`metric-card ${metrics.open > THRESHOLDS.MAX_OPEN_SOFT ? "over-limit" : ""}`}>
+        <div className={`metric-card metric-card-status ${metrics.status === "on-track" ? "status-on-track" : "status-over-limit"}`}>
+          <div className="metric-label">On Track Status</div>
+          <div className="metric-value" style={{ fontSize: '24px', fontWeight: 600 }}>
+            {metrics.status === "on-track" ? "✓ On Track" : "⚠ Over Limit"}
+          </div>
+          <div className="metric-target">
+            {metrics.isOnTrack ? "Meeting all targets" : "Exceeding limits"}
+          </div>
+        </div>
+
+        <div className={`metric-card metric-card-open ${metrics.open > THRESHOLDS.MAX_OPEN_SOFT ? "over-limit" : ""}`}>
           <div className="metric-label">Open Chats</div>
           <div className="metric-value">{metrics.open}</div>
           <div className="metric-target">Target: ≤{THRESHOLDS.MAX_OPEN_SOFT}</div>
@@ -554,7 +730,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
           )}
         </div>
 
-        <div className={`metric-card ${metrics.waitingOnTSE > THRESHOLDS.MAX_WAITING_ON_TSE_SOFT ? "over-limit" : ""}`}>
+        <div className={`metric-card metric-card-waiting-tse ${metrics.waitingOnTSE > THRESHOLDS.MAX_WAITING_ON_TSE_SOFT ? "over-limit" : ""}`}>
           <div className="metric-label">Waiting on TSE</div>
           <div className="metric-value">{metrics.waitingOnTSE}</div>
           <div className="metric-target">Target: ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}</div>
@@ -563,33 +739,33 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
           )}
         </div>
 
-        <div className="metric-card">
+        <div className="metric-card metric-card-waiting-resolved">
           <div className="metric-label">Waiting on Customer - Resolved</div>
           <div className="metric-value">{metrics.waitingOnCustomerResolved}</div>
           <div className="metric-target">No limit</div>
         </div>
 
-        <div className="metric-card">
+        <div className="metric-card metric-card-waiting-unresolved">
           <div className="metric-label">Waiting on Customer - Unresolved</div>
           <div className="metric-value">{metrics.waitingOnCustomerUnresolved}</div>
           <div className="metric-target">No limit</div>
         </div>
 
-        <div className="metric-card">
+        <div className="metric-card metric-card-snoozed">
           <div className="metric-label">Total Snoozed</div>
           <div className="metric-value">{metrics.totalSnoozed}</div>
         </div>
 
-        <div className="metric-card">
+        <div className="metric-card metric-card-taken">
           <div className="metric-label">Chats Taken Today</div>
           <div className="metric-value">{metrics.answeredToday}</div>
           <div className="metric-target">New chats answered</div>
         </div>
 
-        <div className="metric-card">
-          <div className="metric-label">Closed Chats Today</div>
+        <div className="metric-card metric-card-auto-closed">
+          <div className="metric-label">Auto-Closed Today</div>
           <div className="metric-value">{metrics.closedToday}</div>
-          <div className="metric-target">Chats closed today</div>
+          <div className="metric-target">Auto-closed conversations</div>
         </div>
       </div>
 
@@ -648,7 +824,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
           {filterTags.includes("all") || filterTags.length === 0
             ? "All Conversations"
             : filterTags.length === 1
-            ? filterOptions.find(opt => opt.value === filterTags[0])?.label.replace("  └ ", "") || "All Conversations"
+            ? (filterTags[0] === "closed" ? "Closed" : filterOptions.find(opt => opt.value === filterTags[0])?.label.replace("  └ ", "") || "All Conversations")
             : `${filterTags.length} Filters Selected`} 
           ({filteredConversations.length})
         </h3>
@@ -713,12 +889,14 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
                     }
                   }
                   
+                  const isClosed = (conv.state || "").toLowerCase() === "closed";
+                  
                   return (
                     <tr key={conv.id || conv.conversation_id}>
                       <td className="conv-id">{conv.id || conv.conversation_id}</td>
                       <td>
-                        <span className={`status-badge-small ${isSnoozed ? "snoozed" : "open"}`}>
-                          {isSnoozed ? "Snoozed" : "Open"}
+                        <span className={`status-badge-small ${isClosed ? "closed" : isSnoozed ? "snoozed" : "open"}`}>
+                          {isClosed ? "Closed" : isSnoozed ? "Snoozed" : "Open"}
                         </span>
                       </td>
                       <td>{displayWorkflow}</td>
