@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { BrowserRouter, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ThemeProvider } from "./ThemeContext";
@@ -197,7 +197,7 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
   }, [location, propsCurrentUserEmail]);
 
   // Fetch historical data for MyQueue
-  const fetchHistoricalData = async () => {
+  const fetchHistoricalData = useCallback(async () => {
     if (location.pathname !== '/myqueue') return;
     
     try {
@@ -261,7 +261,7 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
       console.error('Error fetching historical data:', error);
       // Silently fail - historical data is optional
     }
-  };
+  }, [location.pathname]);
 
   useEffect(() => {
     fetchData(true); // Initial load with loading state
@@ -278,7 +278,7 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
     }, 120000);
     
     return () => clearInterval(interval);
-  }, [location.pathname]);
+  }, [location.pathname, fetchHistoricalData]);
 
   // Show login page if not authenticated
   if (authLoading) {

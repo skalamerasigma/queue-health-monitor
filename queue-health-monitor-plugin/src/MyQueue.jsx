@@ -267,23 +267,6 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
     return filtered;
   }, [myConversations, filterTags, searchId]);
 
-  // Get status message
-  const getStatusMessage = () => {
-    if (metrics.isOnTrack) {
-      return "You're on track! 🎉";
-    }
-    
-    const issues = [];
-    if (!metrics.meetsOpen) {
-      issues.push(`${metrics.open} open chats (target: ≤${THRESHOLDS.MAX_OPEN_SOFT})`);
-    }
-    if (!metrics.meetsWaitingOnTSE) {
-      issues.push(`${metrics.waitingOnTSE} waiting on TSE (target: ≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})`);
-    }
-    
-    return `Over limit: ${issues.join(", ")}`;
-  };
-
   // Use shared date formatting utility
   const formatDate = (timestamp) => {
     if (!timestamp) return "N/A";

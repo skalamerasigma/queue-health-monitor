@@ -2942,20 +2942,10 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   }, [conversations]);
 
   // Calculate current response time percentages (most recent day) - kept for other uses
-  const currentResponseTimePct5Plus = useMemo(() => {
-    if (responseTimeTrendData.length === 0) return 0;
-    return Math.round(responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage5Plus || 0);
-  }, [responseTimeTrendData]);
-
-
+  // Calculate current response time percentages (most recent day)
   const currentResponseTimePct10Plus = useMemo(() => {
     if (responseTimeTrendData.length === 0) return 0;
     return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage10Plus || 0) * 10) / 10;
-  }, [responseTimeTrendData]);
-
-  const currentResponseTimePct5to10 = useMemo(() => {
-    if (responseTimeTrendData.length === 0) return 0;
-    return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage5to10 || 0) * 10) / 10;
   }, [responseTimeTrendData]);
 
 
@@ -3573,7 +3563,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     }
     
     return insights.slice(0, 4); // Limit to top 4 insights
-  }, [metrics.onTrackOverall, currentResponseTimePct5Plus, currentResponseTimePct5to10, currentResponseTimePct10Plus, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, improvementPotential, historicalSnapshots, responseTimeMetrics]);
+  }, [metrics.onTrackOverall, currentResponseTimePct10Plus, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, improvementPotential, historicalSnapshots, responseTimeMetrics]);
 
   // Calculate Region Performance Summary
   const regionPerformance = useMemo(() => {
