@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ScatterChart, Scatter, Cell, ReferenceLine } from 'recharts';
 import { formatTimestampUTC, formatDateForChart, formatDateForTooltip, formatDateFull, formatDateUTC } from './utils/dateUtils';
@@ -211,7 +211,7 @@ const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0, right: 0 });
   const iconRef = useRef(null);
 
-  const updateTooltipPosition = () => {
+  const updateTooltipPosition = useCallback(() => {
     if (iconRef.current) {
       const rect = iconRef.current.getBoundingClientRect();
       if (position === 'left') {
@@ -228,7 +228,7 @@ const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
         });
       }
     }
-  };
+  }, [position]);
 
   const handleMouseEnter = () => {
     setIsOpen(true);
@@ -283,7 +283,7 @@ const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
         window.removeEventListener('resize', handleResize);
       };
     }
-  }, [isOpen, position]);
+  }, [isOpen, position, updateTooltipPosition]);
 
   return (
     <span ref={iconRef} style={{ position: 'relative', display: 'inline-block', marginLeft: '6px', verticalAlign: 'middle' }}>
@@ -368,7 +368,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   const [activeTab, setActiveTab] = useState('on-track'); // 'on-track', 'response-time', or 'results'
   const [resultsData, setResultsData] = useState(null);
   const [loadingResults, setLoadingResults] = useState(false);
-  const [resultsDateRange] = useState('30'); // days: 7, 14, 30, 60, 90
   const [expandedDates, setExpandedDates] = useState(new Set());
   const [expandedResponseTimeDates, setExpandedResponseTimeDates] = useState(new Set());
   const [selectedRanges, setSelectedRanges] = useState(new Set(['80-100', '60-79', '40-59', '20-39', '0-19'])); // All ranges selected by default
@@ -652,7 +651,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
     // Calculate improvement potential (if Low days matched High days)
     const highRange = rangeStats.find(s => s.range === 'High (80-100%)');
-    const lowRange = rangeStats.find(s => s.range === 'Low (0-59%)');
     const currentAvg = avgSlowResponse;
     const highAvg = highRange ? highRange.avgSlowResponsePct : currentAvg;
     const improvementPotential5Plus = currentAvg - highAvg;
@@ -2018,31 +2016,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     };
   }, [responseTimeChartData]);
 
-  // Comparison metrics (current vs previous period)
-  const responseTimeComparison = useMemo(() => {
-    if (!responseTimeChartData.length || responseTimeChartData.length < 2) return null;
-    
-    const sorted = [...responseTimeChartData].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const currentPeriod = sorted.slice(-7); // Last 7 days
-    const previousPeriod = sorted.slice(-14, -7); // Previous 7 days before that
-    
-    if (previousPeriod.length === 0) return null;
-    
-    const currentAvg = currentPeriod.reduce((sum, d) => sum + d.percentage5PlusMin, 0) / currentPeriod.length;
-    const previousAvg = previousPeriod.reduce((sum, d) => sum + d.percentage5PlusMin, 0) / previousPeriod.length;
-    const change = currentAvg - previousAvg;
-    
-    const allTimeAvg = sorted.reduce((sum, d) => sum + d.percentage5PlusMin, 0) / sorted.length;
-    
-    return {
-      currentPeriodAvg: Math.round(currentAvg * 100) / 100,
-      previousPeriodAvg: Math.round(previousAvg * 100) / 100,
-      change: Math.round(change * 100) / 100,
-      changePercent: Math.round((change / previousAvg) * 100 * 100) / 100,
-      allTimeAvg: Math.round(allTimeAvg * 100) / 100,
-      vsAllTime: Math.round((currentAvg - allTimeAvg) * 100) / 100
-    };
-  }, [responseTimeChartData]);
 
   // Calculate response time summary metrics
   const responseTimeSummary = useMemo(() => {

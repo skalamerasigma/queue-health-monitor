@@ -1,9 +1,9 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "./AuthContext";
 import { useTheme } from "./ThemeContext";
 import HistoricalView from "./HistoricalView";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend, BarChart, Bar, ReferenceLine } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, ReferenceLine } from 'recharts';
 import { formatDateTimeUTC, formatTimestampUTC, formatDateForChart, formatDateForTooltip } from "./utils/dateUtils";
 import "./Dashboard.css";
 
@@ -248,7 +248,7 @@ const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0, right: 0 });
   const iconRef = useRef(null);
 
-  const updateTooltipPosition = () => {
+  const updateTooltipPosition = useCallback(() => {
     if (iconRef.current) {
       const rect = iconRef.current.getBoundingClientRect();
       if (position === 'left') {
@@ -265,7 +265,7 @@ const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
         });
       }
     }
-  };
+  }, [position]);
 
   const handleMouseEnter = () => {
     setIsOpen(true);
@@ -320,7 +320,7 @@ const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
         window.removeEventListener('resize', handleResize);
       };
     }
-  }, [isOpen, position]);
+  }, [isOpen, position, updateTooltipPosition]);
 
   return (
     <span ref={iconRef} style={{ position: 'relative', display: 'inline-block', marginLeft: '6px', verticalAlign: 'middle' }}>
@@ -2205,6 +2205,8 @@ function Dashboard(props) {
         <TSEDetailsModal
           tse={selectedTSE}
           conversations={getTSEConversations(selectedTSE.id)}
+          historicalSnapshots={historicalSnapshots}
+          responseTimeMetrics={responseTimeMetrics}
           onClose={handleCloseModal}
         />
       )}
@@ -2667,8 +2669,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   const [showAllResponders, setShowAllResponders] = useState(false);
   const [showAllWaits, setShowAllWaits] = useState(false);
   const [isWaitRateIconHovered, setIsWaitRateIconHovered] = useState(false);
-  const [isOpenChatsIconHovered, setIsOpenChatsIconHovered] = useState(false);
-  const [isUnassignedIconHovered, setIsUnassignedIconHovered] = useState(false);
   const [isSnoozedIconHovered, setIsSnoozedIconHovered] = useState(false);
   const [isAlertSummaryIconHovered, setIsAlertSummaryIconHovered] = useState(false);
   
@@ -2806,35 +2806,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     };
   }, [onTrackTrendData, responseTimeTrendData]);
 
-  // Legacy onTrackTrendWithMovingAvg for backward compatibility
-  const onTrackTrendWithMovingAvg = useMemo(() => {
-    return onTrackChartDataWithMovingAvg.map(item => ({
-      date: item.date,
-      displayLabel: formatDateForChart(item.date),
-      onTrack: item.overallOnTrack,
-      movingAvg: item.movingAvgOverall
-    }));
-  }, [onTrackChartDataWithMovingAvg]);
-
-  const responseTimeTrendWithMovingAvg = useMemo(() => {
-    if (!responseTimeTrendData || responseTimeTrendData.length === 0) return [];
-    
-    return responseTimeTrendData.map((item, index) => {
-      if (index < 2) {
-        return { 
-          ...item, 
-          movingAvg5Plus: item.percentage5Plus
-        };
-      }
-      const window = responseTimeTrendData.slice(Math.max(0, index - 2), index + 1);
-      const avg5Plus = window.reduce((sum, d) => sum + d.percentage5Plus, 0) / window.length;
-      return { 
-        ...item, 
-        movingAvg5Plus: Math.round(avg5Plus * 10) / 10,
-        movingAvg: Math.round(avg5Plus * 10) / 10 // Keep for backward compatibility
-      };
-    });
-  }, [responseTimeTrendData]);
 
   // Prepare response time chart data for Percentage of Conversations with Wait Time chart
   const responseTimeChartData = useMemo(() => {
@@ -2856,28 +2827,132 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       .slice(-7); // Last 7 days
   }, [responseTimeMetrics]);
 
-  // Calculate current response time percentages (most recent day)
+  // Calculate real-time wait rate percentages from current conversations
+  const realtimeWaitRate = useMemo(() => {
+    const conversationList = conversations || [];
+    if (conversationList.length === 0) return { pct5Plus: 0, pct5to10: 0, pct10Plus: 0 };
+
+    let totalWithResponse = 0;
+    let count5Plus = 0;
+    let count5to10 = 0;
+    let count10Plus = 0;
+
+    conversationList.forEach(conv => {
+      const timeToReply = conv.statistics?.time_to_admin_reply;
+      const firstAdminReplyAt = conv.statistics?.first_admin_reply_at;
+      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
+
+      let waitTimeSeconds = null;
+      if (timeToReply !== null && timeToReply !== undefined) {
+        waitTimeSeconds = timeToReply;
+      } else if (firstAdminReplyAt && createdAt) {
+        // Both timestamps are in seconds
+        waitTimeSeconds = firstAdminReplyAt - createdAt;
+      }
+
+      if (waitTimeSeconds !== null && waitTimeSeconds >= 0) {
+        totalWithResponse++;
+        const waitTimeMinutes = waitTimeSeconds / 60;
+
+        if (waitTimeMinutes >= 5) {
+          count5Plus++;
+          if (waitTimeMinutes >= 10) {
+            count10Plus++;
+          } else {
+            count5to10++;
+          }
+        }
+      }
+    });
+
+    const pct5Plus = totalWithResponse > 0 ? (count5Plus / totalWithResponse) * 100 : 0;
+    const pct5to10 = totalWithResponse > 0 ? (count5to10 / totalWithResponse) * 100 : 0;
+    const pct10Plus = totalWithResponse > 0 ? (count10Plus / totalWithResponse) * 100 : 0;
+
+    return {
+      pct5Plus: Math.round(pct5Plus * 10) / 10,
+      pct5to10: Math.round(pct5to10 * 10) / 10,
+      pct10Plus: Math.round(pct10Plus * 10) / 10
+    };
+  }, [conversations]);
+
+  // Calculate yesterday's wait rate from conversations created yesterday
+  const yesterdayWaitRate = useMemo(() => {
+    const conversationList = conversations || [];
+    if (conversationList.length === 0) return { pct5Plus: 0, pct5to10: 0, pct10Plus: 0 };
+
+    const now = Date.now();
+    const todayStart = new Date(now);
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const yesterdayStart = new Date(todayStart);
+    yesterdayStart.setUTCDate(yesterdayStart.getUTCDate() - 1);
+    const yesterdayEnd = new Date(todayStart);
+
+    const toTimestamp = (timestamp) => {
+      if (!timestamp) return null;
+      return timestamp > 1e12 ? timestamp : timestamp * 1000;
+    };
+
+    let totalWithResponse = 0;
+    let count5Plus = 0;
+    let count5to10 = 0;
+    let count10Plus = 0;
+
+    conversationList.forEach(conv => {
+      const createdAt = toTimestamp(conv.created_at || conv.createdAt || conv.first_opened_at);
+      if (!createdAt) return;
+
+      // Only include conversations created yesterday (UTC)
+      if (createdAt < yesterdayStart.getTime() || createdAt >= yesterdayEnd.getTime()) return;
+
+      const timeToReply = conv.statistics?.time_to_admin_reply;
+      const firstAdminReplyAt = conv.statistics?.first_admin_reply_at;
+
+      let waitTimeSeconds = null;
+      if (timeToReply !== null && timeToReply !== undefined) {
+        waitTimeSeconds = timeToReply;
+      } else if (firstAdminReplyAt && createdAt) {
+        waitTimeSeconds = firstAdminReplyAt - createdAt;
+      }
+
+      if (waitTimeSeconds !== null && waitTimeSeconds >= 0) {
+        totalWithResponse++;
+        const waitTimeMinutes = waitTimeSeconds / 60;
+
+        if (waitTimeMinutes >= 5) {
+          count5Plus++;
+          if (waitTimeMinutes >= 10) {
+            count10Plus++;
+          } else {
+            count5to10++;
+          }
+        }
+      }
+    });
+
+    const pct5Plus = totalWithResponse > 0 ? (count5Plus / totalWithResponse) * 100 : 0;
+    const pct5to10 = totalWithResponse > 0 ? (count5to10 / totalWithResponse) * 100 : 0;
+    const pct10Plus = totalWithResponse > 0 ? (count10Plus / totalWithResponse) * 100 : 0;
+
+    return {
+      pct5Plus: Math.round(pct5Plus * 10) / 10,
+      pct5to10: Math.round(pct5to10 * 10) / 10,
+      pct10Plus: Math.round(pct10Plus * 10) / 10
+    };
+  }, [conversations]);
+
+  // Calculate current response time percentages (most recent day) - kept for other uses
   const currentResponseTimePct5Plus = useMemo(() => {
     if (responseTimeTrendData.length === 0) return 0;
     return Math.round(responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage5Plus || 0);
   }, [responseTimeTrendData]);
 
-  const currentResponseTimePct5to10 = useMemo(() => {
-    if (responseTimeTrendData.length === 0) return 0;
-    return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage5to10 || 0) * 10) / 10;
-  }, [responseTimeTrendData]);
 
   const currentResponseTimePct10Plus = useMemo(() => {
     if (responseTimeTrendData.length === 0) return 0;
     return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage10Plus || 0) * 10) / 10;
   }, [responseTimeTrendData]);
 
-  // Calculate average response time percentages (last 7 days)
-  const avgResponseTimePct5Plus = useMemo(() => {
-    if (responseTimeTrendData.length === 0) return 0;
-    const sum = responseTimeTrendData.reduce((acc, item) => acc + (item.percentage5Plus || 0), 0);
-    return Math.round((sum / responseTimeTrendData.length) * 10) / 10; // Round to 1 decimal
-  }, [responseTimeTrendData]);
 
   const sameDayClosePct = useMemo(() => {
     const conversationList = conversations || [];
@@ -3132,11 +3207,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   }, [conversations]);
 
   // Calculate current on-track from historical data (to match Historical tab)
-  const currentOnTrack = useMemo(() => {
-    if (onTrackTrendData.length === 0) return 0;
-    // Use the most recent snapshot's on-track value
-    return onTrackTrendData[onTrackTrendData.length - 1]?.onTrack || 0;
-  }, [onTrackTrendData]);
 
   // Calculate trend indicators
   const onTrackTrend = useMemo(() => {
@@ -3150,6 +3220,17 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       change: Math.abs(change)
     };
   }, [onTrackTrendData]);
+
+  // Real-time wait rate trend (for Performance Metrics vs Yesterday card)
+  const realtimeWaitRateTrend = useMemo(() => {
+    const today = realtimeWaitRate.pct5Plus;
+    const yesterday = yesterdayWaitRate.pct5Plus;
+    const change = today - yesterday;
+    return {
+      direction: change < 0 ? 'up' : change > 0 ? 'down' : 'stable', // Lower is better for response time
+      change: Math.abs(change)
+    };
+  }, [realtimeWaitRate, yesterdayWaitRate]);
 
   const responseTimeTrend = useMemo(() => {
     if (responseTimeTrendData.length < 2) return { direction: 'stable', change: 0 };
@@ -3403,13 +3484,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       ? Math.ceil((new Date(responseTimeTrendData[responseTimeTrendData.length - 1].date) - new Date(responseTimeTrendData[0].date)) / (1000 * 60 * 60 * 24))
       : 0;
     
-    const formatPeriod = (days) => {
-      if (days <= 7) return 'last 7 days';
-      if (days <= 14) return 'last 2 weeks';
-      if (days <= 30) return 'last 30 days';
-      if (days <= 60) return 'last 2 months';
-      return `${Math.round(days / 30)} months`;
-    };
     
     // Trend insights with lower thresholds to catch more changes
     if (onTrackTrend.direction === 'up' && onTrackTrend.change >= 2 && onTrackPeriodDays > 0) {
@@ -3568,39 +3642,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     };
   }, [metrics.alerts]);
 
-  // Calculate hourly chat counts for today (last 24 hours)
-  const hourlyChatCounts = useMemo(() => {
-    if (!conversations || conversations.length === 0) {
-      return Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
-    }
-
-    const now = new Date();
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    
-    const hourlyCounts = Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
-    
-    conversations.forEach(conv => {
-      const createdAt = conv.created_at || conv.createdAt;
-      if (!createdAt) return;
-      
-      // Convert to timestamp (handle both Unix seconds and milliseconds)
-      const timestamp = typeof createdAt === 'number' 
-        ? (createdAt < 10000000000 ? createdAt * 1000 : createdAt)
-        : new Date(createdAt).getTime();
-      
-      const convDate = new Date(timestamp);
-      
-      // Only count conversations from the last 24 hours
-      if (convDate >= oneDayAgo && convDate <= now) {
-        const hour = convDate.getHours();
-        if (hour >= 0 && hour < 24) {
-          hourlyCounts[hour].count++;
-        }
-      }
-    });
-    
-    return hourlyCounts;
-  }, [conversations]);
 
   // Calculate OPEN CHATS age breakdown
   const openChatsAgeBreakdown = useMemo(() => {
@@ -3708,40 +3749,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     };
   }, [onTrackTrendData, responseTimeTrendData, metrics.onTrackOverall]);
 
-  // Calculate Top/Bottom Performers
-  const topBottomPerformers = useMemo(() => {
-    if (!metrics.byTSE || metrics.byTSE.length === 0) return { top: [], bottom: [] };
-    
-    const performers = metrics.byTSE
-      .map(tse => {
-        const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
-        const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
-        const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
-        const isOnTrack = meetsOpen && meetsWaitingOnTSE;
-        
-        return {
-          id: tse.id,
-          name: tse.name,
-          open: tse.open || 0,
-          waitingOnTSE: totalWaitingOnTSE,
-          isOnTrack,
-          region: getTSERegion(tse.name)
-        };
-      })
-      .filter(tse => tse.name && !EXCLUDED_TSE_NAMES.includes(tse.name))
-      .sort((a, b) => {
-        // Sort by on-track status first, then by open count (lower is better)
-        if (a.isOnTrack !== b.isOnTrack) {
-          return a.isOnTrack ? -1 : 1;
-        }
-        return a.open - b.open;
-      });
-    
-    const top = performers.slice(0, 3).filter(p => p.isOnTrack);
-    const bottom = performers.slice(-3).filter(p => !p.isOnTrack).reverse();
-    
-    return { top, bottom };
-  }, [metrics.byTSE]);
 
   // Calculate Response Time Distribution
   const responseTimeDistribution = useMemo(() => {
@@ -3774,34 +3781,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     return distribution;
   }, [conversations]);
 
-  // Combine on-track and response time data for the trends chart
-  const onTrackAndResponseTrendData = useMemo(() => {
-    if (!onTrackTrendData.length || !responseTimeTrendData.length) return [];
-    
-    // Create a map of on-track data by date
-    const onTrackByDate = {};
-    onTrackTrendData.forEach(item => {
-      onTrackByDate[item.date] = item.onTrack;
-    });
-    
-    // Combine with response time data
-    const combined = responseTimeTrendData
-      .map(rtItem => {
-        const onTrack = onTrackByDate[rtItem.date];
-        if (onTrack === undefined) return null;
-        
-        return {
-          date: rtItem.date,
-          displayLabel: rtItem.displayLabel,
-          onTrack: onTrack,
-          slowResponsePct: rtItem.percentage5Plus || 0
-        };
-      })
-      .filter(item => item !== null)
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    return combined.slice(-7);
-  }, [onTrackTrendData, responseTimeTrendData]);
 
   return (
     <div className="modern-overview">
@@ -3858,7 +3837,15 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       <div className="overview-kpis">
         {/* Realtime Metrics Section */}
         <div className="kpi-section">
-          <h3 className="kpi-section-title">Today / Realtime Metrics</h3>
+          <h3 className="kpi-section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>Today / Realtime Metrics</span>
+            <img 
+              src="https://res.cloudinary.com/doznvxtja/image/upload/v1768787154/3_150_x_150_px_4_momerl.gif"
+              alt="Realtime Metrics"
+              title="Automatically refreshes live Intercom conversation data every 2 minutes"
+              style={{ width: '36px', height: '36px', cursor: 'help' }}
+            />
+          </h3>
           <div className="kpi-section-cards realtime-kpis">
             <div
               className="kpi-card primary kpi-card-clickable"
@@ -3882,10 +3869,10 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     <div style={{ textAlign: 'left' }}>
                       <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Performance Metrics vs Yesterday</div>
                       <div style={{ marginBottom: '8px' }}>
-                        <strong>Wait Rate:</strong> Percentage of conversations with 5+ minute wait time before first admin reply.
+                        <strong>Wait Rate:</strong> Percentage of conversations with 5+ minute wait time before first admin reply (calculated from real-time conversation data).
                         <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
                           <li>Shows breakdown: 5+ min (total), 5-10 min, and 10+ min</li>
-                          <li>Trend compares today vs yesterday</li>
+                          <li>Trend compares today (realtime) vs yesterday (calculated from conversations created yesterday)</li>
                         </ul>
                       </div>
                       <div style={{ marginBottom: '8px' }}>
@@ -3907,16 +3894,21 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               <div className="kpi-content-with-viz">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                    <span style={{ fontSize: '24px', fontWeight: 700 }}>{currentResponseTimePct5Plus}%</span>
+                    <span style={{ fontSize: '24px', fontWeight: 700 }}>{realtimeWaitRate.pct5Plus}%</span>
                     <span style={{ fontSize: '14px', color: isDarkMode ? '#999' : '#666' }}>Wait Rate</span>
                   </div>
                   <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
-                    <span>5-10 min: {currentResponseTimePct5to10}%</span>
-                    <span>10+ min: {currentResponseTimePct10Plus}%</span>
+                    <span>5-10 min: {realtimeWaitRate.pct5to10}%</span>
+                    <span>10+ min: {realtimeWaitRate.pct10Plus}%</span>
                   </div>
                 </div>
-                {responseTimeTrendData.length >= 2 && (() => {
-                  const dataPoints = responseTimeTrendData.slice(-7);
+                {responseTimeTrendData.length >= 1 && (() => {
+                  // Use historical data for previous 6 days, real-time for today
+                  const historicalData = responseTimeTrendData.slice(-6);
+                  const dataPoints = [
+                    ...historicalData.map(p => ({ percentage: p.percentage5Plus })),
+                    { percentage: realtimeWaitRate.pct5Plus }
+                  ];
                   const maxValue = Math.max(...dataPoints.map(p => p.percentage), 1);
                   const minValue = Math.min(...dataPoints.map(p => p.percentage), 0);
                   const range = maxValue - minValue || 1;
@@ -3940,7 +3932,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                               y1={prevY}
                               x2={x}
                               y2={y}
-                              stroke={responseTimeTrend.direction === 'down' ? '#4cec8c' : responseTimeTrend.direction === 'up' ? '#fd8789' : '#999'}
+                              stroke={realtimeWaitRateTrend.direction === 'down' ? '#4cec8c' : realtimeWaitRateTrend.direction === 'up' ? '#fd8789' : '#999'}
                               strokeWidth="2"
                               strokeLinecap="round"
                             />
@@ -3951,11 +3943,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   );
                 })()}
               </div>
-              {responseTimeTrendData.length >= 2 && (
+              {yesterdayWaitRate.pct5Plus > 0 && (
                 <div>
-                  <div className={`kpi-trend ${responseTimeTrend.direction}`}>
-                    {responseTimeTrend.direction === 'up' ? '↓' : responseTimeTrend.direction === 'down' ? '↑' : '→'}
-                    {responseTimeTrend.change > 0 && ` ${responseTimeTrend.change.toFixed(1)}%`}
+                  <div className={`kpi-trend ${realtimeWaitRateTrend.direction}`}>
+                    {realtimeWaitRateTrend.direction === 'up' ? '↓' : realtimeWaitRateTrend.direction === 'down' ? '↑' : '→'}
+                    {realtimeWaitRateTrend.change > 0 && ` ${realtimeWaitRateTrend.change.toFixed(1)}%`}
                   </div>
                   <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
                     vs yesterday
@@ -4723,7 +4715,14 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
 
       <div className="trend-card aging-card">
         <div className="trend-header">
-          <h4>Conversation Aging (Open + Snoozed)</h4>
+          <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            Conversation Aging (Open + Snoozed)
+            <InfoIcon 
+              content="Shows the distribution of open and snoozed conversations by age bucket. Stacked bars display Open conversations (teal), Waiting on Customer - Resolved (green), Waiting on Customer - Unresolved (purple), and Waiting on TSE - Deep Dive (yellow). Hover over bars to see detailed counts."
+              isDarkMode={isDarkMode}
+              position="right"
+            />
+          </h4>
           <span className="trend-period">Current backlog</span>
         </div>
         {agingChartData.length > 0 ? (
@@ -5060,7 +5059,7 @@ function MetricCard({ title, value, target, status = "info" }) {
 }
 
 // TSE Details Modal Component
-function TSEDetailsModal({ tse, conversations, onClose }) {
+function TSEDetailsModal({ tse, conversations, historicalSnapshots = [], responseTimeMetrics = [], onClose }) {
   const { isDarkMode } = useTheme();
   const [clickedTooltip, setClickedTooltip] = useState(null);
   const { open, waitingOnTSE, waitingOnCustomer, totalSnoozed } = conversations;
@@ -5126,6 +5125,157 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
 
   // Use shared date formatting utility
   const formatDate = formatDateTimeUTC;
+
+  // Calculate TSE historical metrics and trends
+  const tseMetrics = useMemo(() => {
+    if (!historicalSnapshots || historicalSnapshots.length === 0) {
+      return null;
+    }
+
+    const tseId = String(tse.id);
+    const tseName = tse.name;
+    
+    // Filter snapshots that contain this TSE
+    const tseHistory = historicalSnapshots
+      .map(snapshot => {
+        const tseData = snapshot.tse_data || snapshot.tseData || [];
+        const tseEntry = tseData.find(t => String(t.id) === tseId || t.name === tseName);
+        if (!tseEntry) return null;
+
+        const open = tseEntry.open || 0;
+        const waitingOnTSE = tseEntry.waitingOnTSE || tseEntry.actionableSnoozed || 0;
+        const meetsOpen = open <= THRESHOLDS.MAX_OPEN_SOFT;
+        const meetsWaitingOnTSE = waitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        const isOnTrack = meetsOpen && meetsWaitingOnTSE;
+
+        return {
+          date: snapshot.date,
+          open,
+          waitingOnTSE,
+          totalSnoozed: tseEntry.snoozed || tseEntry.totalSnoozed || 0,
+          isOnTrack,
+          meetsOpen,
+          meetsWaitingOnTSE
+        };
+      })
+      .filter(item => item !== null)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (tseHistory.length === 0) return null;
+
+    // Calculate averages
+    const avgOpen = tseHistory.reduce((sum, d) => sum + d.open, 0) / tseHistory.length;
+    const avgWaitingOnTSE = tseHistory.reduce((sum, d) => sum + d.waitingOnTSE, 0) / tseHistory.length;
+    const avgTotalSnoozed = tseHistory.reduce((sum, d) => sum + d.totalSnoozed, 0) / tseHistory.length;
+    const onTrackDays = tseHistory.filter(d => d.isOnTrack).length;
+    const onTrackPercentage = (onTrackDays / tseHistory.length) * 100;
+
+    // Calculate trends (last 7 days vs previous 7 days, or last half vs first half)
+    let trend;
+    if (tseHistory.length >= 14) {
+      const last7 = tseHistory.slice(-7);
+      const previous7 = tseHistory.slice(-14, -7);
+      const last7OnTrack = last7.filter(d => d.isOnTrack).length / 7;
+      const previous7OnTrack = previous7.filter(d => d.isOnTrack).length / 7;
+      const change = (last7OnTrack - previous7OnTrack) * 100;
+      trend = {
+        period: 'Last 7 days vs previous 7 days',
+        change: change,
+        direction: change > 2 ? 'improving' : change < -2 ? 'worsening' : 'stable',
+        last7AvgOpen: last7.reduce((sum, d) => sum + d.open, 0) / 7,
+        previous7AvgOpen: previous7.reduce((sum, d) => sum + d.open, 0) / 7,
+        last7AvgWaiting: last7.reduce((sum, d) => sum + d.waitingOnTSE, 0) / 7,
+        previous7AvgWaiting: previous7.reduce((sum, d) => sum + d.waitingOnTSE, 0) / 7
+      };
+    } else if (tseHistory.length >= 2) {
+      const lastHalf = tseHistory.slice(Math.floor(tseHistory.length / 2));
+      const firstHalf = tseHistory.slice(0, Math.floor(tseHistory.length / 2));
+      const lastHalfOnTrack = lastHalf.filter(d => d.isOnTrack).length / lastHalf.length;
+      const firstHalfOnTrack = firstHalf.filter(d => d.isOnTrack).length / firstHalf.length;
+      const change = (lastHalfOnTrack - firstHalfOnTrack) * 100;
+      trend = {
+        period: 'Recent vs earlier period',
+        change: change,
+        direction: change > 2 ? 'improving' : change < -2 ? 'worsening' : 'stable',
+        lastHalfAvgOpen: lastHalf.reduce((sum, d) => sum + d.open, 0) / lastHalf.length,
+        firstHalfAvgOpen: firstHalf.reduce((sum, d) => sum + d.open, 0) / firstHalf.length,
+        lastHalfAvgWaiting: lastHalf.reduce((sum, d) => sum + d.waitingOnTSE, 0) / lastHalf.length,
+        firstHalfAvgWaiting: firstHalf.reduce((sum, d) => sum + d.waitingOnTSE, 0) / firstHalf.length
+      };
+    } else {
+      trend = {
+        period: 'Insufficient data',
+        change: 0,
+        direction: 'stable',
+        lastHalfAvgOpen: avgOpen,
+        firstHalfAvgOpen: avgOpen,
+        lastHalfAvgWaiting: avgWaitingOnTSE,
+        firstHalfAvgWaiting: avgWaitingOnTSE
+      };
+    }
+
+    // Generate key insights
+    const insights = [];
+    
+    if (onTrackPercentage >= 80) {
+      insights.push({
+        type: 'positive',
+        text: `Excellent performance: ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`
+      });
+    } else if (onTrackPercentage < 60) {
+      insights.push({
+        type: 'warning',
+        text: `Performance needs attention: Only ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`
+      });
+    }
+
+    if (avgOpen > THRESHOLDS.MAX_OPEN_SOFT) {
+      insights.push({
+        type: 'warning',
+        text: `Average open chats (${avgOpen.toFixed(1)}) exceeds target (≤${THRESHOLDS.MAX_OPEN_SOFT})`
+      });
+    }
+
+    if (avgWaitingOnTSE > THRESHOLDS.MAX_WAITING_ON_TSE_SOFT) {
+      insights.push({
+        type: 'warning',
+        text: `Average waiting on TSE (${avgWaitingOnTSE.toFixed(1)}) exceeds target (≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})`
+      });
+    }
+
+    if (trend.direction === 'improving') {
+      insights.push({
+        type: 'positive',
+        text: `Performance improving: ${trend.change > 0 ? '+' : ''}${trend.change.toFixed(1)}% on-track ${trend.period}`
+      });
+    } else if (trend.direction === 'worsening') {
+      insights.push({
+        type: 'warning',
+        text: `Performance declining: ${trend.change.toFixed(1)}% on-track ${trend.period}`
+      });
+    }
+
+    // Best and worst days
+    const bestDay = tseHistory.reduce((best, current) => 
+      (current.open + current.waitingOnTSE) < (best.open + best.waitingOnTSE) ? current : best
+    );
+    const worstDay = tseHistory.reduce((worst, current) => 
+      (current.open + current.waitingOnTSE) > (worst.open + worst.waitingOnTSE) ? current : worst
+    );
+
+    return {
+      totalDays: tseHistory.length,
+      onTrackPercentage: Math.round(onTrackPercentage),
+      avgOpen: Math.round(avgOpen * 10) / 10,
+      avgWaitingOnTSE: Math.round(avgWaitingOnTSE * 10) / 10,
+      avgTotalSnoozed: Math.round(avgTotalSnoozed * 10) / 10,
+      trend,
+      insights,
+      history: tseHistory,
+      bestDay,
+      worstDay
+    };
+  }, [historicalSnapshots, tse.id, tse.name]);
 
   const getAuthorEmail = (conv) => {
     return conv.source?.author?.email || 
@@ -5331,6 +5481,215 @@ function TSEDetailsModal({ tse, conversations, onClose }) {
         </div>
 
         <div className="modal-body">
+          {/* TSE Scorecard Section */}
+          {tseMetrics && (
+            <div className="modal-scorecard-section">
+              <h3 className="modal-scorecard-title">Performance Scorecard</h3>
+              
+              {/* Key Metrics Grid */}
+              <div className="modal-scorecard-metrics">
+                <div className="modal-scorecard-metric">
+                  <div className="modal-scorecard-metric-label">On-Track %</div>
+                  <div className="modal-scorecard-metric-value" style={{ 
+                    color: tseMetrics.onTrackPercentage >= 80 ? '#4cec8c' : tseMetrics.onTrackPercentage < 60 ? '#fd8789' : '#ffc107'
+                  }}>
+                    {tseMetrics.onTrackPercentage}%
+                  </div>
+                  <div className="modal-scorecard-metric-subtext">
+                    {tseMetrics.totalDays} days tracked
+                  </div>
+                </div>
+                
+                <div className="modal-scorecard-metric">
+                  <div className="modal-scorecard-metric-label">Avg Open Chats</div>
+                  <div className="modal-scorecard-metric-value" style={{ 
+                    color: tseMetrics.avgOpen <= THRESHOLDS.MAX_OPEN_SOFT ? '#4cec8c' : '#fd8789'
+                  }}>
+                    {tseMetrics.avgOpen.toFixed(1)}
+                  </div>
+                  <div className="modal-scorecard-metric-subtext">
+                    Target: ≤{THRESHOLDS.MAX_OPEN_SOFT}
+                  </div>
+                </div>
+                
+                <div className="modal-scorecard-metric">
+                  <div className="modal-scorecard-metric-label">Avg Waiting on TSE</div>
+                  <div className="modal-scorecard-metric-value" style={{ 
+                    color: tseMetrics.avgWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT ? '#4cec8c' : '#fd8789'
+                  }}>
+                    {tseMetrics.avgWaitingOnTSE.toFixed(1)}
+                  </div>
+                  <div className="modal-scorecard-metric-subtext">
+                    Target: ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}
+                  </div>
+                </div>
+                
+                <div className="modal-scorecard-metric">
+                  <div className="modal-scorecard-metric-label">Trend</div>
+                  <div className="modal-scorecard-metric-value" style={{ 
+                    color: tseMetrics.trend.direction === 'improving' ? '#4cec8c' : tseMetrics.trend.direction === 'worsening' ? '#fd8789' : '#999'
+                  }}>
+                    {tseMetrics.trend.direction === 'improving' ? '↑' : tseMetrics.trend.direction === 'worsening' ? '↓' : '→'}
+                    {tseMetrics.trend.change !== 0 && ` ${tseMetrics.trend.change > 0 ? '+' : ''}${tseMetrics.trend.change.toFixed(1)}%`}
+                  </div>
+                  <div className="modal-scorecard-metric-subtext">
+                    {tseMetrics.trend.period}
+                  </div>
+                </div>
+              </div>
+
+              {/* Performance Trend Chart */}
+              {tseMetrics.history.length > 1 && (
+                <div className="modal-scorecard-chart">
+                  <h4 className="modal-scorecard-chart-title">Performance Over Time</h4>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart 
+                      data={tseMetrics.history.map(d => ({
+                        date: d.date,
+                        displayLabel: formatDateForChart(d.date),
+                        open: d.open,
+                        waitingOnTSE: d.waitingOnTSE,
+                        onTrack: d.isOnTrack ? 1 : 0
+                      }))}
+                      margin={{ top: 5, right: 30, bottom: 20, left: 20 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+                      <XAxis 
+                        dataKey="displayLabel" 
+                        tick={{ fontSize: 10, fill: isDarkMode ? '#999' : '#666' }}
+                        angle={-45}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis 
+                        tick={{ fontSize: 10, fill: isDarkMode ? '#999' : '#666' }}
+                        label={{ value: 'Count', angle: -90, position: 'insideLeft', style: { fill: isDarkMode ? '#999' : '#666' } }}
+                      />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+                          border: `1px solid ${isDarkMode ? '#444' : '#ddd'}`,
+                          borderRadius: '4px'
+                        }}
+                        labelFormatter={(label) => formatDateForTooltip(label)}
+                      />
+                      <ReferenceLine 
+                        y={THRESHOLDS.MAX_OPEN_SOFT} 
+                        stroke="#ffc107" 
+                        strokeDasharray="3 3" 
+                      />
+                      <ReferenceLine 
+                        y={THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} 
+                        stroke="#ffc107" 
+                        strokeDasharray="3 3" 
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="open" 
+                        stroke="#3b82f6" 
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        name="Open Chats"
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="waitingOnTSE" 
+                        stroke="#ef4444" 
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        name="Waiting on TSE"
+                      />
+                      <Legend 
+                        content={({ payload }) => (
+                          <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '10px', marginBottom: '0px', flexWrap: 'wrap' }}>
+                            {payload && payload.map((entry, index) => (
+                              <div key={`legend-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: isDarkMode ? '#999' : '#666' }}>
+                                <div style={{ 
+                                  width: '16px', 
+                                  height: '2px', 
+                                  backgroundColor: entry.color,
+                                  border: 'none'
+                                }} />
+                                <span>{entry.value}</span>
+                              </div>
+                            ))}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: isDarkMode ? '#999' : '#666' }}>
+                              <div style={{ 
+                                width: '16px', 
+                                height: '2px', 
+                                backgroundColor: '#ffc107',
+                                border: 'none',
+                                backgroundImage: 'repeating-linear-gradient(to right, #ffc107 0px, #ffc107 3px, transparent 3px, transparent 6px)'
+                              }} />
+                              <span>Open Target</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: isDarkMode ? '#999' : '#666' }}>
+                              <div style={{ 
+                                width: '16px', 
+                                height: '2px', 
+                                backgroundColor: '#ffc107',
+                                border: 'none',
+                                backgroundImage: 'repeating-linear-gradient(to right, #ffc107 0px, #ffc107 3px, transparent 3px, transparent 6px)'
+                              }} />
+                              <span>Waiting Target</span>
+                            </div>
+                          </div>
+                        )}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* Key Insights */}
+              {tseMetrics.insights.length > 0 && (
+                <div className="modal-scorecard-insights">
+                  <h4 className="modal-scorecard-insights-title">Key Insights</h4>
+                  <div className="modal-scorecard-insights-list">
+                    {tseMetrics.insights.map((insight, idx) => (
+                      <div 
+                        key={idx} 
+                        className="modal-scorecard-insight"
+                        style={{
+                          backgroundColor: insight.type === 'positive' 
+                            ? (isDarkMode ? '#1a3a2a' : '#d4edda')
+                            : (isDarkMode ? '#3a2a1a' : '#fff3cd'),
+                          color: insight.type === 'positive'
+                            ? (isDarkMode ? '#4cec8c' : '#155724')
+                            : (isDarkMode ? '#ffc107' : '#856404'),
+                          padding: '8px 12px',
+                          borderRadius: '4px',
+                          marginBottom: '8px',
+                          fontSize: '13px'
+                        }}
+                      >
+                        {insight.type === 'positive' ? '✓' : '⚠'} {insight.text}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Best/Worst Days */}
+              {tseMetrics.bestDay && tseMetrics.worstDay && (
+                <div className="modal-scorecard-extremes">
+                  <div className="modal-scorecard-extreme">
+                    <span className="modal-scorecard-extreme-label">Best Day:</span>
+                    <span className="modal-scorecard-extreme-value" style={{ color: '#4cec8c' }}>
+                      {formatDateForChart(tseMetrics.bestDay.date)} ({tseMetrics.bestDay.open} open, {tseMetrics.bestDay.waitingOnTSE} waiting)
+                    </span>
+                  </div>
+                  <div className="modal-scorecard-extreme">
+                    <span className="modal-scorecard-extreme-label">Worst Day:</span>
+                    <span className="modal-scorecard-extreme-value" style={{ color: '#fd8789' }}>
+                      {formatDateForChart(tseMetrics.worstDay.date)} ({tseMetrics.worstDay.open} open, {tseMetrics.worstDay.waitingOnTSE} waiting)
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Open Conversations */}
           <div className="modal-section">
             <h3 className="modal-section-title">
@@ -5797,21 +6156,36 @@ function HelpModal({ onClose }) {
           <div id="status-thresholds" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">📏</span>
-              <h3>Status Thresholds</h3>
+              <h3>Status Thresholds & On-Track Targets</h3>
             </div>
-            <p className="help-intro">Understanding how status is calculated and what each status means.</p>
+            <p className="help-intro">The application uses standardized thresholds to determine TSE queue health status. Understanding these thresholds is essential for interpreting all metrics throughout the application.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🎯</span>
+                <strong>On-Track Target: 80%+</strong>
+              </div>
+              <p><strong>Team Goal:</strong> The target is for 80% or more of TSEs to be "on track" at any given time. This ensures optimal queue health and customer experience.</p>
+              <p><strong>Why 80%:</strong> This target accounts for normal variations in workload, temporary spikes, and allows for some TSEs to be temporarily over limits while maintaining overall team performance.</p>
+            </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">✅</span>
-                <strong>On Track Calculation</strong>
+                <strong>On-Track Calculation</strong>
               </div>
-              <p><strong>Definition:</strong> A TSE is "on track" if they meet BOTH thresholds:</p>
+              <p><strong>Definition:</strong> A TSE is considered "on track" if they meet BOTH of the following thresholds simultaneously:</p>
               <ul>
-                <li>Open conversations ≤ {THRESHOLDS.MAX_OPEN_SOFT}</li>
-                <li>Waiting on TSE conversations ≤ {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}</li>
+                <li><strong>Open Conversations:</strong> ≤ {THRESHOLDS.MAX_OPEN_SOFT} active, non-snoozed conversations</li>
+                <li><strong>Waiting on TSE:</strong> ≤ {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} conversations snoozed with the "snooze.waiting-on-tse" tag</li>
               </ul>
-              <p><strong>Note:</strong> "Waiting on TSE" refers to conversations snoozed with tag "snooze.waiting-on-tse".</p>
+              <p><strong>Important Notes:</strong></p>
+              <ul>
+                <li>Both conditions must be met - if either threshold is exceeded, the TSE is not on track</li>
+                <li>"Waiting on TSE" specifically refers to conversations with the "snooze.waiting-on-tse" tag, not all snoozed conversations</li>
+                <li>Conversations waiting on customer (with "snooze.waiting-on-customer" tags) do not count toward the waiting-on-TSE threshold</li>
+              </ul>
+              <p><strong>Calculation Formula:</strong> For any group of TSEs, On-Track % = (Number of TSEs meeting both thresholds / Total TSEs) × 100</p>
             </div>
 
             <div className="help-feature">
@@ -5819,13 +6193,14 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">⭐</span>
                 <strong>Status Levels</strong>
               </div>
+              <p><strong>Four distinct status levels:</strong></p>
               <div className="help-status-grid">
                 <div className="help-status-item">
                   <span className="help-status-badge status-exceeding">⭐️</span>
                   <div>
                     <strong>Outstanding</strong>
                     <p>0 open AND 0 waiting on TSE</p>
-                    <p className="help-status-detail">Perfect performance - no active workload</p>
+                    <p className="help-status-detail">Perfect performance - no active workload. TSE has completed all assigned work and has no pending items.</p>
                   </div>
                 </div>
                 <div className="help-status-item">
@@ -5838,7 +6213,7 @@ function HelpModal({ onClose }) {
                   <div>
                     <strong>On Track</strong>
                     <p>≤{THRESHOLDS.MAX_OPEN_SOFT} open AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting</p>
-                    <p className="help-status-detail">Within acceptable limits</p>
+                    <p className="help-status-detail">Within acceptable limits. TSE is managing their queue effectively and meeting performance standards.</p>
                   </div>
                 </div>
                 <div className="help-status-item">
@@ -5849,9 +6224,9 @@ function HelpModal({ onClose }) {
                     </svg>
                   </span>
                   <div>
-                    <strong>Over Limit</strong>
+                    <strong>Over Limit - Needs Attention</strong>
                     <p>&gt;{THRESHOLDS.MAX_OPEN_SOFT} open OR &gt;{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting</p>
-                    <p className="help-status-detail">Needs attention - exceeds thresholds</p>
+                    <p className="help-status-detail">Exceeds thresholds and requires attention. May need workload redistribution or support.</p>
                   </div>
                 </div>
               </div>
@@ -5860,11 +6235,102 @@ function HelpModal({ onClose }) {
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">🚨</span>
-                <strong>Alert Thresholds</strong>
+                <strong>Alert Thresholds vs. Soft Limits</strong>
               </div>
-              <p><strong>Open Chats Alert:</strong> Triggered at {THRESHOLDS.MAX_OPEN_ALERT}+ open conversations (soft limit: {THRESHOLDS.MAX_OPEN_SOFT})</p>
-              <p><strong>Waiting On TSE Alert:</strong> Triggered at {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+ waiting conversations (soft limit: {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})</p>
-              <p><strong>Why Different:</strong> Soft limits indicate "On Track" status, alert limits trigger notifications for attention.</p>
+              <p><strong>Two-Tier System:</strong> The application uses two sets of thresholds for different purposes:</p>
+              <ul>
+                <li><strong>Soft Limits (On-Track Thresholds):</strong>
+                  <ul>
+                    <li>Open Chats: ≤ {THRESHOLDS.MAX_OPEN_SOFT}</li>
+                    <li>Waiting on TSE: ≤ {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}</li>
+                  </ul>
+                  <p style={{ marginTop: '8px', fontStyle: 'italic' }}>Used to determine "On Track" status. TSEs meeting these limits are considered compliant.</p>
+                </li>
+                <li><strong>Alert Thresholds:</strong>
+                  <ul>
+                    <li>Open Chats Alert: {THRESHOLDS.MAX_OPEN_ALERT}+ conversations</li>
+                    <li>Waiting on TSE Alert: {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+ conversations</li>
+                  </ul>
+                  <p style={{ marginTop: '8px', fontStyle: 'italic' }}>Trigger notifications when exceeded. These are higher thresholds that indicate a TSE needs immediate attention.</p>
+                </li>
+              </ul>
+              <p><strong>Why Different:</strong> Soft limits define acceptable performance, while alert thresholds identify situations requiring immediate intervention. This two-tier system prevents alert fatigue while maintaining clear performance standards.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">📊</span>
+                <strong>Threshold Values</strong>
+              </div>
+              <table style={{ 
+                width: '100%', 
+                borderCollapse: 'collapse', 
+                marginTop: '12px',
+                backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent',
+                color: isDarkMode ? '#ffffff' : '#292929'
+              }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${isDarkMode ? '#444' : '#e0e0e0'}` }}>
+                    <th style={{ 
+                      padding: '8px', 
+                      textAlign: 'left',
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      fontWeight: 600,
+                      backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent'
+                    }}>Metric</th>
+                    <th style={{ 
+                      padding: '8px', 
+                      textAlign: 'left',
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      fontWeight: 600,
+                      backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent'
+                    }}>Soft Limit (On-Track)</th>
+                    <th style={{ 
+                      padding: '8px', 
+                      textAlign: 'left',
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      fontWeight: 600,
+                      backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent'
+                    }}>Alert Threshold</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style={{ borderBottom: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}` }}>
+                    <td style={{ 
+                      padding: '8px',
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent'
+                    }}>Open Conversations</td>
+                    <td style={{ 
+                      padding: '8px',
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent'
+                    }}>≤ {THRESHOLDS.MAX_OPEN_SOFT}</td>
+                    <td style={{ 
+                      padding: '8px',
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent'
+                    }}>≥ {THRESHOLDS.MAX_OPEN_ALERT}</td>
+                  </tr>
+                  <tr style={{ borderBottom: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}` }}>
+                    <td style={{ 
+                      padding: '8px',
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent'
+                    }}>Waiting on TSE</td>
+                    <td style={{ 
+                      padding: '8px',
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent'
+                    }}>≤ {THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}</td>
+                    <td style={{ 
+                      padding: '8px',
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      backgroundColor: isDarkMode ? '#1a1a1a' : 'transparent'
+                    }}>≥ {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -5874,25 +6340,52 @@ function HelpModal({ onClose }) {
               <span className="help-section-icon">🔔</span>
               <h3>Alerts System</h3>
             </div>
-            <p className="help-intro">Stay informed about TSEs exceeding status thresholds with real-time alerts.</p>
+            <p className="help-intro">The alerts system proactively identifies TSEs who need immediate attention, helping managers quickly address queue health issues before they impact customer experience.</p>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">🔔</span>
                 <strong>Alert Dropdown</strong>
               </div>
-              <p><strong>Access:</strong> Click the bell icon (🔔) in the header.</p>
-              <p><strong>What:</strong> Shows count of active alerts. Badge displays total alert count.</p>
+              <p><strong>Access:</strong> Click the bell icon (🔔) in the top navigation header. The icon displays a badge with the total count of active alerts.</p>
+              <p><strong>What It Shows:</strong> A dropdown menu listing all TSEs currently exceeding alert thresholds, organized by alert type.</p>
+              <p><strong>Features:</strong></p>
+              <ul>
+                <li>Total alert count displayed as a badge on the bell icon</li>
+                <li>Alerts grouped by type (Open Chats vs. Waiting on TSE)</li>
+                <li>Each alert shows TSE name, alert type, and severity</li>
+                <li>Click any TSE name to navigate directly to their TSE card</li>
+                <li>"View All" button filters the TSE View to show only TSEs with alerts</li>
+                <li>"View Chats" button navigates to Conversations View filtered to that TSE's conversations</li>
+              </ul>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">⚠️</span>
-                <strong>Alert Types</strong>
+                <strong>Alert Types & Severity</strong>
               </div>
-              <p><strong>Open Chat Alerts:</strong> Triggered when TSE has {THRESHOLDS.MAX_OPEN_ALERT}+ open conversations.</p>
-              <p><strong>Waiting On TSE Alerts:</strong> Triggered when TSE has {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+ conversations waiting on them.</p>
-              <p><strong>Severity:</strong> High (🔴) or Medium (🟡) based on how far over threshold.</p>
+              <p><strong>Two Alert Types:</strong></p>
+              <ul>
+                <li><strong>Open Chat Alerts:</strong> Triggered when a TSE has {THRESHOLDS.MAX_OPEN_ALERT} or more open conversations</li>
+                <li><strong>Waiting On TSE Alerts:</strong> Triggered when a TSE has {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT} or more conversations waiting on them (tagged "snooze.waiting-on-tse")</li>
+              </ul>
+              <p><strong>Severity Levels:</strong> Alerts are automatically assigned severity based on how far over the threshold:</p>
+              <ul>
+                <li><strong>High Severity (🔴):</strong> TSE exceeds threshold by 3+ conversations
+                  <ul>
+                    <li>Open Chats: {THRESHOLDS.MAX_OPEN_ALERT + 3}+ conversations</li>
+                    <li>Waiting on TSE: {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT + 3}+ conversations</li>
+                  </ul>
+                </li>
+                <li><strong>Medium Severity (🟡):</strong> TSE exceeds threshold but by less than 3 conversations
+                  <ul>
+                    <li>Open Chats: {THRESHOLDS.MAX_OPEN_ALERT} to {THRESHOLDS.MAX_OPEN_ALERT + 2} conversations</li>
+                    <li>Waiting on TSE: {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT} to {THRESHOLDS.MAX_WAITING_ON_TSE_ALERT + 2} conversations</li>
+                  </ul>
+                </li>
+              </ul>
+              <p><strong>Real-Time Updates:</strong> Alerts update automatically as conversation counts change, ensuring you always have current information.</p>
             </div>
           </div>
 
@@ -5905,128 +6398,200 @@ function HelpModal({ onClose }) {
           <div id="overview-dashboard" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">📊</span>
-              <h3>Overview</h3>
+              <h3>Overview Dashboard</h3>
             </div>
-            <p className="help-intro">The Dashboard provides real-time metrics and insights at a glance. All cards are clickable and navigate to filtered views.</p>
+            <p className="help-intro">The Overview Dashboard provides a comprehensive real-time snapshot of queue health, performance metrics, and key insights. It combines current status with historical trends to give you a complete picture of team performance.</p>
             
             <div className="help-feature">
               <div className="help-feature-title">
-                <span className="help-feature-icon">🎯</span>
-                <strong>KPI Cards</strong>
+                <span className="help-feature-icon">💡</span>
+                <strong>Key Insights Section</strong>
               </div>
-              <p><strong>What:</strong> Two sections of metric cards showing real-time and historical averages.</p>
-              <p><strong>Today / Realtime Metrics Section:</strong></p>
+              <p><strong>Location:</strong> Top of the Overview Dashboard</p>
+              <p><strong>What It Shows:</strong> Dynamically generated insights highlighting important performance indicators, trends, and areas needing attention.</p>
+              <p><strong>Insight Types:</strong></p>
               <ul>
-                <li><strong>Realtime On Track</strong> (primary card) - Current snapshot on-track percentage</li>
-                <li><strong>Wait Rate</strong> (primary card) - Most recent day's percentage for 5+ minute wait times with trend indicator (improving ↓, worsening ↑, stable →)</li>
-                <li><strong>OPEN CHATS</strong> (clickable card) - Total active, non-snoozed conversations. Click to navigate to Conversations View filtered to open chats</li>
-                <li><strong>SNOOZED</strong> (clickable card) - Combined card showing three rows:
-                  <ul>
-                    <li><strong>Waiting on TSE</strong> - Conversations snoozed with tag "snooze.waiting-on-tse"</li>
-                    <li><strong>Waiting On Customer - Resolved</strong> - Resolved conversations with "snooze.waiting-on-customer-resolved" tag</li>
-                    <li><strong>Waiting On Customer - Unresolved</strong> - Unresolved conversations with "snooze.waiting-on-customer-unresolved" tag</li>
-                  </ul>
-                  Click to navigate to Conversations View filtered to all snoozed conversations
-                </li>
+                <li><strong>On-Track Performance:</strong> Current percentage of TSEs meeting targets, with status indicators (Strong ≥80%, Needs Attention &lt;60%)</li>
+                <li><strong>Wait Rate Status:</strong> Current percentage of conversations with 5+ minute wait times, compared to target (5%)</li>
+                <li><strong>Response Time Breakdown:</strong> Highlights when 10+ minute wait times exceed 3%</li>
+                <li><strong>Trend Indicators:</strong> Shows improving or declining trends for both on-track and wait rate metrics</li>
+                <li><strong>Impact Insights:</strong> Correlation analysis and improvement potential from the Impact tab</li>
               </ul>
-              <p><strong>Last 7 Days Averages Section:</strong></p>
-              <ul>
-                <li><strong>Team On Track</strong> (primary card) - Average on-track percentage over last 7 days with trend indicator</li>
-                <li><strong>Wait Rate</strong> (primary card) - Average percentage of conversations with 5+ minute wait times over last 7 days</li>
-              </ul>
-              <p><strong>How:</strong> Real-time metrics calculated from current conversation data. Historical averages calculated from daily snapshots and response time metrics.</p>
-              <p><strong>Why:</strong> Quick visibility into current state and recent trends. Clickable cards enable rapid navigation to detailed views.</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">🌍</span>
-                <strong>Region On Track</strong>
-              </div>
-              <p><strong>What:</strong> On-track percentages by region (UK, NY, SF) with region icons.</p>
-              <p><strong>How:</strong> Calculated from the most recent historical snapshot. For each region:</p>
-              <ul>
-                <li>Counts TSEs meeting both thresholds: ≤{THRESHOLDS.MAX_OPEN_SOFT} open chats AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE</li>
-                <li>On Track % = (On Track TSEs / Total TSEs) × 100</li>
-                <li>Color-coded: Green (≥80%), Yellow (60-79%), Red (&lt;60%)</li>
-              </ul>
-              <p><strong>Why:</strong> Identifies regional performance patterns.</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">🔔</span>
-                <strong>Active Alerts Card</strong>
-              </div>
-              <p><strong>What:</strong> Summary of TSEs exceeding alert thresholds. Clickable card.</p>
-              <p><strong>How:</strong> Counts alerts for:</p>
-              <ul>
-                <li>Open chats ({THRESHOLDS.MAX_OPEN_ALERT}+)</li>
-                <li>Snoozed - Waiting On TSE ({THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+)</li>
-              </ul>
-              <p><strong>Why:</strong> Quick identification of TSEs needing immediate attention. Click to navigate to TSE View filtered to over-limit TSEs only.</p>
+              <p><strong>Color Coding:</strong> Green borders indicate positive insights, red/orange borders indicate areas needing attention.</p>
+              <p><strong>Why It Matters:</strong> Provides immediate context about what's important right now, helping prioritize attention and actions.</p>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">📈</span>
-                <strong>On Track Trend Chart</strong>
+                <strong>Performance Metrics vs Yesterday</strong>
               </div>
-              <p><strong>What:</strong> Area chart showing on-track percentage over the last 7 days with 3-day moving average line.</p>
-              <p><strong>Features:</strong></p>
+              <p><strong>Location:</strong> Primary KPI card in "Today / Realtime Metrics" section</p>
+              <p><strong>What It Shows:</strong> A comprehensive comparison card displaying both Wait Rate and On-Track metrics with day-over-day trends.</p>
+              <p><strong>Wait Rate Section:</strong></p>
               <ul>
-                <li>Area chart with gradient fill (blue)</li>
-                <li>Dashed green line showing 3-day moving average</li>
-                <li>Holiday indicators (icons) mark holidays that may affect metrics</li>
-                <li>Tooltips show exact on-track percentage for each day</li>
+                <li><strong>Current Value:</strong> Most recent day's percentage of conversations with 5+ minute wait times</li>
+                <li><strong>Breakdown:</strong> Shows three categories:
+                  <ul>
+                    <li><strong>5+ Min Wait %:</strong> Total percentage of conversations waiting 5+ minutes</li>
+                    <li><strong>5-10 Min Wait %:</strong> Percentage waiting 5-10 minutes (subset of 5+)</li>
+                    <li><strong>10+ Min Wait %:</strong> Percentage waiting 10+ minutes (subset of 5+)</li>
+                  </ul>
+                </li>
+                <li><strong>Sparkline:</strong> Mini line graph showing the last 7 days of wait rate percentages</li>
+                <li><strong>Trend Indicator:</strong> Shows change vs yesterday (↑ improving, ↓ worsening, → stable) with percentage change</li>
               </ul>
-              <p><strong>How:</strong> Uses historical snapshots. Each data point represents daily on-track percentage calculated from all TSEs in that snapshot.</p>
-              <p><strong>Why:</strong> Visualizes trends to identify improving or declining performance patterns. Moving average smooths out daily fluctuations.</p>
+              <p><strong>On-Track Section:</strong></p>
+              <ul>
+                <li><strong>Current Value:</strong> Real-time on-track percentage (calculated from current conversation data)</li>
+                <li><strong>Breakdown:</strong> Shows three metrics:
+                  <ul>
+                    <li><strong>Overall:</strong> Percentage meeting both thresholds</li>
+                    <li><strong>Open:</strong> Percentage meeting open chats threshold only</li>
+                    <li><strong>Snoozed:</strong> Percentage meeting waiting-on-TSE threshold only</li>
+                  </ul>
+                </li>
+                <li><strong>Sparkline:</strong> Mini line graph showing the last 7 days of overall on-track percentages</li>
+                <li><strong>Trend Indicator:</strong> Shows change vs yesterday with percentage change</li>
+              </ul>
+              <p><strong>Interaction:</strong> Click the card to open a detailed modal showing historical wait rate breakdowns and trends.</p>
+              <p><strong>Calculation:</strong> Wait Rate uses the most recent response time metric (collected nightly). On-Track uses real-time conversation data.</p>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
-                <span className="help-feature-icon">⏱️</span>
-                <strong>Response Time Trend Chart</strong>
+                <span className="help-feature-icon">⚡</span>
+                <strong>Real-time Intercom Metrics</strong>
               </div>
-              <p><strong>What:</strong> Area chart showing percentage of conversations with 5+ minute first response times over the last 7 days with 3-day moving average line.</p>
-              <p><strong>Features:</strong></p>
+              <p><strong>Location:</strong> "Today / Realtime Metrics" section</p>
+              <p><strong>What It Shows:</strong> A combined card displaying four key real-time metrics from Intercom:</p>
               <ul>
-                <li>Area chart with gradient fill (red/coral)</li>
-                <li>Dashed orange line showing 3-day moving average</li>
-                <li>Holiday indicators (icons) mark holidays that may affect metrics</li>
-                <li>Tooltips show exact percentage for each day</li>
+                <li><strong>Avg Initial Response:</strong> Average time to first admin reply across all conversations (in minutes)</li>
+                <li><strong>Open Chats:</strong> Total count of active, non-snoozed conversations
+                  <ul>
+                    <li>Shows age breakdown: &lt;1h, 1-4h, 4-8h, 8h+</li>
+                    <li>Includes hourly line graph showing conversations received per hour over the last 24 hours</li>
+                  </ul>
+                </li>
+                <li><strong>Unassigned Conversations:</strong> Count of conversations without an assigned TSE
+                  <ul>
+                    <li>Color-coded: Green (≤5), Yellow (6-10), Red (11+)</li>
+                    <li>Shows median wait time for unassigned conversations</li>
+                  </ul>
+                </li>
+                <li><strong>Same-Day Close %:</strong> Percentage of conversations closed on the same day they were created
+                  <ul>
+                    <li>Compares last 7 days vs previous 7 days</li>
+                    <li>Shows trend indicator (↑ improving, ↓ declining)</li>
+                  </ul>
+                </li>
               </ul>
-              <p><strong>How:</strong> Calculated from response time metrics captured daily at midnight UTC.</p>
-              <p><strong>Why:</strong> Tracks customer experience quality trends. Lower percentages indicate faster response times. Moving average helps identify underlying trends.</p>
+              <p><strong>Data Source:</strong> All metrics calculated from real-time Intercom conversation data</p>
+              <p><strong>Why It Matters:</strong> Provides immediate visibility into current operational status and customer experience metrics.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">👥</span>
+                <strong>Clickable Navigation Cards</strong>
+              </div>
+              <p><strong>SNOOZED Card:</strong></p>
+              <ul>
+                <li><strong>What:</strong> Shows total snoozed conversations with breakdown by type</li>
+                <li><strong>Breakdown:</strong>
+                  <ul>
+                    <li><strong>Waiting on TSE:</strong> Conversations with "snooze.waiting-on-tse" tag</li>
+                    <li><strong>Waiting On Customer - Resolved:</strong> Resolved conversations with "snooze.waiting-on-customer-resolved" tag</li>
+                    <li><strong>Waiting On Customer - Unresolved:</strong> Unresolved conversations with "snooze.waiting-on-customer-unresolved" tag</li>
+                  </ul>
+                </li>
+                <li><strong>Click Action:</strong> Navigates to Conversations View with all snoozed filters selected</li>
+                <li><strong>Visual Indicator:</strong> Hover icon shows it's clickable</li>
+              </ul>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🌍</span>
+                <strong>Region Performance Summary</strong>
+              </div>
+              <p><strong>Location:</strong> Secondary metrics section</p>
+              <p><strong>What It Shows:</strong> On-track percentages by region (UK, NY, SF) with region-specific icons and color coding.</p>
+              <p><strong>Calculation:</strong> For each region, calculates:</p>
+              <ul>
+                <li>Counts TSEs meeting both thresholds: ≤{THRESHOLDS.MAX_OPEN_SOFT} open chats AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE</li>
+                <li>On Track % = (On Track TSEs / Total TSEs in Region) × 100</li>
+                <li>Uses the most recent historical snapshot data</li>
+              </ul>
+              <p><strong>Color Coding:</strong></p>
+              <ul>
+                <li><strong>Green (≥80%):</strong> Region meeting target performance</li>
+                <li><strong>Yellow (60-79%):</strong> Region below target but acceptable</li>
+                <li><strong>Red (&lt;60%):</strong> Region needs attention</li>
+              </ul>
+              <p><strong>Why It Matters:</strong> Identifies regional performance patterns and helps allocate resources or support where needed.</p>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">📊</span>
-                <strong>On Track and Slow Response Trends Over Time Chart</strong>
+                <strong>Secondary Metrics Section</strong>
               </div>
-              <p><strong>What:</strong> Dual-axis line chart showing both on-track percentage (left axis, green line) and slow response rate percentage (right axis, red line) over all available historical data.</p>
-              <p><strong>Features:</strong></p>
+              <p><strong>Additional Cards:</strong> The Overview Dashboard includes several secondary metric cards:</p>
               <ul>
-                <li>Green line with circular markers showing On Track % (left Y-axis)</li>
-                <li>Red line with circular markers showing Slow Response Rate % (right Y-axis)</li>
-                <li>Displays all available historical data (not limited to 7 days)</li>
-                <li>Tooltips show exact values for both metrics on each day</li>
-                <li>Holiday indicators (icons) mark holidays that may affect metrics</li>
+                <li><strong>Conversation Aging:</strong> Breakdown of open conversations by age buckets (&lt;1h, 1-4h, 4-8h, 8h+)</li>
+                <li><strong>Response Time Distribution:</strong> Mini chart showing distribution of response times</li>
+                <li><strong>Improvement Potential:</strong> Shows potential wait time reduction if team maintains high (80-100%) on-track performance</li>
               </ul>
-              <p><strong>How:</strong> Combines on-track data from daily snapshots with response time metrics from the same dates. Shows the relationship between queue health (on-track status) and customer experience (response times).</p>
-              <p><strong>Why:</strong> Visualizes the correlation between maintaining on-track status and response time performance. Helps identify if better queue management leads to faster customer responses.</p>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
-                <span className="help-feature-icon">📐</span>
-                <strong>Chart Layout</strong>
+                <span className="help-feature-icon">📈</span>
+                <strong>Trend Charts</strong>
               </div>
-              <p><strong>What:</strong> The three trend charts (On Track Trend, Response Time Trend, and On Track and Slow Response Trends Over Time) are displayed in equal-width columns on the same row.</p>
-              <p><strong>Layout:</strong> Each chart takes up one-third of the page width, providing a balanced view of all trend metrics side-by-side.</p>
-              <p><strong>Responsive:</strong> On smaller screens, charts automatically adjust to 2 columns or a single column layout for optimal viewing.</p>
+              <p><strong>Layout:</strong> Two main trend charts displayed side-by-side, each taking 50% of the width.</p>
+              <p><strong>Team Daily On Track Percentage Trends:</strong></p>
+              <ul>
+                <li><strong>What:</strong> Multi-line chart showing three on-track metrics over the last 7 days</li>
+                <li><strong>Lines:</strong>
+                  <ul>
+                    <li><strong>Overall On Track:</strong> Green line with solid stroke - percentage meeting both thresholds</li>
+                    <li><strong>Open On Track:</strong> Blue line with solid stroke - percentage meeting open chats threshold</li>
+                    <li><strong>Snoozed On Track:</strong> Orange line with solid stroke - percentage meeting waiting-on-TSE threshold</li>
+                    <li><strong>Moving Averages:</strong> Dashed lines for each metric showing 3-day moving average</li>
+                  </ul>
+                </li>
+                <li><strong>Target Line:</strong> Horizontal dashed line at 80% indicating the team target</li>
+                <li><strong>Holiday Indicators:</strong> Icons mark holidays that may affect metrics</li>
+                <li><strong>Data Source:</strong> Historical snapshots from the last 7 days</li>
+              </ul>
+              <p><strong>Percentage of Conversations with Wait Time:</strong></p>
+              <ul>
+                <li><strong>What:</strong> Multi-line chart showing wait time percentages over the last 7 days</li>
+                <li><strong>Lines:</strong>
+                  <ul>
+                    <li><strong>5+ Min Wait %:</strong> Amber/orange line - total percentage waiting 5+ minutes</li>
+                    <li><strong>5-10 Min Wait %:</strong> Orange line - percentage waiting 5-10 minutes</li>
+                    <li><strong>10+ Min Wait %:</strong> Red/pink line - percentage waiting 10+ minutes</li>
+                  </ul>
+                </li>
+                <li><strong>Target Line:</strong> Horizontal dotted line at 5% indicating the target</li>
+                <li><strong>Y-Axis:</strong> Scales dynamically up to 20% to ensure readability</li>
+                <li><strong>Data Source:</strong> Response time metrics collected nightly</li>
+              </ul>
+              <p><strong>Why Both Charts:</strong> The side-by-side layout allows you to compare queue health (on-track) with customer experience (wait times) simultaneously, helping identify correlations.</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">ℹ️</span>
+                <strong>Info Icons & Tooltips</strong>
+              </div>
+              <p><strong>What:</strong> Most KPI cards include an info icon (ℹ️) that provides detailed explanations when hovered or clicked.</p>
+              <p><strong>Content:</strong> Tooltips explain what the metric measures, how it's calculated, and why it matters.</p>
+              <p><strong>Positioning:</strong> Tooltips automatically position themselves to avoid being cut off (left, right, or top as needed).</p>
+              <p><strong>Why:</strong> Helps users understand metrics without needing to reference documentation.</p>
             </div>
           </div>
 
@@ -6143,17 +6708,82 @@ function HelpModal({ onClose }) {
           <div id="tse-details-modal" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">🔍</span>
-              <h3>TSE Details Modal</h3>
+              <h3>TSE Details Modal & Performance Scorecard</h3>
             </div>
-            <p className="help-intro">Detailed breakdown of a specific TSE's conversations and performance metrics. Accessed by clicking on a TSE card in the TSE View.</p>
+            <p className="help-intro">A comprehensive performance scorecard providing detailed insights into a TSE's current status, historical trends, and conversation breakdown. Accessed by clicking on any TSE card in the TSE View.</p>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">👤</span>
+                <strong>Header Information</strong>
+              </div>
+              <p><strong>Contains:</strong></p>
+              <ul>
+                <li>TSE name with status icon (Outstanding ⭐, On Track ✓, Over Limit ✗)</li>
+                <li>Region indicator with region-specific icon (UK, NY, SF)</li>
+                <li>Status badge showing current status level</li>
+                <li>Away mode indicator (🌙) if enabled</li>
+                <li>TSE avatar/profile picture</li>
+              </ul>
+              <p><strong>Status Tooltip:</strong> Click the status icon to see a detailed breakdown showing:</p>
+              <ul>
+                <li>Current counts (open, waiting on TSE)</li>
+                <li>Thresholds (target values)</li>
+                <li>Whether each threshold is being met</li>
+              </ul>
+            </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">📊</span>
-                <strong>Header Information</strong>
+                <strong>Performance Scorecard</strong>
               </div>
-              <p><strong>Contains:</strong> TSE name, region, status badge with icon, away mode indicator (if enabled).</p>
-              <p><strong>Status Tooltip:</strong> Click status icon to see detailed breakdown of open/waiting counts vs thresholds.</p>
+              <p><strong>Location:</strong> Top section of the modal, before conversation breakdown</p>
+              <p><strong>What It Shows:</strong> Comprehensive performance metrics calculated from historical snapshots:</p>
+              <ul>
+                <li><strong>On-Track %:</strong> Percentage of tracked days the TSE met both thresholds
+                  <ul>
+                    <li>Color-coded: Green (≥80%), Yellow (60-79%), Red (&lt;60%)</li>
+                    <li>Shows total days tracked</li>
+                  </ul>
+                </li>
+                <li><strong>Avg Open Chats:</strong> Average number of open conversations over tracked period
+                  <ul>
+                    <li>Color-coded: Green (≤{THRESHOLDS.MAX_OPEN_SOFT}), Red (&gt;{THRESHOLDS.MAX_OPEN_SOFT})</li>
+                    <li>Shows target threshold</li>
+                  </ul>
+                </li>
+                <li><strong>Avg Waiting on TSE:</strong> Average number of conversations waiting on TSE over tracked period
+                  <ul>
+                    <li>Color-coded: Green (≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}), Red (&gt;{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})</li>
+                    <li>Shows target threshold</li>
+                  </ul>
+                </li>
+                <li><strong>Trend:</strong> Performance trend indicator
+                  <ul>
+                    <li>Shows improving (↑), worsening (↓), or stable (→)</li>
+                    <li>Displays percentage change</li>
+                    <li>Compares last 7 days vs previous 7 days (if 14+ days of data), or recent half vs earlier half</li>
+                  </ul>
+                </li>
+              </ul>
+              <p><strong>Performance Over Time Chart:</strong></p>
+              <ul>
+                <li>Line chart showing daily open chats and waiting-on-TSE counts</li>
+                <li>Two data series: "Open Chats" (blue) and "Waiting on TSE" (red)</li>
+                <li>Reference lines show target thresholds (dashed yellow lines)</li>
+                <li>Legend includes both data lines and target lines</li>
+                <li>Tooltips show exact values for each day</li>
+                <li>X-axis shows dates, Y-axis shows counts</li>
+              </ul>
+              <p><strong>Key Insights:</strong> Automatically generated insights highlighting:</p>
+              <ul>
+                <li>Performance status (excellent, needs attention)</li>
+                <li>Threshold violations (if averages exceed targets)</li>
+                <li>Trend direction (improving or declining)</li>
+              </ul>
+              <p><strong>Best/Worst Days:</strong> Highlights the day with lowest combined workload (best) and highest combined workload (worst), showing exact counts.</p>
+              <p><strong>Data Source:</strong> Calculated from all available historical snapshots containing this TSE. Requires at least one historical snapshot to display.</p>
             </div>
 
             <div className="help-feature">
@@ -6161,22 +6791,37 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">💬</span>
                 <strong>Conversation Breakdown</strong>
               </div>
-              <p><strong>Sections:</strong></p>
+              <p><strong>Location:</strong> Bottom section of the modal</p>
+              <p><strong>Sections:</strong> Four separate sections showing different conversation categories:</p>
               <ul>
-                <li><strong>Open Conversations</strong> - Active, non-snoozed conversations</li>
-                <li><strong>Waiting On TSE</strong> - Snoozed with "snooze.waiting-on-tse" tag</li>
-                <li><strong>Waiting On Customer</strong> - Snoozed with "snooze.waiting-on-customer" tag</li>
-                <li><strong>Total Snoozed</strong> - All snoozed conversations</li>
+                <li><strong>Open Conversations:</strong> Active, non-snoozed conversations assigned to this TSE
+                  <ul>
+                    <li>Shows conversation ID (clickable to open in Intercom)</li>
+                    <li>Shows author email</li>
+                    <li>Shows creation date/time</li>
+                  </ul>
+                </li>
+                <li><strong>Snoozed - Waiting On TSE:</strong> Conversations snoozed with "snooze.waiting-on-tse" tag
+                  <ul>
+                    <li>These count toward the waiting-on-TSE threshold</li>
+                    <li>Indicates conversations where the TSE needs to take action</li>
+                  </ul>
+                </li>
+                <li><strong>Snoozed - Waiting On Customer:</strong> Conversations snoozed with "snooze.waiting-on-customer" tags
+                  <ul>
+                    <li>Includes both resolved and unresolved customer-wait conversations</li>
+                    <li>These do NOT count toward the waiting-on-TSE threshold</li>
+                  </ul>
+                </li>
+                <li><strong>Total Snoozed:</strong> All snoozed conversations regardless of tag
+                  <ul>
+                    <li>Includes conversations that may not have proper tags</li>
+                    <li>Useful for identifying tagging issues</li>
+                  </ul>
+                </li>
               </ul>
-              <p><strong>Interaction:</strong> Click conversation IDs to open in Intercom.</p>
-            </div>
-
-            <div className="help-feature">
-              <div className="help-feature-title">
-                <span className="help-feature-icon">📈</span>
-                <strong>Metrics Display</strong>
-              </div>
-              <p><strong>Shows:</strong> Counts for each conversation type with color-coded badges matching status levels.</p>
+              <p><strong>Interaction:</strong> Click any conversation ID to open it directly in Intercom in a new tab.</p>
+              <p><strong>Empty States:</strong> If a category has no conversations, displays "No conversations" message.</p>
             </div>
           </div>
 
@@ -6189,24 +6834,26 @@ function HelpModal({ onClose }) {
           <div id="conversations-view" className="help-section">
             <div className="help-section-header">
               <span className="help-section-icon">💬</span>
-              <h3>Conversations</h3>
+              <h3>Conversations View</h3>
             </div>
-            <p className="help-intro">Browse, search, and filter all conversations with advanced filtering options.</p>
+            <p className="help-intro">Browse, search, and filter all Intercom conversations with advanced filtering options. This view provides direct access to conversation details and enables quick navigation to specific conversations in Intercom.</p>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">🔽</span>
                 <strong>Snooze Type Filter</strong>
               </div>
-              <p><strong>Options:</strong></p>
+              <p><strong>Purpose:</strong> Filter conversations by their snooze status and tags, helping you focus on specific workflow states.</p>
+              <p><strong>Filter Options:</strong></p>
               <ul>
-                <li><strong>All Conversations</strong> - Shows all open and snoozed conversations</li>
-                <li><strong>All Snoozed</strong> - All snoozed conversations regardless of tag</li>
-                <li><strong>Snoozed - Waiting On TSE</strong> - Conversations with "snooze.waiting-on-tse" tag</li>
-                <li><strong>Snoozed - Waiting On Customer</strong> - All conversations with "snooze.waiting-on-customer" tag</li>
-                <li><strong>Waiting On Customer - Resolved</strong> - Resolved conversations waiting on customer</li>
-                <li><strong>Waiting On Customer - Unresolved</strong> - Unresolved conversations waiting on customer</li>
+                <li><strong>All Conversations:</strong> Shows all open and snoozed conversations (default view)</li>
+                <li><strong>All Snoozed:</strong> All snoozed conversations regardless of tag - useful for identifying untagged snoozed conversations</li>
+                <li><strong>Snoozed - Waiting On TSE:</strong> Conversations with "snooze.waiting-on-tse" tag - these count toward the waiting-on-TSE threshold</li>
+                <li><strong>Snoozed - Waiting On Customer:</strong> All conversations with any "snooze.waiting-on-customer" tag (includes both resolved and unresolved)</li>
+                <li><strong>Waiting On Customer - Resolved:</strong> Resolved conversations with "snooze.waiting-on-customer-resolved" tag</li>
+                <li><strong>Waiting On Customer - Unresolved:</strong> Unresolved conversations with "snooze.waiting-on-customer-unresolved" tag</li>
               </ul>
+              <p><strong>Tag Importance:</strong> Proper tagging is critical for accurate metrics. Conversations without proper tags won't be counted correctly in threshold calculations.</p>
             </div>
 
             <div className="help-feature">
@@ -6214,17 +6861,34 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">👤</span>
                 <strong>TSE Filter</strong>
               </div>
-              <p><strong>Options:</strong> All TSEs, Unassigned, or filter by specific TSE (grouped by region).</p>
-              <p><strong>Why:</strong> Focus on conversations for specific team members or unassigned conversations.</p>
+              <p><strong>Purpose:</strong> Filter conversations by assigned TSE or show unassigned conversations.</p>
+              <p><strong>Filter Options:</strong></p>
+              <ul>
+                <li><strong>All TSEs:</strong> Shows conversations assigned to any TSE (default)</li>
+                <li><strong>Unassigned:</strong> Shows only conversations without an assigned TSE - critical for identifying workload distribution issues</li>
+                <li><strong>Specific TSE:</strong> Filter by individual TSE, organized by region (UK, NY, SF, Other)
+                  <ul>
+                    <li>Expandable checkboxes grouped by region</li>
+                    <li>Select multiple TSEs to see combined conversations</li>
+                  </ul>
+                </li>
+              </ul>
+              <p><strong>Use Cases:</strong></p>
+              <ul>
+                <li>Review a specific TSE's workload</li>
+                <li>Identify unassigned conversations needing assignment</li>
+                <li>Compare conversations across multiple TSEs</li>
+              </ul>
             </div>
 
             <div className="help-feature">
               <div className="help-feature-title">
                 <span className="help-feature-icon">🔎</span>
-                <strong>Search by ID</strong>
+                <strong>Search by Conversation ID</strong>
               </div>
-              <p><strong>What:</strong> Text input to search for specific conversation IDs.</p>
-              <p><strong>How:</strong> Filters conversations matching the entered ID.</p>
+              <p><strong>What:</strong> Text input field to search for specific conversation IDs</p>
+              <p><strong>How:</strong> Enter a conversation ID (partial or full) to filter the table to matching conversations</p>
+              <p><strong>Use Case:</strong> Quickly locate a specific conversation when you have the ID from another source</p>
             </div>
 
             <div className="help-feature">
@@ -6232,8 +6896,23 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">📋</span>
                 <strong>Conversation Table</strong>
               </div>
-              <p><strong>Columns:</strong> Conversation ID (clickable to Intercom), Assignee, State, Snooze tags, Last updated.</p>
-              <p><strong>Interaction:</strong> Click conversation IDs to open in Intercom in a new tab.</p>
+              <p><strong>Columns:</strong></p>
+              <ul>
+                <li><strong>Conversation ID:</strong> Unique identifier, clickable to open in Intercom</li>
+                <li><strong>Assignee:</strong> TSE name assigned to the conversation, or "Unassigned"</li>
+                <li><strong>State:</strong> Conversation state (open, snoozed, closed)</li>
+                <li><strong>Tags:</strong> All tags applied to the conversation, including snooze tags</li>
+                <li><strong>Last Updated:</strong> Timestamp of last activity</li>
+                <li><strong>Created:</strong> Timestamp when conversation was created</li>
+                <li><strong>Author:</strong> Customer email who initiated the conversation</li>
+              </ul>
+              <p><strong>Interactions:</strong></p>
+              <ul>
+                <li><strong>Click Conversation ID:</strong> Opens the conversation directly in Intercom in a new tab</li>
+                <li><strong>Sorting:</strong> Click column headers to sort ascending/descending</li>
+                <li><strong>Resizable Columns:</strong> Drag column borders to adjust widths</li>
+              </ul>
+              <p><strong>Empty State:</strong> If no conversations match filters, displays "No conversations found" message</p>
             </div>
 
             <div className="help-feature">
@@ -6241,7 +6920,32 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">⚡</span>
                 <strong>Quick Filter Buttons</strong>
               </div>
-              <p><strong>Buttons:</strong> Show Unassigned, Show Snoozed, Show Open, Clear (resets all filters).</p>
+              <p><strong>Purpose:</strong> One-click shortcuts to common filter combinations</p>
+              <p><strong>Buttons:</strong></p>
+              <ul>
+                <li><strong>Show Unassigned:</strong> Instantly filters to show only unassigned conversations</li>
+                <li><strong>Show Snoozed:</strong> Filters to show all snoozed conversations</li>
+                <li><strong>Show Open:</strong> Filters to show only open (non-snoozed) conversations</li>
+                <li><strong>Clear:</strong> Resets all filters to default (All Conversations, All TSEs)</li>
+              </ul>
+              <p><strong>Filter Combination:</strong> Quick filter buttons work with other filters - they set the snooze/TSE filter but don't clear other selections</p>
+            </div>
+
+            <div className="help-feature">
+              <div className="help-feature-title">
+                <span className="help-feature-icon">🔄</span>
+                <strong>Navigation from Other Views</strong>
+              </div>
+              <p><strong>From Overview Dashboard:</strong></p>
+              <ul>
+                <li>Click "OPEN CHATS" card → Navigates to Conversations View filtered to open conversations</li>
+                <li>Click "SNOOZED" card → Navigates to Conversations View filtered to all snoozed conversations</li>
+              </ul>
+              <p><strong>From TSE View:</strong></p>
+              <ul>
+                <li>Click any TSE card → Opens TSE Details Modal (not Conversations View)</li>
+                <li>Use TSE filter in Conversations View to see a specific TSE's conversations</li>
+              </ul>
             </div>
           </div>
 
@@ -6263,27 +6967,127 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">📊</span>
                 <strong>Daily On Track Trends Tab</strong>
               </div>
-              <p><strong>What:</strong> Comprehensive analysis of on-track trends for selected TSEs over time with multiple visualizations and insights.</p>
-              <p><strong>Features:</strong></p>
+              <p><strong>Purpose:</strong> Comprehensive analysis of on-track performance trends over time, helping identify patterns, trends, and areas for improvement.</p>
+              
+              <p><strong>Date Range Selector:</strong> Choose from preset ranges or select a custom date range:</p>
               <ul>
-                <li><strong>Date Range Selector:</strong> Yesterday, Last 7 Weekdays, Last 30 Days, Last 90 Days, or Custom Range</li>
-                <li><strong>TSE Filter:</strong> Select specific TSEs by region (UK, NY, SF, Other) with expandable checkboxes</li>
-                <li><strong>Summary Cards:</strong> Three cards showing average Overall On Track, Open On Track, and Snoozed On Track percentages</li>
-                <li><strong>On Track Chart:</strong> Multi-line graph showing three trends: Overall On Track (green), Open On Track (blue), and Snoozed On Track (orange) over time</li>
-                <li><strong>Insights Section:</strong>
+                <li><strong>Yesterday:</strong> Most recent completed day</li>
+                <li><strong>Last 7 Weekdays:</strong> Last 7 business days (excludes weekends)</li>
+                <li><strong>Last 30 Days:</strong> Last 30 calendar days</li>
+                <li><strong>Last 90 Days:</strong> Last 90 calendar days</li>
+                <li><strong>Custom Range:</strong> Select any start and end date</li>
+              </ul>
+              <p><strong>Note:</strong> Date range affects all charts, tables, and calculations on this tab.</p>
+
+              <p><strong>TSE Filter:</strong> Select specific TSEs to analyze:</p>
+              <ul>
+                <li>Expandable checkboxes organized by region (UK, NY, SF, Other)</li>
+                <li>"Select All" and "Unselect All" buttons for quick selection</li>
+                <li>Filters apply to all visualizations and calculations</li>
+                <li>If no TSEs selected, shows data for all TSEs (excluding admins)</li>
+              </ul>
+
+              <p><strong>Summary Cards:</strong> Three KPI cards at the top showing averages over the selected period:</p>
+              <ul>
+                <li><strong>Overall On Track:</strong> Average percentage of TSEs meeting both thresholds</li>
+                <li><strong>Open On Track:</strong> Average percentage of TSEs meeting the open chats threshold (≤{THRESHOLDS.MAX_OPEN_SOFT})</li>
+                <li><strong>Snoozed On Track:</strong> Average percentage of TSEs meeting the waiting-on-TSE threshold (≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})</li>
+              </ul>
+              <p><strong>Calculation:</strong> Each card shows the average of daily percentages across all days in the selected range.</p>
+
+              <p><strong>Team Daily On Track Percentage Trends Chart:</strong></p>
+              <ul>
+                <li><strong>Type:</strong> Multi-line chart with moving averages</li>
+                <li><strong>Lines:</strong>
                   <ul>
-                    <li><strong>Trend Analysis:</strong> Compares first half vs second half of selected period with trend indicator (improving/declining/stable) and volatility metric</li>
-                    <li><strong>Best/Worst Days:</strong> Highlights the day with highest and lowest on-track, showing breakdown by Open and Snoozed on-track</li>
+                    <li><strong>Overall On Track:</strong> Green solid line - percentage meeting both thresholds</li>
+                    <li><strong>Moving Avg (Overall):</strong> Green dashed line - 3-day moving average</li>
+                    <li><strong>Open On Track:</strong> Blue solid line - percentage meeting open threshold</li>
+                    <li><strong>Moving Avg (Open):</strong> Blue dashed line - 3-day moving average</li>
+                    <li><strong>Snoozed On Track:</strong> Orange solid line - percentage meeting waiting-on-TSE threshold</li>
+                    <li><strong>Moving Avg (Snoozed):</strong> Orange dashed line - 3-day moving average</li>
                   </ul>
                 </li>
-                <li><strong>Day-of-Week Analysis:</strong> Bar chart showing average on-track patterns by weekday (Monday through Friday)</li>
-                <li><strong>Region Comparison:</strong> Bar chart comparing average on-track across regions (UK, NY, SF)</li>
-                <li><strong>TSE Average On Track:</strong> Horizontal bar chart showing individual TSE average on-track over the selected period, sorted by performance</li>
-                <li><strong>Detailed Table:</strong> Expandable rows showing daily on-track metrics (Overall, Open, Snoozed), TSE counts, open counts, and waiting on TSE counts. Sortable by date, TSE count, or any on-track metric</li>
-                <li><strong>Holiday Indicators:</strong> Icons mark holidays on the chart that may affect metrics</li>
+                <li><strong>Target Line:</strong> Horizontal dashed line at 80% indicating team target</li>
+                <li><strong>Y-Axis:</strong> 0-100% scale</li>
+                <li><strong>Holiday Indicators:</strong> Icons mark holidays that may affect metrics</li>
+                <li><strong>Tooltips:</strong> Show exact percentages for each metric on each day</li>
               </ul>
-              <p><strong>How On Track is Calculated:</strong> For each day, counts TSEs meeting both thresholds (≤{THRESHOLDS.MAX_OPEN_SOFT} open AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE), then calculates percentage. Separate calculations for Overall (both thresholds), Open (open threshold only), and Snoozed (waiting on TSE threshold only) on-track.</p>
-              <p><strong>Why:</strong> Identifies trends, patterns, and helps understand what drives on-track changes. The multiple visualizations provide different perspectives: time trends, day patterns, regional differences, and individual TSE performance.</p>
+
+              <p><strong>On-Track Calculation Details:</strong></p>
+              <ul>
+                <li><strong>For Each Day:</strong>
+                  <ul>
+                    <li>Counts TSEs meeting both thresholds: ≤{THRESHOLDS.MAX_OPEN_SOFT} open AND ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT} waiting on TSE</li>
+                    <li>Overall On Track % = (TSEs meeting both / Total TSEs) × 100</li>
+                    <li>Open On Track % = (TSEs meeting open threshold / Total TSEs) × 100</li>
+                    <li>Snoozed On Track % = (TSEs meeting waiting-on-TSE threshold / Total TSEs) × 100</li>
+                  </ul>
+                </li>
+                <li><strong>Moving Average:</strong> Calculated as the average of the current day and the two previous days (3-day window)</li>
+                <li><strong>Exclusions:</strong> Admin TSEs (Prerit Sachdeva, Stephen Skalamera) are excluded from calculations</li>
+              </ul>
+
+              <p><strong>Insights Section:</strong></p>
+              <ul>
+                <li><strong>Trend Analysis Card:</strong>
+                  <ul>
+                    <li>Compares first half vs second half of selected period</li>
+                    <li>Shows trend indicator: Improving (↑), Declining (↓), or Stable (→)</li>
+                    <li>Displays percentage change between halves</li>
+                    <li>Shows volatility metric (standard deviation) indicating consistency</li>
+                    <li>Color-coded: Green for improving, Red for declining</li>
+                  </ul>
+                </li>
+                <li><strong>Best/Worst Days Card:</strong>
+                  <ul>
+                    <li>Highlights the day with highest overall on-track percentage (best)</li>
+                    <li>Highlights the day with lowest overall on-track percentage (worst)</li>
+                    <li>Shows breakdown by Open On Track and Snoozed On Track for each day</li>
+                    <li>Displays exact percentages and counts</li>
+                  </ul>
+                </li>
+              </ul>
+
+              <p><strong>Day-of-Week Analysis:</strong></p>
+              <ul>
+                <li><strong>Type:</strong> Bar chart showing average on-track percentages by weekday</li>
+                <li><strong>Days:</strong> Monday through Friday (weekends excluded)</li>
+                <li><strong>Metrics:</strong> Shows Overall, Open, and Snoozed on-track averages for each weekday</li>
+                <li><strong>Purpose:</strong> Identifies if certain days of the week consistently perform better or worse</li>
+              </ul>
+
+              <p><strong>Region Comparison:</strong></p>
+              <ul>
+                <li><strong>Type:</strong> Bar chart comparing average on-track across regions</li>
+                <li><strong>Regions:</strong> UK, NY, SF (with region-specific icons)</li>
+                <li><strong>Metrics:</strong> Shows Overall, Open, and Snoozed on-track averages per region</li>
+                <li><strong>Purpose:</strong> Identifies regional performance differences</li>
+              </ul>
+
+              <p><strong>TSE Average On Track:</strong></p>
+              <ul>
+                <li><strong>Type:</strong> Horizontal bar chart</li>
+                <li><strong>What:</strong> Shows individual TSE average on-track percentage over the selected period</li>
+                <li><strong>Sorting:</strong> Sorted by performance (highest to lowest)</li>
+                <li><strong>Color Coding:</strong> Green bars for high performers, red for low performers</li>
+                <li><strong>Purpose:</strong> Identifies top and bottom performers for targeted coaching</li>
+              </ul>
+
+              <p><strong>Detailed Table:</strong></p>
+              <ul>
+                <li><strong>Columns:</strong> Date, Overall On Track %, Open On Track %, Snoozed On Track %, Total TSEs, Avg Open, Avg Waiting on TSE</li>
+                <li><strong>Sorting:</strong> Click column headers to sort ascending/descending</li>
+                <li><strong>Expandable Rows:</strong> Click any row to expand and see:
+                  <ul>
+                    <li>Individual TSE performance for that day</li>
+                    <li>Each TSE's open count, waiting-on-TSE count, and on-track status</li>
+                  </ul>
+                </li>
+                <li><strong>Holiday Indicators:</strong> Icons mark holidays in the date column</li>
+              </ul>
+
+              <p><strong>Why This Tab Matters:</strong> Provides deep insights into performance patterns, helping identify trends, day-of-week effects, regional differences, and individual TSE performance. Essential for data-driven decision making and performance improvement.</p>
             </div>
 
             <div id="response-time-metrics" className="help-feature">
@@ -6291,41 +7095,121 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">⏱️</span>
                 <strong>Response Time Metrics Tab</strong>
               </div>
-              <p><strong>What:</strong> Comprehensive analysis of first response times, focusing on conversations with 5+ minute wait times, including trends, patterns, and correlations.</p>
-              <p><strong>Features:</strong></p>
+              <p><strong>Purpose:</strong> Comprehensive analysis of first response times, focusing on customer experience quality by tracking conversations with extended wait times before the first admin reply.</p>
+              
+              <p><strong>Target:</strong> The goal is to keep the percentage of conversations with 5+ minute wait times at or below 5%.</p>
+
+              <p><strong>Date Range & TSE Filter:</strong> Same as Daily On Track Trends tab - select date range and TSEs to analyze. Filters apply to all visualizations.</p>
+
+              <p><strong>Data Collection:</strong></p>
               <ul>
-                <li><strong>Date Range Selector:</strong> Yesterday, Last 7 Weekdays, Last 30 Days, Last 90 Days, or Custom Range</li>
-                <li><strong>TSE Filter:</strong> Select specific TSEs by region (UK, NY, SF, Other) with expandable checkboxes</li>
-                <li><strong>Data Collection Banner:</strong> Information banner explaining that data is automatically collected nightly after all shifts complete</li>
-                <li><strong>Summary Cards:</strong> Three cards showing:
-                  <ul>
-                    <li><strong>Avg % Wait Time:</strong> Average percentage for 5+ minute wait times with trend indicator (improving/declining/stable) showing change from previous period</li>
-                    <li><strong>Total Conversations:</strong> Sum of all conversations across selected date range</li>
-                    <li><strong>Total Waits:</strong> Total count of conversations with 5+ minute wait times</li>
-                  </ul>
-                </li>
-                <li><strong>Percentage Chart:</strong> Line chart showing daily percentage of conversations with 5+ minute wait times over time, with holiday indicators</li>
-                <li><strong>Count Chart:</strong> Bar chart showing daily count of conversations with 5+ minute wait times, with holiday indicators</li>
-                <li><strong>Insights Section:</strong>
-                  <ul>
-                    <li><strong>Trend Analysis:</strong> Compares first half vs second half of selected period with trend indicator (improving/declining/stable), volatility metric, and 7-day moving average</li>
-                    <li><strong>Period Comparison:</strong> Compares Previous 7 Days vs Current 7 Days with all-time average and comparison to all-time performance</li>
-                    <li><strong>Best/Worst Days:</strong> Highlights the day with lowest percentage (best) and highest percentage (worst), showing breakdown of slow count vs total conversations</li>
-                  </ul>
-                </li>
-                <li><strong>Day-of-Week Analysis:</strong> Dual-axis bar chart showing both average percentage and average count of slow conversations by weekday (Monday through Friday)</li>
-                <li><strong>Volume vs Performance Correlation:</strong> Scatter chart analyzing correlation between total conversation volume and response time performance, with correlation coefficient and interpretation (weak/moderate/strong, positive/negative)</li>
-                <li><strong>Detailed Table:</strong> Sortable table with expandable rows showing:
-                  <ul>
-                    <li>Date, Total Conversations, 5+ Min Waits count, 5+ Min %</li>
-                    <li>Expandable rows reveal individual conversation IDs with their wait times</li>
-                    <li>Sortable by date, total conversations, count, or percentage</li>
-                  </ul>
-                </li>
-                <li><strong>Holiday Indicators:</strong> Icons mark holidays on charts that may affect metrics</li>
+                <li><strong>When:</strong> Metrics are automatically collected nightly after all shifts have completed (via scheduled cron jobs)</li>
+                <li><strong>What:</strong> Analyzes conversations from the most recently completed business day</li>
+                <li><strong>Data Source:</strong> Intercom conversation data, specifically first admin reply timestamps</li>
+                <li><strong>Banner:</strong> Information banner at the top explains the data collection process</li>
               </ul>
-              <p><strong>How:</strong> Metrics are automatically collected nightly after all shifts have completed, analyzing metrics from the most recently completed business day. Calculates percentage of conversations with first response time ≥5 minutes. Data collection happens via scheduled cron jobs.</p>
-              <p><strong>Why:</strong> Tracks customer experience quality and identifies patterns. Lower percentages indicate faster response times and better service. The correlation analysis helps understand if volume impacts response time performance.</p>
+
+              <p><strong>Wait Time Categories:</strong></p>
+              <ul>
+                <li><strong>5+ Min Wait:</strong> Conversations with first response time ≥5 minutes (total)</li>
+                <li><strong>5-10 Min Wait:</strong> Conversations waiting 5-10 minutes (subset of 5+)</li>
+                <li><strong>10+ Min Wait:</strong> Conversations waiting ≥10 minutes (subset of 5+)</li>
+              </ul>
+              <p><strong>Note:</strong> 5-10 Min and 10+ Min are mutually exclusive categories that together equal 5+ Min.</p>
+
+              <p><strong>Summary KPI Cards:</strong> Four cards showing key metrics:</p>
+              <ul>
+                <li><strong>TOTAL CONVERSATIONS:</strong> Sum of all conversations across selected date range</li>
+                <li><strong>TOTAL WAITS:</strong> Total count of conversations with 5+ minute wait times</li>
+                <li><strong>RECENT TREND:</strong> Shows change vs yesterday with trend indicator (improving ↓, worsening ↑)</li>
+                <li><strong>WORST DAY (HIGHEST %):</strong> The day with highest percentage of slow responses, showing exact percentage and counts</li>
+              </ul>
+
+              <p><strong>Percentage of Conversations with Wait Time Chart:</strong></p>
+              <ul>
+                <li><strong>Type:</strong> Multi-line chart showing three wait time categories</li>
+                <li><strong>Lines:</strong>
+                  <ul>
+                    <li><strong>5+ Min Wait %:</strong> Amber/orange line - total percentage waiting 5+ minutes</li>
+                    <li><strong>5-10 Min Wait %:</strong> Orange line - percentage waiting 5-10 minutes</li>
+                    <li><strong>10+ Min Wait %:</strong> Red/pink line - percentage waiting 10+ minutes</li>
+                  </ul>
+                </li>
+                <li><strong>Target Line:</strong> Horizontal dotted line at 5% indicating the target</li>
+                <li><strong>Y-Axis:</strong> Scales dynamically up to 20% (or higher if needed) to ensure readability</li>
+                <li><strong>Legend:</strong> Ordered to show 5+ Min first, then 5-10 Min, then 10+ Min</li>
+                <li><strong>Holiday Indicators:</strong> Icons mark holidays</li>
+                <li><strong>Tooltips:</strong> Show exact percentages and counts for each category</li>
+              </ul>
+
+              <p><strong>Calculation Formula:</strong></p>
+              <ul>
+                <li>For each day: Wait Time % = (Conversations with wait time ≥5 min / Total conversations with responses) × 100</li>
+                <li>Only conversations with a first admin reply are included in calculations</li>
+                <li>Wait time = Time between conversation creation and first admin reply</li>
+              </ul>
+
+              <p><strong>Insights Section:</strong></p>
+              <ul>
+                <li><strong>Trend Analysis:</strong>
+                  <ul>
+                    <li>Compares first half vs second half of selected period</li>
+                    <li>Shows trend indicator: Improving (↓), Declining (↑), or Stable (→)</li>
+                    <li>Displays percentage change between halves</li>
+                    <li>Shows volatility metric (standard deviation)</li>
+                    <li>Includes 7-day moving average for smoothing</li>
+                  </ul>
+                </li>
+                <li><strong>Period Comparison:</strong>
+                  <ul>
+                    <li>Compares Previous 7 Days vs Current 7 Days</li>
+                    <li>Shows all-time average for context</li>
+                    <li>Indicates if current period is above or below all-time average</li>
+                  </ul>
+                </li>
+                <li><strong>Best/Worst Days:</strong>
+                  <ul>
+                    <li>Best Day: Lowest percentage of slow responses</li>
+                    <li>Worst Day: Highest percentage of slow responses</li>
+                    <li>Shows breakdown: slow count vs total conversations for each day</li>
+                  </ul>
+                </li>
+              </ul>
+
+              <p><strong>Day-of-Week Analysis:</strong></p>
+              <ul>
+                <li><strong>Type:</strong> Dual-axis bar chart</li>
+                <li><strong>Left Y-Axis:</strong> Average percentage of slow conversations</li>
+                <li><strong>Right Y-Axis:</strong> Average count of slow conversations</li>
+                <li><strong>Days:</strong> Monday through Friday</li>
+                <li><strong>Purpose:</strong> Identifies if certain weekdays consistently have better or worse response times</li>
+              </ul>
+
+              <p><strong>Volume vs Performance Correlation:</strong></p>
+              <ul>
+                <li><strong>Type:</strong> Scatter plot</li>
+                <li><strong>X-Axis:</strong> Total conversation volume (count)</li>
+                <li><strong>Y-Axis:</strong> Slow response percentage</li>
+                <li><strong>Each Point:</strong> Represents one day's data</li>
+                <li><strong>Correlation Coefficient:</strong> Shows strength (Weak &lt;0.3, Moderate 0.3-0.7, Strong &gt;0.7) and direction (Positive/Negative)</li>
+                <li><strong>Interpretation:</strong> Helps understand if higher volume correlates with slower response times</li>
+              </ul>
+
+              <p><strong>Detailed Table:</strong></p>
+              <ul>
+                <li><strong>Columns:</strong> Date, Total Conversations, 5+ Min Waits (count), 5+ Min %, 5-10 Min Waits (count), 5-10 Min %, 10+ Min Waits (count), 10+ Min %</li>
+                <li><strong>Sorting:</strong> Click column headers to sort</li>
+                <li><strong>Expandable Rows:</strong> Click any row to see:
+                  <ul>
+                    <li>Individual conversation IDs with 5+ minute wait times</li>
+                    <li>Exact wait time for each conversation (in minutes)</li>
+                    <li>Conversation creation and first reply timestamps</li>
+                    <li>Assigned TSE information</li>
+                  </ul>
+                </li>
+              </ul>
+
+              <p><strong>Why This Tab Matters:</strong> Response time directly impacts customer satisfaction. This tab helps identify patterns, volume impacts, and trends in response time performance, enabling data-driven improvements to customer experience.</p>
             </div>
 
             <div id="impact" className="help-feature">
@@ -6333,27 +7217,119 @@ function HelpModal({ onClose }) {
                 <span className="help-feature-icon">🔗</span>
                 <strong>Impact Tab</strong>
               </div>
-              <p><strong>What:</strong> Comprehensive correlation analysis between on-track status and slow first response times, showing how maintaining on-track status affects customer experience metrics.</p>
-              <p><strong>Features:</strong></p>
+              <p><strong>Purpose:</strong> Analyzes the correlation between queue health (on-track status) and customer experience (response times), answering the critical question: "Does maintaining on-track status improve or worsen response times?"</p>
+              
+              <p><strong>Key Question:</strong> Is there a relationship between how well TSEs manage their queues (on-track %) and how quickly customers receive responses?</p>
+
+              <p><strong>Date Range & TSE Filter:</strong> Shared with other Analytics tabs. Select date range and TSEs to analyze.</p>
+
+              <p><strong>Correlation KPI Cards:</strong> Four cards showing correlation metrics:</p>
               <ul>
-                <li><strong>Date Range Selector:</strong> Yesterday, Last 7 Weekdays, Last 30 Days, Last 90 Days, or Custom Range (shared with other tabs)</li>
-                <li><strong>Key Insights Section:</strong>
+                <li><strong>5+ Min Wait Correlation:</strong> Correlation between on-track % and 5+ minute wait rate
                   <ul>
-                    <li><strong>Correlation Analysis Card:</strong> Displays correlation coefficient value, strength (Weak &lt;0.3, Moderate 0.3-0.7, Strong &gt;0.7), direction (Positive/Negative), and interpretation. Color-coded: green for desired (negative correlation), red for concerning (positive correlation)</li>
-                    <li><strong>Overall Averages Card:</strong> Shows average on-track percentage, average slow response rate percentage, and total number of data points (days) in the analysis</li>
+                    <li>Shows correlation coefficient (-1 to +1)</li>
+                    <li>Strength: Weak (&lt;0.3), Moderate (0.3-0.7), Strong (&gt;0.7)</li>
+                    <li>Direction: Positive or Negative</li>
+                    <li>Color-coded: Green for negative correlation (desired), Red for positive correlation (concerning)</li>
                   </ul>
                 </li>
-                <li><strong>Scatter Plot:</strong> Visual representation of on-track percentage vs slow response rate percentage. Each point represents one day's data, allowing visual identification of patterns and outliers</li>
-                <li><strong>Performance by On Track Range:</strong> Three range cards showing statistics for different on-track levels:
+                <li><strong>5-10 Min Wait Correlation:</strong> Same analysis for 5-10 minute wait category</li>
+                <li><strong>10+ Min Wait Correlation:</strong> Same analysis for 10+ minute wait category</li>
+                <li><strong>Improvement Potential:</strong> Shows potential wait time reduction if team maintains high (80-100%) on-track performance
                   <ul>
-                    <li>Each card displays: on-track range label, number of days in range, average on-track, average slow response rate, total slow responses, and total conversations</li>
-                    <li>Color-coded borders (green/yellow/red) indicate performance levels</li>
+                    <li>Displays potential reduction for 5-10 min and 10+ min categories</li>
+                    <li>Color-coded: Green for reductions (positive), Red for increases (negative/concerning)</li>
+                    <li>Based on comparing current averages vs high-performance-day averages</li>
                   </ul>
                 </li>
-                <li><strong>Trend Over Time Chart:</strong> Dual-axis line chart showing both on-track percentage (left axis, green line) and slow response rate percentage (right axis, red line) over the selected time period. Helps visualize how both metrics change together over time</li>
               </ul>
-              <p><strong>How:</strong> Combines on-track data from daily snapshots with response time metrics from the same dates. Calculates Pearson correlation coefficient to measure the linear relationship between on-track status and slow response rates. Groups data into on-track ranges for detailed analysis.</p>
-              <p><strong>Why:</strong> Understands if maintaining on-track status helps or hurts response times. Negative correlation (higher on-track → lower slow responses) is the desired outcome, indicating that better queue management leads to faster customer responses. Positive correlation would be concerning as it suggests on-track efforts might be slowing down response times.</p>
+
+              <p><strong>Correlation Interpretation:</strong></p>
+              <ul>
+                <li><strong>Negative Correlation (Desired):</strong> Higher on-track % → Lower wait times
+                  <ul>
+                    <li>Indicates that better queue management leads to faster customer responses</li>
+                    <li>Validates that on-track efforts improve customer experience</li>
+                    <li>Shown in green</li>
+                  </ul>
+                </li>
+                <li><strong>Positive Correlation (Concerning):</strong> Higher on-track % → Higher wait times
+                  <ul>
+                    <li>Would suggest that on-track efforts might be slowing down responses</li>
+                    <li>Would indicate a need to review processes</li>
+                    <li>Shown in red</li>
+                  </ul>
+                </li>
+                <li><strong>Weak Correlation:</strong> Little to no relationship between metrics</li>
+              </ul>
+
+              <p><strong>Scatter Plot:</strong></p>
+              <ul>
+                <li><strong>Type:</strong> Scatter plot visualization</li>
+                <li><strong>X-Axis:</strong> On-track percentage (0-100%)</li>
+                <li><strong>Y-Axis:</strong> Slow response rate percentage (5+ minute waits)</li>
+                <li><strong>Each Point:</strong> Represents one day's data</li>
+                <li><strong>Purpose:</strong> Visual identification of patterns, trends, and outliers</li>
+                <li><strong>Trend Line:</strong> Shows the overall relationship direction</li>
+              </ul>
+
+              <p><strong>Performance by On-Track Range:</strong></p>
+              <ul>
+                <li><strong>What:</strong> Three cards grouping days by on-track performance level</li>
+                <li><strong>Ranges:</strong>
+                  <ul>
+                    <li><strong>High (80-100%):</strong> Days when 80%+ of TSEs were on-track</li>
+                    <li><strong>Medium (60-79%):</strong> Days when 60-79% of TSEs were on-track</li>
+                    <li><strong>Low (0-59%):</strong> Days when less than 60% of TSEs were on-track</li>
+                  </ul>
+                </li>
+                <li><strong>Each Card Shows:</strong>
+                  <ul>
+                    <li>Number of days in that range</li>
+                    <li>Average on-track percentage for those days</li>
+                    <li>Average slow response rate percentage</li>
+                    <li>Total slow responses and total conversations</li>
+                  </ul>
+                </li>
+                <li><strong>Color Coding:</strong> Green border (High), Yellow border (Medium), Red border (Low)</li>
+                <li><strong>Purpose:</strong> Compare response time performance across different on-track performance levels</li>
+              </ul>
+
+              <p><strong>Trend Over Time Chart:</strong></p>
+              <ul>
+                <li><strong>Type:</strong> Dual-axis line chart</li>
+                <li><strong>Left Y-Axis:</strong> On-track percentage (green line)</li>
+                <li><strong>Right Y-Axis:</strong> Slow response rate percentage (red line)</li>
+                <li><strong>Purpose:</strong> Visualize how both metrics change together over time</li>
+                <li><strong>Interpretation:</strong> When lines move in opposite directions (green up, red down), it indicates negative correlation - desired outcome</li>
+              </ul>
+
+              <p><strong>Correlation Calculation:</strong></p>
+              <ul>
+                <li><strong>Method:</strong> Pearson correlation coefficient</li>
+                <li><strong>Formula:</strong> Measures linear relationship between two variables</li>
+                <li><strong>Data Points:</strong> Requires at least 3 days of matching data (on-track snapshot + response time metric for same date)</li>
+                <li><strong>Result Range:</strong> -1 (perfect negative correlation) to +1 (perfect positive correlation)</li>
+                <li><strong>Zero:</strong> No correlation</li>
+              </ul>
+
+              <p><strong>Improvement Potential Calculation:</strong></p>
+              <ul>
+                <li><strong>Method:</strong> Compares current average wait rates vs wait rates on high-performance days (80-100% on-track)</li>
+                <li><strong>Formula:</strong> Improvement = Current Average - High-Performance Average</li>
+                <li><strong>Positive Value:</strong> Indicates potential reduction (green) - maintaining high on-track could reduce wait times</li>
+                <li><strong>Negative Value:</strong> Indicates potential increase (red) - concerning, suggests high on-track days had worse wait times</li>
+                <li><strong>Requires:</strong> At least one day with 80%+ on-track performance in the selected range</li>
+              </ul>
+
+              <p><strong>What If Scenario:</strong></p>
+              <ul>
+                <li><strong>Visualization:</strong> Chart showing potential impact of maintaining high on-track performance</li>
+                <li><strong>Shows:</strong> Current vs projected wait time percentages</li>
+                <li><strong>Purpose:</strong> Quantifies the potential customer experience improvement from better queue management</li>
+              </ul>
+
+              <p><strong>Why This Tab Matters:</strong> Validates whether queue management efforts (maintaining on-track status) actually improve customer experience. A negative correlation proves that better queue health leads to faster responses, justifying the focus on on-track metrics. This data-driven approach helps prioritize initiatives and measure impact.</p>
             </div>
           </div>
 

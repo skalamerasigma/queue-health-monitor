@@ -1182,8 +1182,18 @@
   border-color: #9333ea;
 }
 
+.dark-mode .tse-exceeding {
+  background: linear-gradient(135deg, #2a1a3a 0%, #1f0f2a 100%);
+  border-color: #9333ea;
+}
+
 .tse-success {
   background-color: #f0f9f4;
+  border-color: #4cec8c;
+}
+
+.dark-mode .tse-success {
+  background-color: #1a2a1f;
   border-color: #4cec8c;
 }
 
@@ -1192,8 +1202,18 @@
   border-color: #ffc107;
 }
 
+.dark-mode .tse-warning {
+  background-color: #2a241a;
+  border-color: #ffc107;
+}
+
 .tse-error {
   background-color: #fff0f0;
+  border-color: #fd8789;
+}
+
+.dark-mode .tse-error {
+  background-color: #2a1a1a;
   border-color: #fd8789;
 }
 
@@ -1251,6 +1271,11 @@
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 1px solid rgba(0,0,0,0.1);
+  transition: border-color 0.3s ease;
+}
+
+.dark-mode .tse-header {
+  border-bottom-color: rgba(255,255,255,0.1);
 }
 
 .tse-header-left {
@@ -1325,7 +1350,7 @@
 }
 
 .dark-mode .tse-header h4 {
-  color: #000000 !important;
+  color: #ffffff !important;
 }
 
 .status-badge {
@@ -1370,6 +1395,11 @@
   opacity: 1;
 }
 
+.dark-mode .tse-card .metric-label {
+  color: #ffffff;
+  opacity: 0.9;
+}
+
 .metric-value {
   font-size: 12px;
   font-weight: 600;
@@ -1381,6 +1411,11 @@
 
 .dark-mode .kpi-card .metric-value {
   color: #ffffff;
+}
+
+.dark-mode .tse-card .metric-value {
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .tse-metric .metric-value {
@@ -3721,6 +3756,10 @@
   position: relative;
 }
 
+.dark-mode .help-modal-body {
+  background: #1a1a1a;
+}
+
 .help-toc {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 12px;
@@ -3901,9 +3940,18 @@
   transition: all 0.2s;
 }
 
+.dark-mode .help-feature {
+  background: #1a1a1a;
+  border-left-color: #35a1b4;
+}
+
 .help-feature:hover {
   background: #f0f4f8;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.dark-mode .help-feature:hover {
+  background: #222222;
 }
 
 .help-feature:last-child {
@@ -3927,11 +3975,28 @@
   font-weight: 700;
 }
 
+.dark-mode .help-feature-title strong {
+  color: #ffffff;
+}
+
 .help-feature p {
   margin: 8px 0;
   color: #555;
   font-size: 14px;
   line-height: 1.6;
+}
+
+.dark-mode .help-feature p {
+  color: #e5e5e5;
+}
+
+.help-feature p strong {
+  color: #292929;
+  font-weight: 600;
+}
+
+.dark-mode .help-feature p strong {
+  color: #ffffff;
 }
 
 .help-feature ul {
@@ -3942,6 +4007,10 @@
   line-height: 1.8;
 }
 
+.dark-mode .help-feature ul {
+  color: #e5e5e5;
+}
+
 .help-feature li {
   margin-bottom: 8px;
 }
@@ -3949,6 +4018,10 @@
 .help-feature li strong {
   color: #292929;
   font-weight: 600;
+}
+
+.dark-mode .help-feature li strong {
+  color: #ffffff;
 }
 
 .help-status-grid {
@@ -4093,6 +4166,176 @@
 
 .dark-mode .modal-section-count {
   color: #ffffff;
+}
+
+/* TSE Scorecard Section */
+.modal-scorecard-section {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  border: 1px solid #e0e0e0;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-section {
+  background: #1a1a1a;
+  border-color: #333;
+}
+
+.modal-scorecard-title {
+  margin: 0 0 20px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #292929;
+  transition: color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-title {
+  color: #ffffff;
+}
+
+.modal-scorecard-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.modal-scorecard-metric {
+  background: white;
+  border-radius: 6px;
+  padding: 16px;
+  border: 1px solid #e0e0e0;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-metric {
+  background: #2a2a2a;
+  border-color: #444;
+}
+
+.modal-scorecard-metric-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  margin-bottom: 8px;
+  font-weight: 500;
+  transition: color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-metric-label {
+  color: #999;
+}
+
+.modal-scorecard-metric-value {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  transition: color 0.3s ease;
+}
+
+.modal-scorecard-metric-subtext {
+  font-size: 11px;
+  color: #999;
+  transition: color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-metric-subtext {
+  color: #666;
+}
+
+.modal-scorecard-chart {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-chart {
+  background: #2a2a2a;
+  border-color: #444;
+}
+
+.modal-scorecard-chart-title {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #292929;
+  transition: color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-chart-title {
+  color: #ffffff;
+}
+
+.modal-scorecard-insights {
+  margin-bottom: 20px;
+}
+
+.modal-scorecard-insights-title {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #292929;
+  transition: color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-insights-title {
+  color: #ffffff;
+}
+
+.modal-scorecard-insights-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-scorecard-insight {
+  font-size: 13px;
+  line-height: 1.5;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.modal-scorecard-extremes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #e0e0e0;
+  transition: border-color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-extremes {
+  border-top-color: #444;
+}
+
+.modal-scorecard-extreme {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-scorecard-extreme-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  font-weight: 500;
+  transition: color 0.3s ease;
+}
+
+.dark-mode .modal-scorecard-extreme-label {
+  color: #999;
+}
+
+.modal-scorecard-extreme-value {
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.3s ease;
 }
 
 .modal-conversation-list {
