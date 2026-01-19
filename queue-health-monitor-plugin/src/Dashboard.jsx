@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "./AuthContext";
 import { useTheme } from "./ThemeContext";
 import HistoricalView from "./HistoricalView";
+import MyQueue from "./MyQueue";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, ReferenceLine } from 'recharts';
 import { formatDateTimeUTC, formatTimestampUTC, formatDateForChart, formatDateForTooltip } from "./utils/dateUtils";
 import "./Dashboard.css";
@@ -31,6 +32,45 @@ const getTSERegion = (tseName) => {
   }
   return 'Other'; // Fallback for any TSEs not in the list
 };
+
+// Custom hook for managing dismissed items in localStorage
+function useDismissedItems(storageKey) {
+  const [dismissedItems, setDismissedItems] = useState(() => {
+    try {
+      const stored = localStorage.getItem(storageKey);
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const dismissItem = useCallback((itemId) => {
+    setDismissedItems(prev => {
+      const updated = [...prev, itemId];
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save dismissed items:', e);
+      }
+      return updated;
+    });
+  }, [storageKey]);
+
+  const isDismissed = useCallback((itemId) => {
+    return dismissedItems.includes(itemId);
+  }, [dismissedItems]);
+
+  const clearDismissed = useCallback(() => {
+    setDismissedItems([]);
+    try {
+      localStorage.removeItem(storageKey);
+    } catch (e) {
+      console.error('Failed to clear dismissed items:', e);
+    }
+  }, [storageKey]);
+
+  return { dismissedItems, dismissItem, isDismissed, clearDismissed };
+}
 
 // TSE Avatar mapping (first name to Cloudinary URL)
 const TSE_AVATARS = {
@@ -370,14 +410,53 @@ const THRESHOLDS = {
 
 function Dashboard(props) {
   const { conversations = [], teamMembers = [], loading, error, onRefresh, lastUpdated } = props;
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const { isDarkMode, toggleDarkMode } = useTheme();
+  
+  // Match authenticated user to a TSE in the team
+  const currentTSE = useMemo(() => {
+    if (!user || !teamMembers || teamMembers.length === 0) return null;
+    
+    // Try to match by ID first (most reliable)
+    if (user.id) {
+      const matchById = teamMembers.find(tse => String(tse.id) === String(user.id));
+      if (matchById) return matchById;
+    }
+    
+    // Try to match by email
+    if (user.email) {
+      const userEmail = user.email.toLowerCase();
+      const matchByEmail = teamMembers.find(tse => 
+        tse.email && tse.email.toLowerCase() === userEmail
+      );
+      if (matchByEmail) return matchByEmail;
+    }
+    
+    // Try to match by name as fallback
+    if (user.name) {
+      const userName = user.name.toLowerCase();
+      const matchByName = teamMembers.find(tse => 
+        tse.name && tse.name.toLowerCase() === userName
+      );
+      if (matchByName) return matchByName;
+    }
+    
+    return null;
+  }, [user, teamMembers]);
   const [activeView, setActiveView] = useState("overview");
   const [filterTag, setFilterTag] = useState(["all"]);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const filterDropdownRef = useRef(null);
   const [filterTSE, setFilterTSE] = useState("all");
   
+  // Dismissed items management (must be early for use throughout component)
+  const insightsDismissed = useDismissedItems('dismissedKeyInsights');
+  const alertsDismissed = useDismissedItems('dismissedAlerts');
+
+  // Extract dismiss functions for useMemo (ESLint needs explicit reference)
+  const isInsightDismissed = insightsDismissed.isDismissed;
+  const dismissInsightItem = insightsDismissed.dismissItem;
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -866,7 +945,8 @@ function Dashboard(props) {
           tseId: tse.id,
           tseName: tse.name,
           message: `${tse.name}: ${totalOpen} open chats (threshold: ${THRESHOLDS.MAX_OPEN_ALERT}+)`,
-          count: totalOpen
+          count: totalOpen,
+          id: `alert-${tse.id}-open-${totalOpen}` // Unique ID for dismiss functionality
         });
       }
       
@@ -881,7 +961,8 @@ function Dashboard(props) {
           tseId: tse.id,
           tseName: tse.name,
           message: `${tse.name}: ${totalWaitingOnTSE} waiting on TSE (threshold: ${THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+)`,
-          count: totalWaitingOnTSE
+          count: totalWaitingOnTSE,
+          id: `alert-${tse.id}-snoozed-${totalWaitingOnTSE}` // Unique ID for dismiss functionality
         });
       }
     });
@@ -983,6 +1064,30 @@ function Dashboard(props) {
       onTrackSnoozedOnly: onTrackSnoozedOnlyPct
     };
     }, [conversations, teamMembers]);
+
+  // Get current user's TSE metrics from the calculated data
+  const currentTSEMetrics = useMemo(() => {
+    if (!currentTSE || !metrics.byTSE || metrics.byTSE.length === 0) return null;
+    
+    const tseData = metrics.byTSE.find(tse => 
+      String(tse.id) === String(currentTSE.id)
+    );
+    
+    if (!tseData) return null;
+    
+    // Calculate on-track status for current user
+    const meetsOpen = (tseData.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
+    const totalWaitingOnTSE = tseData.waitingOnTSE || tseData.actionableSnoozed || 0;
+    const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+    const isOnTrack = meetsOpen && meetsWaitingOnTSE;
+    
+    return {
+      ...tseData,
+      isOnTrack,
+      meetsOpen,
+      meetsWaitingOnTSE
+    };
+  }, [currentTSE, metrics.byTSE]);
 
   // Calculate performance streaks for each TSE
   const performanceStreaks = useMemo(() => {
@@ -1532,6 +1637,87 @@ function Dashboard(props) {
           </div>
         </div>
         <div className="header-actions">
+          {/* My Queue Status Indicator */}
+          {currentTSEMetrics && (
+            <div 
+              className={`my-queue-indicator ${currentTSEMetrics.isOnTrack ? 'on-track' : 'needs-attention'}`}
+              onClick={() => setActiveView("myqueue")}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                backgroundColor: currentTSEMetrics.isOnTrack 
+                  ? (isDarkMode ? 'rgba(76, 175, 80, 0.15)' : 'rgba(76, 175, 80, 0.1)')
+                  : (isDarkMode ? 'rgba(244, 67, 54, 0.15)' : 'rgba(244, 67, 54, 0.1)'),
+                border: `1px solid ${currentTSEMetrics.isOnTrack 
+                  ? (isDarkMode ? 'rgba(76, 175, 80, 0.4)' : 'rgba(76, 175, 80, 0.3)')
+                  : (isDarkMode ? 'rgba(244, 67, 54, 0.4)' : 'rgba(244, 67, 54, 0.3)')}`,
+                transition: 'all 0.2s ease',
+                marginRight: '12px'
+              }}
+              title="Click to view your queue details"
+            >
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                overflow: 'hidden',
+                border: `2px solid ${currentTSEMetrics.isOnTrack ? '#4caf50' : '#f44336'}`,
+                flexShrink: 0
+              }}>
+                {getTSEAvatar(currentTSE.name) ? (
+                  <img 
+                    src={getTSEAvatar(currentTSE.name)} 
+                    alt={currentTSE.name}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <div style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: isDarkMode ? '#333' : '#e0e0e0',
+                    color: isDarkMode ? '#fff' : '#666',
+                    fontSize: '14px',
+                    fontWeight: '600'
+                  }}>
+                    {currentTSE.name?.charAt(0) || '?'}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ 
+                  fontSize: '11px', 
+                  color: isDarkMode ? '#aaa' : '#666',
+                  fontWeight: '500'
+                }}>
+                  My Queue
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: currentTSEMetrics.isOnTrack 
+                      ? (isDarkMode ? '#81c784' : '#4caf50')
+                      : (isDarkMode ? '#e57373' : '#f44336')
+                  }}>
+                    {currentTSEMetrics.isOnTrack ? '✓ On Track' : '⚠ Needs Attention'}
+                  </span>
+                  <span style={{
+                    fontSize: '11px',
+                    color: isDarkMode ? '#888' : '#999'
+                  }}>
+                    ({currentTSEMetrics.open || 0} open, {currentTSEMetrics.waitingOnTSE || 0} snoozed)
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="header-icon-group">
             <button
               className="help-icon-button"
@@ -1563,6 +1749,15 @@ function Dashboard(props) {
               isOpen={alertsDropdownOpen}
               onToggle={() => setAlertsDropdownOpen(!alertsDropdownOpen)}
               onClose={() => setAlertsDropdownOpen(false)}
+              isAlertRead={alertsDismissed.isDismissed}
+              onMarkAsRead={alertsDismissed.dismissItem}
+              onMarkAllAsRead={() => {
+                (metrics.alerts || []).forEach(alert => {
+                  if (!alertsDismissed.isDismissed(alert.id)) {
+                    alertsDismissed.dismissItem(alert.id);
+                  }
+                });
+              }}
               onTSEClick={(tseId, tseName) => {
                 setAlertsDropdownOpen(false);
                 // Find TSE object from metrics
@@ -1593,6 +1788,15 @@ function Dashboard(props) {
             />
           </div>
           <div className="view-tabs">
+            {currentTSE && (
+              <button 
+                type="button"
+                className={activeView === "myqueue" ? "active" : ""}
+                onClick={() => setActiveView("myqueue")}
+              >
+                My Queue
+              </button>
+            )}
             <button 
               type="button"
               className={activeView === "overview" ? "active" : ""}
@@ -1799,6 +2003,21 @@ function Dashboard(props) {
       )}
 
 
+      {/* My Queue - Show only in myqueue view */}
+      {activeView === "myqueue" && currentTSE && (
+        <MyQueue
+          conversations={conversations}
+          teamMembers={teamMembers}
+          currentUserEmail={user?.email}
+          loading={loading}
+          error={error}
+          onRefresh={onRefresh}
+          lastUpdated={lastUpdated}
+          historicalSnapshots={historicalSnapshots}
+          responseTimeMetrics={responseTimeMetrics}
+        />
+      )}
+
       {/* Modern Overview - Show only in overview */}
       {activeView === "overview" && (
         <OverviewDashboard 
@@ -1826,6 +2045,8 @@ function Dashboard(props) {
             setSelectedRegions(new Set(['UK', 'NY', 'SF', 'Other'])); // All regions
           }}
           onTSEClick={handleTSECardClick}
+          isInsightDismissed={isInsightDismissed}
+          dismissInsightItem={dismissInsightItem}
         />
       )}
 
@@ -2328,12 +2549,17 @@ function Dashboard(props) {
 }
 
 // Alerts Dropdown Component
-function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewAll, onViewChats }) {
+function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewAll, onViewChats, isAlertRead, onMarkAsRead, onMarkAllAsRead }) {
   const { isDarkMode } = useTheme();
   const [expandedRegions, setExpandedRegions] = useState(new Set()); // All collapsed by default
   const [expandedTSEs, setExpandedTSEs] = useState(new Set());
   const [expandedAlertTypes, setExpandedAlertTypes] = useState(new Set());
   const dropdownRef = useRef(null);
+  
+  // Count unread alerts
+  const unreadCount = useMemo(() => {
+    return (alerts || []).filter(alert => !isAlertRead || !isAlertRead(alert.id)).length;
+  }, [alerts, isAlertRead]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -2456,11 +2682,17 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
         onClick={onToggle}
         aria-label="Alerts"
       >
-        {alertCount > 0 ? (
+        {unreadCount > 0 ? (
           <img 
             src="https://res.cloudinary.com/doznvxtja/image/upload/v1767012829/3_150_x_150_px_b2yyf9.svg" 
             alt="Alerts" 
             className="alerts-icon alerts-icon-with-badge"
+          />
+        ) : alertCount > 0 ? (
+          <img 
+            src="https://res.cloudinary.com/doznvxtja/image/upload/v1767012190/2_nkazbo.svg" 
+            alt="All read" 
+            className="alerts-icon"
           />
         ) : (
           <img 
@@ -2474,8 +2706,26 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
       {isOpen && (
         <div className="alerts-dropdown">
           <div className="alerts-dropdown-header">
-            <h3>Active Alerts</h3>
+            <h3>Active Alerts {unreadCount > 0 && <span style={{ fontSize: '14px', fontWeight: 'normal', color: isDarkMode ? '#999' : '#666' }}>({unreadCount} unread)</span>}</h3>
             <div className="alerts-dropdown-header-actions">
+              {onMarkAllAsRead && unreadCount > 0 && (
+                <button 
+                  className="alerts-mark-all-read-button" 
+                  onClick={onMarkAllAsRead}
+                  style={{
+                    background: 'none',
+                    border: `1px solid ${isDarkMode ? '#555' : '#ddd'}`,
+                    borderRadius: '4px',
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    color: isDarkMode ? '#4fc3f7' : '#1976d2',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Mark all as read
+                </button>
+              )}
               {onViewAll && (
                 <button 
                   className="alerts-view-all-button" 
@@ -2571,30 +2821,75 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
                                         </div>
                                         {expandedAlertTypes.has(`${tseKey}-open`) && (
                                           <div className="alert-type-items">
-                                            {tseGroup.openAlerts.map((alert, idx) => (
-                                              <div 
-                                                key={idx} 
-                                                className="alert-item alert-item-clickable"
-                                                onClick={() => onTSEClick && onTSEClick(tseGroup.tseId, tseGroup.tseName)}
-                                                style={{ cursor: onTSEClick ? 'pointer' : 'default' }}
-                                              >
-                                                <span className="alert-severity">
-                                                  {alert.severity === "high" ? "🔴" : "🟡"}
-                                                </span>
-                                                <span className="alert-message">{alert.message}</span>
-                                                {onViewChats && (
-                                                  <button
-                                                    className="alert-view-chats-button"
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      onViewChats(tseGroup.tseId, "open");
-                                                    }}
-                                                  >
-                                                    View Chats
-                                                  </button>
-                                                )}
-                                              </div>
-                                            ))}
+                                            {tseGroup.openAlerts.map((alert, idx) => {
+                                              const isRead = isAlertRead && isAlertRead(alert.id);
+                                              return (
+                                                <div 
+                                                  key={idx} 
+                                                  className={`alert-item alert-item-clickable ${isRead ? 'alert-item-read' : ''}`}
+                                                  onClick={() => onTSEClick && onTSEClick(tseGroup.tseId, tseGroup.tseName)}
+                                                  style={{ 
+                                                    cursor: onTSEClick ? 'pointer' : 'default',
+                                                    opacity: isRead ? 0.6 : 1,
+                                                    backgroundColor: isRead ? (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)') : 'transparent'
+                                                  }}
+                                                >
+                                                  <span className="alert-severity" style={{ opacity: isRead ? 0.5 : 1 }}>
+                                                    {alert.severity === "high" ? "🔴" : "🟡"}
+                                                  </span>
+                                                  <span className="alert-message" style={{ textDecoration: isRead ? 'none' : 'none' }}>{alert.message}</span>
+                                                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                    {onViewChats && (
+                                                      <button
+                                                        className="alert-view-chats-button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          onViewChats(tseGroup.tseId, "open");
+                                                        }}
+                                                      >
+                                                        View Chats
+                                                      </button>
+                                                    )}
+                                                    {onMarkAsRead && !isRead && (
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          onMarkAsRead(alert.id);
+                                                        }}
+                                                        style={{
+                                                          background: 'none',
+                                                          border: `1px solid ${isDarkMode ? '#555' : '#ddd'}`,
+                                                          borderRadius: '4px',
+                                                          color: isDarkMode ? '#4fc3f7' : '#1976d2',
+                                                          cursor: 'pointer',
+                                                          padding: '2px 6px',
+                                                          fontSize: '11px',
+                                                          lineHeight: '1.2',
+                                                          opacity: 0.8,
+                                                          transition: 'all 0.2s',
+                                                          whiteSpace: 'nowrap'
+                                                        }}
+                                                        onMouseEnter={(e) => { e.target.style.opacity = '1'; e.target.style.backgroundColor = isDarkMode ? 'rgba(79,195,247,0.1)' : 'rgba(25,118,210,0.1)'; }}
+                                                        onMouseLeave={(e) => { e.target.style.opacity = '0.8'; e.target.style.backgroundColor = 'transparent'; }}
+                                                        aria-label="Mark as read"
+                                                        title="Mark as read"
+                                                      >
+                                                        ✓ Read
+                                                      </button>
+                                                    )}
+                                                    {isRead && (
+                                                      <span style={{ 
+                                                        fontSize: '11px', 
+                                                        color: isDarkMode ? '#666' : '#999',
+                                                        fontStyle: 'italic'
+                                                      }}>
+                                                        Read
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
                                           </div>
                                         )}
                                       </div>
@@ -2614,30 +2909,75 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
                                         </div>
                                         {expandedAlertTypes.has(`${tseKey}-snoozed`) && (
                                           <div className="alert-type-items">
-                                            {tseGroup.snoozedAlerts.map((alert, idx) => (
-                                              <div 
-                                                key={idx} 
-                                                className="alert-item alert-item-clickable"
-                                                onClick={() => onTSEClick && onTSEClick(tseGroup.tseId, tseGroup.tseName)}
-                                                style={{ cursor: onTSEClick ? 'pointer' : 'default' }}
-                                              >
-                                                <span className="alert-severity">
-                                                  {alert.severity === "high" ? "🔴" : "🟡"}
-                                                </span>
-                                                <span className="alert-message">{alert.message}</span>
-                                                {onViewChats && (
-                                                  <button
-                                                    className="alert-view-chats-button"
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      onViewChats(tseGroup.tseId, "snoozed");
-                                                    }}
-                                                  >
-                                                    View Chats
-                                                  </button>
-                                                )}
-                                              </div>
-                                            ))}
+                                            {tseGroup.snoozedAlerts.map((alert, idx) => {
+                                              const isRead = isAlertRead && isAlertRead(alert.id);
+                                              return (
+                                                <div 
+                                                  key={idx} 
+                                                  className={`alert-item alert-item-clickable ${isRead ? 'alert-item-read' : ''}`}
+                                                  onClick={() => onTSEClick && onTSEClick(tseGroup.tseId, tseGroup.tseName)}
+                                                  style={{ 
+                                                    cursor: onTSEClick ? 'pointer' : 'default',
+                                                    opacity: isRead ? 0.6 : 1,
+                                                    backgroundColor: isRead ? (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)') : 'transparent'
+                                                  }}
+                                                >
+                                                  <span className="alert-severity" style={{ opacity: isRead ? 0.5 : 1 }}>
+                                                    {alert.severity === "high" ? "🔴" : "🟡"}
+                                                  </span>
+                                                  <span className="alert-message">{alert.message}</span>
+                                                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                    {onViewChats && (
+                                                      <button
+                                                        className="alert-view-chats-button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          onViewChats(tseGroup.tseId, "snoozed");
+                                                        }}
+                                                      >
+                                                        View Chats
+                                                      </button>
+                                                    )}
+                                                    {onMarkAsRead && !isRead && (
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          onMarkAsRead(alert.id);
+                                                        }}
+                                                        style={{
+                                                          background: 'none',
+                                                          border: `1px solid ${isDarkMode ? '#555' : '#ddd'}`,
+                                                          borderRadius: '4px',
+                                                          color: isDarkMode ? '#4fc3f7' : '#1976d2',
+                                                          cursor: 'pointer',
+                                                          padding: '2px 6px',
+                                                          fontSize: '11px',
+                                                          lineHeight: '1.2',
+                                                          opacity: 0.8,
+                                                          transition: 'all 0.2s',
+                                                          whiteSpace: 'nowrap'
+                                                        }}
+                                                        onMouseEnter={(e) => { e.target.style.opacity = '1'; e.target.style.backgroundColor = isDarkMode ? 'rgba(79,195,247,0.1)' : 'rgba(25,118,210,0.1)'; }}
+                                                        onMouseLeave={(e) => { e.target.style.opacity = '0.8'; e.target.style.backgroundColor = 'transparent'; }}
+                                                        aria-label="Mark as read"
+                                                        title="Mark as read"
+                                                      >
+                                                        ✓ Read
+                                                      </button>
+                                                    )}
+                                                    {isRead && (
+                                                      <span style={{ 
+                                                        fontSize: '11px', 
+                                                        color: isDarkMode ? '#666' : '#999',
+                                                        fontStyle: 'italic'
+                                                      }}>
+                                                        Read
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
                                           </div>
                                         )}
                                       </div>
@@ -2662,7 +3002,7 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
 }
 
 // Modern Overview Dashboard Component
-function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical, onNavigateToConversations, onNavigateToTSEView, onTSEClick, conversations }) {
+function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical, onNavigateToConversations, onNavigateToTSEView, onTSEClick, conversations, isInsightDismissed, dismissInsightItem }) {
   const { isDarkMode } = useTheme();
   const [isWaitRateModalOpen, setIsWaitRateModalOpen] = useState(false);
   const [selectedHour, setSelectedHour] = useState(null); // null = show all, number = filter by hour
@@ -3421,10 +3761,75 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     };
   }, [historicalSnapshots, responseTimeMetrics]);
 
+  // Calculate correlation data once for reuse
+  const correlationData = useMemo(() => {
+    if (!improvementPotential || historicalSnapshots.length === 0 || responseTimeMetrics.length === 0) {
+      return null;
+    }
+    
+    const combinedData = responseTimeMetrics
+      .map(metric => {
+        const snapshot = historicalSnapshots.find(s => s.date === metric.date);
+        if (!snapshot) return null;
+        
+        const tseData = (snapshot.tse_data || snapshot.tseData || []).filter(tse => !["Prerit Sachdeva", "Stephen Skalamera"].includes(tse.name));
+        if (tseData.length === 0) return null;
+        
+        let onTrackCount = 0;
+        tseData.forEach(tse => {
+          const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
+          const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+          const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+          if (meetsOpen && meetsWaitingOnTSE) onTrackCount++;
+        });
+        
+        const onTrackPct = tseData.length > 0 ? Math.round((onTrackCount / tseData.length) * 100) : 0;
+        
+        return {
+          onTrack: onTrackPct,
+          slowResponsePct: parseFloat(metric.percentage5PlusMin || 0)
+        };
+      })
+      .filter(d => d !== null);
+    
+    if (combinedData.length < 3) {
+      return null;
+    }
+    
+    // Calculate correlation
+    const avgOnTrack = combinedData.reduce((sum, d) => sum + d.onTrack, 0) / combinedData.length;
+    const avgSlowResponse = combinedData.reduce((sum, d) => sum + d.slowResponsePct, 0) / combinedData.length;
+    
+    let numerator = 0;
+    let sumSqOnTrack = 0;
+    let sumSqY = 0;
+    
+    combinedData.forEach(d => {
+      const onTrackDiff = d.onTrack - avgOnTrack;
+      const yDiff = d.slowResponsePct - avgSlowResponse;
+      numerator += onTrackDiff * yDiff;
+      sumSqOnTrack += onTrackDiff * onTrackDiff;
+      sumSqY += yDiff * yDiff;
+    });
+    
+    const correlation = sumSqOnTrack > 0 && sumSqY > 0
+      ? numerator / Math.sqrt(sumSqOnTrack * sumSqY)
+      : 0;
+    
+    const correlationStrength = Math.abs(correlation) < 0.3 ? 'weak' : Math.abs(correlation) < 0.7 ? 'moderate' : 'strong';
+    const correlationDirection = correlation < 0 ? 'negative' : 'positive';
+    
+    return {
+      correlation,
+      correlationStrength,
+      correlationDirection
+    };
+  }, [improvementPotential, historicalSnapshots, responseTimeMetrics]);
+
   // Calculate key insights
   const keyInsights = useMemo(() => {
     const insights = [];
-    
+
     // On Track performance - always include current status
     if (metrics.onTrackOverall >= 80) {
       insights.push({
@@ -3443,7 +3848,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         text: `On-track performance: ${metrics.onTrackOverall}% of TSEs are meeting targets`
       });
     }
-    
+
     // Response time breakdown - 10+ min wait (only threshold)
     if (currentResponseTimePct10Plus > 10) {
       insights.push({
@@ -3456,16 +3861,26 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         text: `${currentResponseTimePct10Plus}% of conversations have 10+ min wait time - within target (target: ≤10%)`
       });
     }
-    
+
+    // Add Overall Impact insight early if correlation data is available (prioritize this)
+    if (correlationData) {
+      const overallImpact = correlationData.correlationStrength;
+      const isGoodCorrelation = correlationData.correlationDirection === 'negative';
+      insights.push({
+        type: isGoodCorrelation ? 'positive' : 'warning',
+        text: `Overall Impact: On-track performance has a ${overallImpact} impact on response times${isGoodCorrelation ? ' (higher on-track = lower wait times)' : ' (concerning pattern)'}`
+      });
+    }
+
     // Trend insights - calculate period length
-    const onTrackPeriodDays = onTrackTrendData.length > 1 
+    const onTrackPeriodDays = onTrackTrendData.length > 1
       ? Math.ceil((new Date(onTrackTrendData[onTrackTrendData.length - 1].date) - new Date(onTrackTrendData[0].date)) / (1000 * 60 * 60 * 24))
       : 0;
     const responseTimePeriodDays = responseTimeTrendData.length > 1
       ? Math.ceil((new Date(responseTimeTrendData[responseTimeTrendData.length - 1].date) - new Date(responseTimeTrendData[0].date)) / (1000 * 60 * 60 * 24))
       : 0;
-    
-    
+
+
     // Trend insights with lower thresholds to catch more changes
     if (onTrackTrend.direction === 'up' && onTrackTrend.change >= 2 && onTrackPeriodDays > 0) {
       insights.push({
@@ -3478,7 +3893,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         text: `On-track performance declining: -${onTrackTrend.change.toFixed(1)}% vs yesterday`
       });
     }
-    
+
     if (responseTimeTrend.direction === 'down' && responseTimeTrend.change >= 1 && responseTimePeriodDays > 0) {
       insights.push({
         type: 'positive',
@@ -3490,88 +3905,35 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         text: `Wait rate worsening: +${responseTimeTrend.change.toFixed(1)}% vs yesterday`
       });
     }
-    
+
     // Add Impact tab insights if correlation data is available
-    if (improvementPotential && historicalSnapshots.length > 0 && responseTimeMetrics.length > 0) {
-      // Calculate correlation for 5+ min wait rate
-      const combinedData = responseTimeMetrics
-        .map(metric => {
-          const snapshot = historicalSnapshots.find(s => s.date === metric.date);
-          if (!snapshot) return null;
-          
-          const tseData = (snapshot.tse_data || snapshot.tseData || []).filter(tse => !["Prerit Sachdeva", "Stephen Skalamera"].includes(tse.name));
-          if (tseData.length === 0) return null;
-          
-          let onTrackCount = 0;
-          tseData.forEach(tse => {
-            const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
-            const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
-            const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
-            if (meetsOpen && meetsWaitingOnTSE) onTrackCount++;
-          });
-          
-          const onTrackPct = tseData.length > 0 ? Math.round((onTrackCount / tseData.length) * 100) : 0;
-          
-          return {
-            onTrack: onTrackPct,
-            slowResponsePct: parseFloat(metric.percentage5PlusMin || 0)
-          };
-        })
-        .filter(d => d !== null);
-      
-      if (combinedData.length >= 3) {
-        // Calculate correlation
-        const avgOnTrack = combinedData.reduce((sum, d) => sum + d.onTrack, 0) / combinedData.length;
-        const avgSlowResponse = combinedData.reduce((sum, d) => sum + d.slowResponsePct, 0) / combinedData.length;
-        
-        let numerator = 0;
-        let sumSqOnTrack = 0;
-        let sumSqY = 0;
-        
-        combinedData.forEach(d => {
-          const onTrackDiff = d.onTrack - avgOnTrack;
-          const yDiff = d.slowResponsePct - avgSlowResponse;
-          numerator += onTrackDiff * yDiff;
-          sumSqOnTrack += onTrackDiff * onTrackDiff;
-          sumSqY += yDiff * yDiff;
-        });
-        
-        const correlation = sumSqOnTrack > 0 && sumSqY > 0
-          ? numerator / Math.sqrt(sumSqOnTrack * sumSqY)
-          : 0;
-        
-        const correlationStrength = Math.abs(correlation) < 0.3 ? 'weak' : Math.abs(correlation) < 0.7 ? 'moderate' : 'strong';
-        const correlationDirection = correlation < 0 ? 'negative' : 'positive';
-        
-        // Add Overall Impact insight (always include if correlation data is available)
-        const overallImpact = correlationStrength;
-        const isGoodCorrelation = correlationDirection === 'negative';
+    if (correlationData) {
+      // Add correlation insight
+      if (Math.abs(correlationData.correlation) >= 0.3) {
         insights.push({
-          type: isGoodCorrelation ? 'positive' : 'warning',
-          text: `Overall Impact: On-track performance has a ${overallImpact} impact on response times${isGoodCorrelation ? ' (higher on-track = lower wait times)' : ' (concerning pattern)'}`
+          type: correlationData.correlationDirection === 'negative' ? 'positive' : 'warning',
+          text: `On-track performance shows ${correlationData.correlationStrength} ${correlationData.correlationDirection} correlation (${correlationData.correlation > 0 ? '+' : ''}${correlationData.correlation.toFixed(2)}) with wait rates${correlationData.correlationDirection === 'negative' ? ' - higher on-track correlates with lower wait times' : ' - this is concerning'}`
         });
-        
-        // Add correlation insight
-        if (Math.abs(correlation) >= 0.3) {
-          insights.push({
-            type: correlationDirection === 'negative' ? 'positive' : 'warning',
-            text: `On-track performance shows ${correlationStrength} ${correlationDirection} correlation (${correlation > 0 ? '+' : ''}${correlation.toFixed(2)}) with wait rates${correlationDirection === 'negative' ? ' - higher on-track correlates with lower wait times' : ' - this is concerning'}`
-          });
-        }
-        
-        // Add improvement potential insight
-        if (improvementPotential.improvement5to10 > 0 || improvementPotential.improvement10Plus > 0) {
-          const totalImprovement = improvementPotential.improvement5to10 + improvementPotential.improvement10Plus;
-          insights.push({
-            type: 'positive',
-            text: `Improvement potential: Maintaining High (80-100%) on-track could reduce wait times by ${totalImprovement.toFixed(1)}% overall`
-          });
-        }
+      }
+
+      // Add improvement potential insight
+      if (improvementPotential.improvement5to10 > 0 || improvementPotential.improvement10Plus > 0) {
+        const totalImprovement = improvementPotential.improvement5to10 + improvementPotential.improvement10Plus;
+        insights.push({
+          type: 'positive',
+          text: `Improvement potential: Maintaining High (80-100%) on-track could reduce wait times by ${totalImprovement.toFixed(1)}% overall`
+        });
       }
     }
-    
-    return insights.slice(0, 5); // Limit to top 5 insights (includes Overall Impact)
-  }, [metrics.onTrackOverall, currentResponseTimePct10Plus, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, improvementPotential, historicalSnapshots, responseTimeMetrics]);
+
+    // Add IDs to insights and filter dismissed ones
+    const insightsWithIds = insights.slice(0, 5).map(insight => ({
+      ...insight,
+      id: insight.text // Use text as unique ID
+    }));
+
+    return insightsWithIds.filter(insight => !isInsightDismissed(insight.id));
+  }, [metrics.onTrackOverall, currentResponseTimePct10Plus, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, correlationData, improvementPotential, isInsightDismissed]);
 
   // Calculate Region Performance Summary
   const regionPerformance = useMemo(() => {
@@ -3803,10 +4165,34 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   borderLeft: `3px solid ${insight.type === 'positive' ? '#4cec8c' : '#fd8789'}`,
                   fontSize: '13px',
                   color: isDarkMode ? '#e5e5e5' : '#292929',
-                  lineHeight: '1.5'
+                  lineHeight: '1.5',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
               >
-                {insight.text}
+                <span style={{ flex: 1 }}>{insight.text}</span>
+                <button
+                  onClick={() => dismissInsightItem(insight.id)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: isDarkMode ? '#999' : '#666',
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    fontSize: '18px',
+                    lineHeight: '1',
+                    opacity: 0.7,
+                    transition: 'opacity 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '1'}
+                  onMouseLeave={(e) => e.target.style.opacity = '0.7'}
+                  aria-label="Dismiss insight"
+                  title="Dismiss"
+                >
+                  ×
+                </button>
               </div>
             ))}
           </div>

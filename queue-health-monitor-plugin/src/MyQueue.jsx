@@ -1,5 +1,4 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
-import { useAuth } from "./AuthContext";
 import { useTheme } from "./ThemeContext";
 import { formatDateTimeUTC } from "./utils/dateUtils";
 import "./MyQueue.css";
@@ -14,8 +13,7 @@ const THRESHOLDS = {
 const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
 
 function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loading, error, onRefresh, lastUpdated, historicalSnapshots = [], responseTimeMetrics = [] }) {
-  const { logout } = useAuth();
-  const { isDarkMode, toggleDarkMode } = useTheme();
+  const { isDarkMode } = useTheme();
   const [filterTags, setFilterTags] = useState(["all"]);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const filterDropdownRef = useRef(null);
@@ -291,61 +289,13 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
 
   // Filter conversations by tag
   const filteredConversations = useMemo(() => {
-    // Calculate today's start and end in seconds (UTC) for closed filter
-    const now = Date.now();
-    const todayStart = new Date(now);
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart);
-    todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
-    const todayStartSeconds = Math.floor(todayStart.getTime() / 1000);
-    const todayEndSeconds = Math.floor(todayEnd.getTime() / 1000);
-
-    // Debug: Log conversation states
-    console.log(`[MyQueue] Filtering conversations. Total: ${myConversations.length}`);
-    const stateBreakdown = myConversations.reduce((acc, conv) => {
-      const state = (conv.state || "").toLowerCase();
-      acc[state] = (acc[state] || 0) + 1;
-      return acc;
-    }, {});
-    console.log(`[MyQueue] Conversation states:`, stateBreakdown);
-    
-    // Debug: Log closed conversations details
-    const closedConvs = myConversations.filter(conv => (conv.state || "").toLowerCase() === "closed");
-    if (closedConvs.length > 0) {
-      console.log(`[MyQueue] Found ${closedConvs.length} closed conversations:`);
-      closedConvs.forEach(conv => {
-        const closedAt = conv.closed_at || conv.closedAt;
-        const closedAtSeconds = closedAt ? (typeof closedAt === "number" 
-          ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
-          : Math.floor(new Date(closedAt).getTime() / 1000)) : null;
-        const tags = Array.isArray(conv.tags) ? conv.tags : [];
-        const tagNames = tags.map(t => typeof t === "string" ? t : t.name).filter(Boolean);
-        console.log(`[MyQueue]   - ID: ${conv.id || conv.conversation_id}, closed_at: ${closedAt} (${closedAtSeconds}), tags: [${tagNames.join(", ")}]`);
-      });
-    }
-    console.log(`[MyQueue] Filter tags:`, filterTags);
-    console.log(`[MyQueue] Today range: ${todayStartSeconds} to ${todayEndSeconds} (UTC)`);
-
     let filtered = myConversations;
 
-    // If "all" is selected or no filters, include all conversations (open, snoozed, and closed today)
+    // If "all" is selected or no filters, include all conversations (open, snoozed, and closed)
+    // Note: The API already filters closed conversations to only include today's, so we don't need to filter again
     if (filterTags.includes("all") || filterTags.length === 0) {
-      // Include all conversations including closed ones from today
-      filtered = filtered.filter(conv => {
-        const state = (conv.state || "").toLowerCase();
-        if (state === "closed") {
-          // Only include closed conversations from today
-          const closedAt = conv.closed_at || conv.closedAt;
-          if (closedAt) {
-            const closedAtSeconds = typeof closedAt === "number" 
-              ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
-              : Math.floor(new Date(closedAt).getTime() / 1000);
-            return closedAtSeconds >= todayStartSeconds && closedAtSeconds < todayEndSeconds;
-          }
-          return false;
-        }
-        return true; // Include all non-closed conversations
-      });
+      // Include all conversations - API already handles filtering closed to today
+      // No additional filtering needed
     } else {
       // Apply filters - conversation must match at least one selected filter
       filtered = filtered.filter(conv => {
@@ -354,27 +304,9 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
             const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
             return conv.state === "open" && !isSnoozed;
           } else if (filterTag === "closed") {
+            // Just check if state is closed - API already filters to today's closed conversations
             const state = (conv.state || "").toLowerCase();
-            if (state !== "closed") {
-              console.log(`[MyQueue] Filtering out conversation ${conv.id || conv.conversation_id}: state is "${state}", not "closed"`);
-              return false;
-            }
-            // Only include closed conversations from today
-            const closedAt = conv.closed_at || conv.closedAt;
-            if (!closedAt) {
-              console.log(`[MyQueue] Filtering out closed conversation ${conv.id || conv.conversation_id}: no closed_at field`);
-              return false;
-            }
-            const closedAtSeconds = typeof closedAt === "number" 
-              ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
-              : Math.floor(new Date(closedAt).getTime() / 1000);
-            const isInToday = closedAtSeconds >= todayStartSeconds && closedAtSeconds < todayEndSeconds;
-            if (!isInToday) {
-              console.log(`[MyQueue] Filtering out closed conversation ${conv.id || conv.conversation_id}: closed_at ${closedAtSeconds} not in today's range (${todayStartSeconds} to ${todayEndSeconds})`);
-            } else {
-              console.log(`[MyQueue] Including closed conversation ${conv.id || conv.conversation_id}: closed_at ${closedAtSeconds} is in today's range`);
-            }
-            return isInToday;
+            return state === "closed";
           } else if (filterTag === "waitingontse") {
             const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
             if (!isSnoozed) return false;
@@ -629,34 +561,6 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
       <div className="my-queue-header">
         <div className="header-content">
           <h1>My Queue</h1>
-          <div className="header-actions">
-            <button
-              className="dark-mode-toggle-button"
-              onClick={toggleDarkMode}
-              aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
-              title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              <img 
-                src={isDarkMode 
-                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768686539/3_150_x_150_px_14_acgkkq.svg"
-                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1768686539/3_150_x_150_px_15_ytqu5j.svg"
-                }
-                alt={isDarkMode ? "Light mode" : "Dark mode"} 
-                className="dark-mode-icon"
-              />
-            </button>
-            <button onClick={logout} className="logout-btn">
-              Sign Out
-            </button>
-            <button onClick={onRefresh} className="refresh-btn" disabled={loading}>
-              {loading ? "Refreshing..." : "🔄 Refresh"}
-            </button>
-            {lastUpdated && (
-              <span className="last-updated">
-                Last updated: {lastUpdated.toLocaleTimeString()}
-              </span>
-            )}
-          </div>
         </div>
         <div className="tse-info">
           <h2>{currentTSE.name}</h2>
@@ -858,38 +762,56 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
                     "waiting-on-tse": "Waiting On TSE - Deep Dive",
                     "snooze.waiting-on-customer-unresolved": "Waiting On Customer - Unresolved",
                     "snooze.waiting-on-customer-resolved": "Waiting On Customer - Resolved",
-                    "snooze.waiting-on-tse": "Waiting On TSE - Deep Dive"
+                    "snooze.waiting-on-tse": "Waiting On TSE - Deep Dive",
+                    "snooze.auto-closed": "Auto-Closed",
+                    "auto-closed": "Auto-Closed"
                   };
                   
-                  // Find the first matching workflow tag
-                  const activeWorkflowTag = tagNames.find(tagName => {
-                    if (!tagName) return false;
-                    const normalizedTag = tagName.toLowerCase();
-                    // Check exact match
-                    if (workflowMapping[normalizedTag]) return true;
-                    // Check if it ends with the workflow pattern (handles variations)
-                    return normalizedTag.includes("waiting-on-customer-unresolved") ||
-                           normalizedTag.includes("waiting-on-customer-resolved") ||
-                           normalizedTag.includes("waiting-on-tse");
-                  });
+                  const isClosed = (conv.state || "").toLowerCase() === "closed";
                   
-                  // Get display value
+                  // For closed conversations, only check for auto-close tag
+                  // For other states, check for workflow tags
                   let displayWorkflow = "";
-                  if (activeWorkflowTag) {
-                    const normalizedTag = activeWorkflowTag.toLowerCase();
-                    // Try exact match first
-                    if (workflowMapping[normalizedTag]) {
-                      displayWorkflow = workflowMapping[normalizedTag];
-                    } else if (normalizedTag.includes("waiting-on-customer-unresolved")) {
-                      displayWorkflow = "Waiting On Customer - Unresolved";
-                    } else if (normalizedTag.includes("waiting-on-customer-resolved")) {
-                      displayWorkflow = "Waiting On Customer - Resolved";
-                    } else if (normalizedTag.includes("waiting-on-tse")) {
-                      displayWorkflow = "Waiting On TSE - Deep Dive";
+                  
+                  if (isClosed) {
+                    // Only show auto-closed tag for closed conversations
+                    const hasAutoClosedTag = tagNames.some(tagName => {
+                      if (!tagName) return false;
+                      const normalizedTag = tagName.toLowerCase();
+                      return normalizedTag === "snooze.auto-closed" || normalizedTag === "auto-closed";
+                    });
+                    if (hasAutoClosedTag) {
+                      displayWorkflow = "Auto-Closed";
+                    }
+                    // Otherwise leave blank
+                  } else {
+                    // Find the first matching workflow tag for non-closed conversations
+                    const activeWorkflowTag = tagNames.find(tagName => {
+                      if (!tagName) return false;
+                      const normalizedTag = tagName.toLowerCase();
+                      // Check exact match
+                      if (workflowMapping[normalizedTag]) return true;
+                      // Check if it ends with the workflow pattern (handles variations)
+                      return normalizedTag.includes("waiting-on-customer-unresolved") ||
+                             normalizedTag.includes("waiting-on-customer-resolved") ||
+                             normalizedTag.includes("waiting-on-tse");
+                    });
+                    
+                    // Get display value
+                    if (activeWorkflowTag) {
+                      const normalizedTag = activeWorkflowTag.toLowerCase();
+                      // Try exact match first
+                      if (workflowMapping[normalizedTag]) {
+                        displayWorkflow = workflowMapping[normalizedTag];
+                      } else if (normalizedTag.includes("waiting-on-customer-unresolved")) {
+                        displayWorkflow = "Waiting On Customer - Unresolved";
+                      } else if (normalizedTag.includes("waiting-on-customer-resolved")) {
+                        displayWorkflow = "Waiting On Customer - Resolved";
+                      } else if (normalizedTag.includes("waiting-on-tse")) {
+                        displayWorkflow = "Waiting On TSE - Deep Dive";
+                      }
                     }
                   }
-                  
-                  const isClosed = (conv.state || "").toLowerCase() === "closed";
                   
                   return (
                     <tr key={conv.id || conv.conversation_id}>
