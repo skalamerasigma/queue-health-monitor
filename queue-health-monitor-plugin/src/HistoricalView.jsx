@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ScatterChart, Scatter, Cell, ReferenceLine } from 'recharts';
 import { formatTimestampUTC, formatDateForChart, formatDateForTooltip, formatDateFull, formatDateUTC } from './utils/dateUtils';
 import { useTheme } from './ThemeContext';
@@ -207,45 +208,82 @@ const THRESHOLDS = {
 // Info Icon Component with Tooltip
 const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0, right: 0 });
   const iconRef = useRef(null);
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (iconRef.current && !iconRef.current.contains(event.target)) {
-        setIsOpen(false);
+  const updateTooltipPosition = () => {
+    if (iconRef.current) {
+      const rect = iconRef.current.getBoundingClientRect();
+      if (position === 'left') {
+        setTooltipPosition({
+          top: rect.top,
+          right: window.innerWidth - rect.left + 24,
+          left: undefined
+        });
+      } else {
+        setTooltipPosition({
+          top: rect.top,
+          left: rect.right + 24,
+          right: undefined
+        });
       }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [isOpen]);
-
-  const tooltipStyle = {
-    position: 'absolute',
-    top: '0',
-    zIndex: 1000,
-    minWidth: '280px',
-    maxWidth: '400px',
-    backgroundColor: isDarkMode ? '#1e1e1e' : 'white',
-    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`,
-    borderRadius: '8px',
-    padding: '12px 16px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-    fontSize: '12px',
-    lineHeight: '1.5',
-    color: isDarkMode ? '#e5e5e5' : '#292929',
-    pointerEvents: 'auto',
-    whiteSpace: 'normal',
-    textAlign: 'left'
   };
 
-  if (position === 'left') {
-    tooltipStyle.right = '24px';
-  } else {
-    tooltipStyle.left = '24px';
-  }
+  const handleMouseEnter = () => {
+    setIsOpen(true);
+    // Small delay to ensure DOM is updated
+    setTimeout(updateTooltipPosition, 0);
+  };
+
+  const getTooltipStyle = () => {
+    if (!isOpen || tooltipPosition.top === 0) {
+      return { display: 'none' };
+    }
+
+    const style = {
+      position: 'fixed',
+      top: `${tooltipPosition.top}px`,
+      zIndex: 999999,
+      minWidth: '280px',
+      maxWidth: '400px',
+      backgroundColor: isDarkMode ? '#1e1e1e' : 'white',
+      border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`,
+      borderRadius: '8px',
+      padding: '12px 16px',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+      fontSize: '12px',
+      lineHeight: '1.5',
+      color: isDarkMode ? '#e5e5e5' : '#292929',
+      pointerEvents: 'auto',
+      whiteSpace: 'normal',
+      textAlign: 'left'
+    };
+
+    if (position === 'left') {
+      style.right = `${tooltipPosition.right}px`;
+      style.left = 'auto';
+    } else {
+      style.left = `${tooltipPosition.left}px`;
+      style.right = 'auto';
+    }
+
+    return style;
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      updateTooltipPosition();
+      const handleScroll = () => updateTooltipPosition();
+      const handleResize = () => updateTooltipPosition();
+      window.addEventListener('scroll', handleScroll, true);
+      window.addEventListener('resize', handleResize);
+      return () => {
+        window.removeEventListener('scroll', handleScroll, true);
+        window.removeEventListener('resize', handleResize);
+      };
+    }
+  }, [isOpen, position]);
 
   return (
     <span ref={iconRef} style={{ position: 'relative', display: 'inline-block', marginLeft: '6px', verticalAlign: 'middle' }}>
@@ -269,20 +307,20 @@ const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
           height: '18px',
           justifyContent: 'center'
         }}
-        onMouseEnter={() => setIsOpen(true)}
+        onMouseEnter={handleMouseEnter}
         onMouseLeave={() => setIsOpen(false)}
-        title="Click for more information"
       >
         ℹ️
       </button>
-      {isOpen && (
+      {isOpen && createPortal(
         <div
-          style={tooltipStyle}
+          style={getTooltipStyle()}
           onMouseEnter={() => setIsOpen(true)}
           onMouseLeave={() => setIsOpen(false)}
         >
           {content}
-        </div>
+        </div>,
+        document.body
       )}
     </span>
   );
@@ -405,7 +443,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       setResultsData(null);
       fetchResultsData();
     }
-  }, [activeTab, resultsDateRange, startDate, endDate, dateRange]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, startDate, endDate, dateRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch results data (on-track vs slow first response)
   const fetchResultsData = async () => {
@@ -415,36 +453,18 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     try {
       let startDateStr, endDateStr;
       
-      // If custom date range is selected and dates are set, use those
-      if (dateRange === 'custom' && startDate && endDate) {
+      // Use startDate and endDate if they're set (works for all range types including presets)
+      if (startDate && endDate) {
         startDateStr = startDate;
         endDateStr = endDate;
       } else {
-        // Otherwise use the resultsDateRange dropdown (7, 14, 30, 60, 90 days)
-        const getLastNDays = (days) => {
-          const dates = [];
-          const today = new Date();
-          let daysBack = 0;
-          let weekdaysFound = 0;
-          const targetDays = parseInt(days);
-          
-          while (weekdaysFound < targetDays && daysBack < targetDays * 2) {
-            const date = new Date(today);
-            date.setDate(date.getDate() - daysBack);
-            const dayOfWeek = date.getDay();
-            
-            if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Monday-Friday
-              dates.push(date.toISOString().slice(0, 10));
-              weekdaysFound++;
-            }
-            daysBack++;
-          }
-          return dates.reverse();
-        };
-
-        const weekdays = getLastNDays(resultsDateRange);
-        startDateStr = weekdays.length > 0 ? weekdays[0] : new Date(Date.now() - parseInt(resultsDateRange) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        endDateStr = weekdays.length > 0 ? weekdays[weekdays.length - 1] : new Date().toISOString().slice(0, 10);
+        // Fallback: if dates aren't set yet, use default 30 days
+        // This should rarely happen, but provides a safety net
+        const today = new Date();
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        startDateStr = thirtyDaysAgo.toISOString().slice(0, 10);
+        endDateStr = today.toISOString().slice(0, 10);
       }
 
       // Fetch snapshots and response time metrics
@@ -538,6 +558,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           onTrack: onTrack.onTrack,
           slowResponsePct: metric.percentage5PlusMin || 0,
           slowResponseCount: metric.count5PlusMin || 0,
+          // Add breakdown by wait time buckets
+          slowResponse5to10Pct: metric.percentage5to10Min || 0,
+          slowResponse5to10Count: metric.count5to10Min || 0,
+          slowResponse10PlusPct: metric.percentage10PlusMin || 0,
+          slowResponse10PlusCount: metric.count10PlusMin || 0,
           totalConversations: metric.totalConversations || 0
         };
       })
@@ -546,25 +571,42 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
     if (combinedData.length === 0) return null;
 
-    // Calculate correlation coefficient
+    // Helper function to calculate correlation
+    const calculateCorrelation = (dataPoints, yKey) => {
+      const avgOnTrack = dataPoints.reduce((sum, d) => sum + d.onTrack, 0) / dataPoints.length;
+      const avgY = dataPoints.reduce((sum, d) => sum + d[yKey], 0) / dataPoints.length;
+
+      let numerator = 0;
+      let sumSqOnTrack = 0;
+      let sumSqY = 0;
+
+      dataPoints.forEach(d => {
+        const onTrackDiff = d.onTrack - avgOnTrack;
+        const yDiff = d[yKey] - avgY;
+        numerator += onTrackDiff * yDiff;
+        sumSqOnTrack += onTrackDiff * onTrackDiff;
+        sumSqY += yDiff * yDiff;
+      });
+
+      const correlation = sumSqOnTrack > 0 && sumSqY > 0
+        ? numerator / Math.sqrt(sumSqOnTrack * sumSqY)
+        : 0;
+
+      return {
+        correlation: Math.round(correlation * 1000) / 1000,
+        correlationStrength: Math.abs(correlation) < 0.3 ? 'weak' : Math.abs(correlation) < 0.7 ? 'moderate' : 'strong',
+        correlationDirection: correlation < 0 ? 'negative' : 'positive',
+        avgY: Math.round(avgY * 100) / 100
+      };
+    };
+
+    // Calculate correlations for all three metrics
+    const correlation5Plus = calculateCorrelation(combinedData, 'slowResponsePct');
+    const correlation5to10 = calculateCorrelation(combinedData, 'slowResponse5to10Pct');
+    const correlation10Plus = calculateCorrelation(combinedData, 'slowResponse10PlusPct');
+
     const avgOnTrack = combinedData.reduce((sum, d) => sum + d.onTrack, 0) / combinedData.length;
-    const avgSlowResponse = combinedData.reduce((sum, d) => sum + d.slowResponsePct, 0) / combinedData.length;
-
-    let numerator = 0;
-    let sumSqOnTrack = 0;
-    let sumSqSlowResponse = 0;
-
-    combinedData.forEach(d => {
-      const onTrackDiff = d.onTrack - avgOnTrack;
-      const slowResponseDiff = d.slowResponsePct - avgSlowResponse;
-      numerator += onTrackDiff * slowResponseDiff;
-      sumSqOnTrack += onTrackDiff * onTrackDiff;
-      sumSqSlowResponse += slowResponseDiff * slowResponseDiff;
-    });
-
-    const correlation = sumSqOnTrack > 0 && sumSqSlowResponse > 0
-      ? numerator / Math.sqrt(sumSqOnTrack * sumSqSlowResponse)
-      : 0;
+    const avgSlowResponse = correlation5Plus.avgY;
 
     // Group by on-track ranges
     const onTrackRanges = {
@@ -586,7 +628,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     const rangeStats = Object.entries(onTrackRanges).map(([range, { data }]) => {
       if (data.length === 0) return null;
       const avgSlowResponse = data.reduce((sum, d) => sum + d.slowResponsePct, 0) / data.length;
+      const avgSlowResponse5to10 = data.reduce((sum, d) => sum + d.slowResponse5to10Pct, 0) / data.length;
+      const avgSlowResponse10Plus = data.reduce((sum, d) => sum + d.slowResponse10PlusPct, 0) / data.length;
       const totalSlowResponses = data.reduce((sum, d) => sum + d.slowResponseCount, 0);
+      const totalSlowResponses5to10 = data.reduce((sum, d) => sum + d.slowResponse5to10Count, 0);
+      const totalSlowResponses10Plus = data.reduce((sum, d) => sum + d.slowResponse10PlusCount, 0);
       const totalConversations = data.reduce((sum, d) => sum + d.totalConversations, 0);
       
       return {
@@ -594,20 +640,44 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         count: data.length,
         avgOnTrack: data.reduce((sum, d) => sum + d.onTrack, 0) / data.length,
         avgSlowResponsePct: Math.round(avgSlowResponse * 100) / 100,
+        avgSlowResponse5to10Pct: Math.round(avgSlowResponse5to10 * 100) / 100,
+        avgSlowResponse10PlusPct: Math.round(avgSlowResponse10Plus * 100) / 100,
         totalSlowResponses,
+        totalSlowResponses5to10,
+        totalSlowResponses10Plus,
         totalConversations,
         slowResponseRate: totalConversations > 0 ? Math.round((totalSlowResponses / totalConversations) * 100 * 100) / 100 : 0
       };
     }).filter(s => s !== null);
 
+    // Calculate improvement potential (if Low days matched High days)
+    const highRange = rangeStats.find(s => s.range === 'High (80-100%)');
+    const lowRange = rangeStats.find(s => s.range === 'Low (0-59%)');
+    const currentAvg = avgSlowResponse;
+    const highAvg = highRange ? highRange.avgSlowResponsePct : currentAvg;
+    const improvementPotential5Plus = currentAvg - highAvg;
+    const improvementPotential5to10 = correlation5to10.avgY - (highRange ? highRange.avgSlowResponse5to10Pct : correlation5to10.avgY);
+    const improvementPotential10Plus = correlation10Plus.avgY - (highRange ? highRange.avgSlowResponse10PlusPct : correlation10Plus.avgY);
+
     return {
-      correlation: Math.round(correlation * 1000) / 1000,
-      correlationStrength: Math.abs(correlation) < 0.3 ? 'weak' : Math.abs(correlation) < 0.7 ? 'moderate' : 'strong',
-      correlationDirection: correlation < 0 ? 'negative' : 'positive',
+      correlation: correlation5Plus.correlation,
+      correlationStrength: correlation5Plus.correlationStrength,
+      correlationDirection: correlation5Plus.correlationDirection,
+      correlation5to10: correlation5to10.correlation,
+      correlation5to10Strength: correlation5to10.correlationStrength,
+      correlation5to10Direction: correlation5to10.correlationDirection,
+      correlation10Plus: correlation10Plus.correlation,
+      correlation10PlusStrength: correlation10Plus.correlationStrength,
+      correlation10PlusDirection: correlation10Plus.correlationDirection,
       dataPoints: combinedData,
       rangeStats,
       avgOnTrack: Math.round(avgOnTrack * 100) / 100,
-      avgSlowResponse: Math.round(avgSlowResponse * 100) / 100
+      avgSlowResponse: Math.round(avgSlowResponse * 100) / 100,
+      avgSlowResponse5to10: correlation5to10.avgY,
+      avgSlowResponse10Plus: correlation10Plus.avgY,
+      improvementPotential5Plus: Math.round(improvementPotential5Plus * 100) / 100,
+      improvementPotential5to10: Math.round(improvementPotential5to10 * 100) / 100,
+      improvementPotential10Plus: Math.round(improvementPotential10Plus * 100) / 100
     };
   };
 
@@ -1747,11 +1817,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     if (!responseTimeChartData.length) return null;
     
     const dayStats = {
-      'Monday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 },
-      'Tuesday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 },
-      'Wednesday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 },
-      'Thursday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 },
-      'Friday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, totalWithResponse: 0 }
+      'Monday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, count5to10Min: 0, count10PlusMin: 0, totalWithResponse: 0 },
+      'Tuesday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, count5to10Min: 0, count10PlusMin: 0, totalWithResponse: 0 },
+      'Wednesday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, count5to10Min: 0, count10PlusMin: 0, totalWithResponse: 0 },
+      'Thursday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, count5to10Min: 0, count10PlusMin: 0, totalWithResponse: 0 },
+      'Friday': { count: 0, percentage5Plus: 0, totalConversations: 0, count5PlusMin: 0, count5to10Min: 0, count10PlusMin: 0, totalWithResponse: 0 }
     };
     
     responseTimeChartData.forEach(d => {
@@ -1762,7 +1832,9 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       if (dayStats[dayName]) {
         dayStats[dayName].count++;
         dayStats[dayName].percentage5Plus += d.percentage5PlusMin;
-        dayStats[dayName].count5PlusMin += d.count5PlusMin;
+        dayStats[dayName].count5PlusMin += d.count5PlusMin || 0;
+        dayStats[dayName].count5to10Min += d.count5to10Min || 0;
+        dayStats[dayName].count10PlusMin += d.count10PlusMin || 0;
         
         // Calculate totalWithResponse from percentage and count
         // percentage5PlusMin = (count5PlusMin / totalWithResponse) * 100
@@ -1781,6 +1853,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     return Object.entries(dayStats).map(([day, stats]) => {
       const avgTotalWithResponse = stats.count > 0 ? Math.round((stats.totalWithResponse / stats.count) * 100) / 100 : 0;
       const avgCount5PlusMin = stats.count > 0 ? Math.round((stats.count5PlusMin / stats.count) * 100) / 100 : 0;
+      const avgCount5to10Min = stats.count > 0 ? Math.round((stats.count5to10Min / stats.count) * 100) / 100 : 0;
+      const avgCount10PlusMin = stats.count > 0 ? Math.round((stats.count10PlusMin / stats.count) * 100) / 100 : 0;
       const avgPercentage5Plus = stats.count > 0 ? Math.round((stats.percentage5Plus / stats.count) * 100) / 100 : 0;
       
       return {
@@ -1788,6 +1862,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         fullDay: day,
         avgTotalWithResponse: avgTotalWithResponse,
         avgCount5PlusMin: avgCount5PlusMin,
+        avgCount5to10Min: avgCount5to10Min,
+        avgCount10PlusMin: avgCount10PlusMin,
         avgPercentage5Plus: avgPercentage5Plus,
         avgOtherResponses: Math.max(0, avgTotalWithResponse - avgCount5PlusMin), // Responses under 5 min
         count: stats.count
@@ -1971,7 +2047,19 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
   // Calculate response time summary metrics
   const responseTimeSummary = useMemo(() => {
     if (responseTimeMetrics.length === 0) {
-      return { avgPercentage5Plus: 0, totalCount5Plus: 0, trend: 'no-data', change: 0, comparisonText: '' };
+      return { 
+        avgPercentage5Plus: 0, 
+        avgPercentage5to10: 0,
+        avgPercentage10Plus: 0,
+        totalCount5Plus: 0, 
+        totalCount5to10: 0,
+        totalCount10Plus: 0,
+        trend: 'no-data', 
+        change: 0, 
+        comparisonText: '',
+        recentTrendDirection: 'stable',
+        recentTrendChange: 0
+      };
     }
     
     // Filter metrics by date range if dates are set (same as responseTimeChartData)
@@ -1985,7 +2073,19 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     });
     
     if (filteredMetrics.length === 0) {
-      return { avgPercentage5Plus: 0, totalCount5Plus: 0, trend: 'no-data', change: 0, comparisonText: '' };
+      return { 
+        avgPercentage5Plus: 0, 
+        avgPercentage5to10: 0,
+        avgPercentage10Plus: 0,
+        totalCount5Plus: 0, 
+        totalCount5to10: 0,
+        totalCount10Plus: 0,
+        trend: 'no-data', 
+        change: 0, 
+        comparisonText: '',
+        recentTrendDirection: 'stable',
+        recentTrendChange: 0
+      };
     }
     
     // Sort metrics by date to ensure chronological order
@@ -1997,7 +2097,17 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       sortedMetrics.reduce((sum, m) => sum + (m.percentage5PlusMin || 0), 0) / sortedMetrics.length
     );
     
+    const avgPercentage5to10 = Math.round(
+      sortedMetrics.reduce((sum, m) => sum + (m.percentage5to10Min || 0), 0) / sortedMetrics.length
+    );
+    
+    const avgPercentage10Plus = Math.round(
+      sortedMetrics.reduce((sum, m) => sum + (m.percentage10PlusMin || 0), 0) / sortedMetrics.length
+    );
+    
     const totalCount5Plus = sortedMetrics.reduce((sum, m) => sum + (m.count5PlusMin || 0), 0);
+    const totalCount5to10 = sortedMetrics.reduce((sum, m) => sum + (m.count5to10Min || 0), 0);
+    const totalCount10Plus = sortedMetrics.reduce((sum, m) => sum + (m.count10PlusMin || 0), 0);
     
     // Calculate trend (comparing last 7 days vs previous 7 days)
     // If we have 14+ data points, compare last 7 vs previous 7
@@ -2075,7 +2185,38 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       comparisonText = 'vs earlier period';
     }
     
-    return { avgPercentage5Plus, totalCount5Plus, trend, change, comparisonText };
+    // Calculate recent trend (last 3 days vs previous 3 days)
+    let recentTrendDirection = 'stable';
+    let recentTrendChange = 0;
+    if (sortedMetrics.length >= 6) {
+      const recent3 = sortedMetrics.slice(-3);
+      const previous3 = sortedMetrics.slice(-6, -3);
+      const recentAvg = recent3.reduce((sum, m) => sum + (m.percentage5PlusMin || 0), 0) / recent3.length;
+      const previousAvg = previous3.reduce((sum, m) => sum + (m.percentage5PlusMin || 0), 0) / previous3.length;
+      recentTrendChange = Math.round((previousAvg - recentAvg) * 10) / 10; // Positive = improvement
+      if (recentTrendChange > 2) recentTrendDirection = 'improving';
+      else if (recentTrendChange < -2) recentTrendDirection = 'worsening';
+    } else if (sortedMetrics.length >= 2) {
+      const recent = sortedMetrics[sortedMetrics.length - 1].percentage5PlusMin || 0;
+      const previous = sortedMetrics[sortedMetrics.length - 2].percentage5PlusMin || 0;
+      recentTrendChange = Math.round((previous - recent) * 10) / 10; // Positive = improvement
+      if (recentTrendChange > 2) recentTrendDirection = 'improving';
+      else if (recentTrendChange < -2) recentTrendDirection = 'worsening';
+    }
+
+    return { 
+      avgPercentage5Plus, 
+      avgPercentage5to10,
+      avgPercentage10Plus,
+      totalCount5Plus, 
+      totalCount5to10,
+      totalCount10Plus,
+      trend, 
+      change, 
+      comparisonText,
+      recentTrendDirection,
+      recentTrendChange
+    };
   }, [responseTimeMetrics, startDate, endDate]);
 
   return (
@@ -2129,7 +2270,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       <div className="historical-filters">
         <div className="filter-group">
           <label>Date Range:</label>
-          <select value={dateRange} onChange={(e) => handleDateRangeChange(e.target.value)} className="filter-select">
+          <select 
+            value={dateRange} 
+            onChange={(e) => handleDateRangeChange(e.target.value)} 
+            className="filter-select"
+            style={{
+              background: isDarkMode ? '#2a2a2a' : 'white',
+              color: isDarkMode ? '#ffffff' : '#292929',
+              borderColor: isDarkMode ? '#35a1b4' : '#35a1b4'
+            }}
+          >
             <option value="yesterday">Yesterday</option>
             <option value="7days">Last 7 Weekdays</option>
             <option value="30days">Last 30 Days</option>
@@ -2148,6 +2298,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 onChange={(e) => setCustomStartDate(e.target.value)}
                 className="date-input"
                 max={customEndDate || undefined}
+                style={{
+                  background: isDarkMode ? '#2a2a2a' : 'white',
+                  color: isDarkMode ? '#ffffff' : '#292929',
+                  borderColor: isDarkMode ? '#35a1b4' : '#35a1b4'
+                }}
               />
             </div>
             <div className="filter-group">
@@ -2158,6 +2313,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 onChange={(e) => setCustomEndDate(e.target.value)}
                 className="date-input"
                 min={customStartDate || undefined}
+                style={{
+                  background: isDarkMode ? '#2a2a2a' : 'white',
+                  color: isDarkMode ? '#ffffff' : '#292929',
+                  borderColor: isDarkMode ? '#35a1b4' : '#35a1b4'
+                }}
               />
             </div>
             <div className="filter-group">
@@ -2292,6 +2452,118 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
           {!loading && chartData.length > 0 && (
         <>
+          {/* Key Insights Section */}
+          {(() => {
+            const insights = [];
+            
+            // Days meeting target
+            if (actionableMetrics) {
+              if (actionableMetrics.daysMeetingTargetPct >= 80) {
+                insights.push({
+                  type: 'positive',
+                  text: `Excellent performance: ${actionableMetrics.daysMeetingTarget} of ${chartData.length} days (${actionableMetrics.daysMeetingTargetPct}%) met 100% on-track target`
+                });
+              } else if (actionableMetrics.daysMeetingTargetPct < 50) {
+                insights.push({
+                  type: 'warning',
+                  text: `Performance below target: Only ${actionableMetrics.daysMeetingTarget} of ${chartData.length} days (${actionableMetrics.daysMeetingTargetPct}%) met 100% on-track target`
+                });
+              }
+              
+              // Current streak
+              if (actionableMetrics.currentStreak >= 3) {
+                insights.push({
+                  type: 'positive',
+                  text: `Strong current streak: ${actionableMetrics.currentStreak} consecutive days at 100% on-track`
+                });
+              } else if (actionableMetrics.currentStreak === 0 && chartData.length > 0) {
+                const latestOnTrack = chartData[chartData.length - 1]?.overallOnTrack || 0;
+                if (latestOnTrack < 80) {
+                  insights.push({
+                    type: 'warning',
+                    text: `No current streak: Latest day shows ${latestOnTrack}% on-track (target: 100%)`
+                  });
+                }
+              }
+              
+              // Trend direction
+              if (actionableMetrics.trendDirection === 'improving' && actionableMetrics.trendChange >= 5) {
+                insights.push({
+                  type: 'positive',
+                  text: `Performance improving: +${actionableMetrics.trendChange}% increase in on-track percentage over recent period`
+                });
+              } else if (actionableMetrics.trendDirection === 'worsening' && actionableMetrics.trendChange <= -5) {
+                insights.push({
+                  type: 'warning',
+                  text: `Performance declining: ${actionableMetrics.trendChange}% decrease in on-track percentage over recent period`
+                });
+              }
+              
+              // Best streak
+              if (actionableMetrics.bestStreak >= 5) {
+                insights.push({
+                  type: 'positive',
+                  text: `Best streak achieved: ${actionableMetrics.bestStreak} consecutive days at 100% on-track during this period`
+                });
+              }
+            }
+            
+            // Average performance
+            if (chartData.length > 0) {
+              const avgOnTrack = Math.round(chartData.reduce((sum, d) => sum + d.overallOnTrack, 0) / chartData.length);
+              if (avgOnTrack >= 90) {
+                insights.push({
+                  type: 'positive',
+                  text: `Strong average performance: ${avgOnTrack}% average on-track across ${chartData.length} days`
+                });
+              } else if (avgOnTrack < 70) {
+                insights.push({
+                  type: 'warning',
+                  text: `Average performance below target: ${avgOnTrack}% average on-track across ${chartData.length} days (target: 100%)`
+                });
+              }
+            }
+            
+            return insights.length > 0 ? (
+              <div style={{ 
+                backgroundColor: isDarkMode ? '#2a2a2a' : '#f8f9fa', 
+                border: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}`,
+                borderRadius: '8px',
+                padding: '16px 20px',
+                marginBottom: '24px'
+              }}>
+                <h3 style={{ 
+                  fontSize: '16px', 
+                  fontWeight: 600, 
+                  color: isDarkMode ? '#ffffff' : '#292929',
+                  marginBottom: '12px'
+                }}>
+                  Key Insights
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {insights.slice(0, 4).map((insight, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '4px',
+                        backgroundColor: insight.type === 'positive' 
+                          ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
+                          : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
+                        borderLeft: `3px solid ${insight.type === 'positive' ? '#4cec8c' : '#fd8789'}`,
+                        fontSize: '13px',
+                        color: isDarkMode ? '#e5e5e5' : '#292929',
+                        lineHeight: '1.5'
+                      }}
+                    >
+                      {insight.text}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null;
+          })()}
+
           {/* Actionable Metrics Summary */}
           <div className="historical-summary">
             {actionableMetrics && (
@@ -2372,7 +2644,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                         <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
                           <li><strong>Solid lines:</strong> Daily on-track percentages</li>
                           <li><strong>Dashed lines:</strong> 3-day moving averages (smoothed trend)</li>
-                          <li><strong>Gray dashed line:</strong> Target reference at 80%</li>
+                          <li><strong>Gray dotted line:</strong> Target reference at 80%</li>
                         </ul>
                       </div>
                       <div style={{ marginBottom: '6px' }}>
@@ -2479,13 +2751,12 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     return [`${value}%`, name];
                   }}
                 />
-                <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                 {/* Target Reference Line */}
                 <ReferenceLine 
                   y={80} 
                   stroke="#999" 
                   strokeWidth={2}
-                  strokeDasharray="5 5"
+                  strokeDasharray="2 2"
                   label={{ value: "Target (80%)", position: "top", fill: isDarkMode ? '#999' : '#666', fontSize: 11, offset: 10 }}
                 />
                 {/* Overall On Track Line */}
@@ -2545,6 +2816,49 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   strokeDasharray="5 5"
                   dot={false}
                   name="Snoozed 3-Day Avg"
+                />
+                <Legend 
+                  wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }}
+                  content={({ payload }) => {
+                    if (!payload) return null;
+                    // Reorder payload: Overall 3-Day Avg, Overall On Track, Open 3-Day Avg, Open On Track, Snoozed 3-Day Avg, Snoozed On Track
+                    const orderedPayload = [
+                      payload.find(item => item.dataKey === 'movingAvgOverall'),
+                      payload.find(item => item.dataKey === 'overallOnTrack'),
+                      payload.find(item => item.dataKey === 'movingAvgOpen'),
+                      payload.find(item => item.dataKey === 'openOnTrack'),
+                      payload.find(item => item.dataKey === 'movingAvgSnoozed'),
+                      payload.find(item => item.dataKey === 'snoozedOnTrack')
+                    ].filter(Boolean);
+                    
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', padding: '10px 0' }}>
+                        {orderedPayload.map((entry, index) => {
+                          if (!entry) return null;
+                          // Check if it's a dashed line (3-Day Avg lines)
+                          const isDashed = entry.dataKey?.includes('movingAvg') || entry.dataKey === 'movingAvgOverall' || entry.dataKey === 'movingAvgOpen' || entry.dataKey === 'movingAvgSnoozed';
+                          return (
+                            <div key={`legend-item-${index}`} style={{ display: 'flex', alignItems: 'center', margin: '0 10px', cursor: 'pointer' }}>
+                              <svg width="14" height="14" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
+                                <line
+                                  x1="0"
+                                  y1="7"
+                                  x2="14"
+                                  y2="7"
+                                  stroke={entry.color}
+                                  strokeWidth={isDashed ? 2 : 3}
+                                  strokeDasharray={isDashed ? '5 5' : '0'}
+                                />
+                              </svg>
+                              <span style={{ color: isDarkMode ? '#ffffff' : '#292929', fontSize: '12px' }}>
+                                {entry.value}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -2772,7 +3086,53 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                         return null;
                       }}
                     />
-                    <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
+                    <Legend 
+                      content={() => {
+                        const regionColors = {
+                          'UK': '#4cec8c',
+                          'NY': '#35a1b4',
+                          'SF': '#ff9a74'
+                        };
+                        return (
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'center', 
+                            flexWrap: 'wrap', 
+                            gap: '20px',
+                            padding: '10px 0',
+                            marginTop: '8px'
+                          }}>
+                            {regionComparison.map((entry) => (
+                              <div 
+                                key={entry.region}
+                                style={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  gap: '6px'
+                                }}
+                              >
+                                <div 
+                                  style={{ 
+                                    width: '16px', 
+                                    height: '16px', 
+                                    backgroundColor: regionColors[entry.region] || '#35a1b4',
+                                    borderRadius: '2px',
+                                    flexShrink: 0
+                                  }} 
+                                />
+                                <span style={{ 
+                                  color: isDarkMode ? '#ffffff' : '#292929', 
+                                  fontSize: '12px',
+                                  fontWeight: 500
+                                }}>
+                                  {entry.region}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }}
+                    />
                     <Bar dataKey="average" radius={[4, 4, 0, 0]}>
                       {regionComparison.map((entry, index) => {
                         const regionColors = {
@@ -3260,17 +3620,186 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
           {!loadingMetrics && responseTimeChartData.length > 0 && (
             <>
+              {/* Key Insights Section */}
+              {(() => {
+                const insights = [];
+                
+                // Average wait rate vs target
+                if (responseTimeSummary.avgPercentage5Plus <= 5) {
+                  insights.push({
+                    type: 'positive',
+                    text: `Wait rate at target: ${responseTimeSummary.avgPercentage5Plus}% average 5+ min wait rate (target: ≤5%)`
+                  });
+                } else if (responseTimeSummary.avgPercentage5Plus > 10) {
+                  insights.push({
+                    type: 'warning',
+                    text: `Wait rate exceeds target: ${responseTimeSummary.avgPercentage5Plus}% average 5+ min wait rate (target: ≤5%)`
+                  });
+                }
+                
+                // 10+ min breakdown
+                if (responseTimeSummary.avgPercentage10Plus > 3) {
+                  insights.push({
+                    type: 'warning',
+                    text: `${responseTimeSummary.avgPercentage10Plus}% average 10+ min wait rate - focus area for improvement`
+                  });
+                } else if (responseTimeSummary.avgPercentage10Plus <= 1) {
+                  insights.push({
+                    type: 'positive',
+                    text: `Excellent 10+ min performance: Only ${responseTimeSummary.avgPercentage10Plus}% average wait rate`
+                  });
+                }
+                
+                // Recent trend
+                if (responseTimeSummary.recentTrendDirection === 'improving' && responseTimeSummary.recentTrendChange >= 2) {
+                  insights.push({
+                    type: 'positive',
+                    text: `Recent improvement: ${responseTimeSummary.recentTrendChange.toFixed(1)}% reduction in wait rate over recent period`
+                  });
+                } else if (responseTimeSummary.recentTrendDirection === 'worsening' && responseTimeSummary.recentTrendChange >= 2) {
+                  insights.push({
+                    type: 'warning',
+                    text: `Recent decline: ${responseTimeSummary.recentTrendChange.toFixed(1)}% increase in wait rate over recent period`
+                  });
+                }
+                
+                // Overall trend
+                if (responseTimeSummary.trend === 'improving' && responseTimeSummary.change >= 2) {
+                  insights.push({
+                    type: 'positive',
+                    text: `Overall improving trend: ${responseTimeSummary.change.toFixed(1)}% reduction compared to previous period`
+                  });
+                } else if (responseTimeSummary.trend === 'worsening' && responseTimeSummary.change >= 2) {
+                  insights.push({
+                    type: 'warning',
+                    text: `Overall declining trend: ${responseTimeSummary.change.toFixed(1)}% increase compared to previous period`
+                  });
+                }
+                
+                // Volume insights
+                if (responseTimeSummary.totalCount5Plus > 0) {
+                  const totalConversations = responseTimeChartData.reduce((sum, d) => sum + (d.totalConversations || 0), 0);
+                  const waitRate = totalConversations > 0 ? Math.round((responseTimeSummary.totalCount5Plus / totalConversations) * 100) : 0;
+                  if (waitRate <= 5 && totalConversations > 50) {
+                    insights.push({
+                      type: 'positive',
+                      text: `Strong performance at scale: ${responseTimeSummary.totalCount5Plus} of ${totalConversations} conversations (${waitRate}%) had 5+ min waits`
+                    });
+                  }
+                }
+                
+                return insights.length > 0 ? (
+                  <div style={{ 
+                    backgroundColor: isDarkMode ? '#2a2a2a' : '#f8f9fa', 
+                    border: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}`,
+                    borderRadius: '8px',
+                    padding: '16px 20px',
+                    marginBottom: '24px'
+                  }}>
+                    <h3 style={{ 
+                      fontSize: '16px', 
+                      fontWeight: 600, 
+                      color: isDarkMode ? '#ffffff' : '#292929',
+                      marginBottom: '12px'
+                    }}>
+                      Key Insights
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {insights.slice(0, 4).map((insight, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '4px',
+                            backgroundColor: insight.type === 'positive' 
+                              ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
+                              : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
+                            borderLeft: `3px solid ${insight.type === 'positive' ? '#4cec8c' : '#fd8789'}`,
+                            fontSize: '13px',
+                            color: isDarkMode ? '#e5e5e5' : '#292929',
+                            lineHeight: '1.5'
+                          }}
+                        >
+                          {insight.text}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
               {/* Summary Cards */}
               <div className="response-time-summary">
                 <div className="summary-card">
-                  <h4>Avg % Wait Time</h4>
+                  <h4>
+                    Recent Trend
+                    <InfoIcon 
+                      isDarkMode={isDarkMode}
+                      position="right"
+                      content={
+                        <div style={{ textAlign: 'left' }}>
+                          <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Recent Trend</div>
+                          <div style={{ marginBottom: '6px' }}>
+                            <strong>Calculation:</strong> Compares the average wait time percentage of the last 3 days against the previous 3 days (or last 2 days if fewer than 6 days of data).
+                          </div>
+                          <div style={{ marginBottom: '6px' }}>
+                            <strong>Direction:</strong>
+                            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                              <li><strong>↓ Improving:</strong> Recent average is 2%+ lower than previous (fewer waits)</li>
+                              <li><strong>↑ Worsening:</strong> Recent average is 2%+ higher than previous (more waits)</li>
+                              <li><strong>→ Stable:</strong> Change is within ±2%</li>
+                            </ul>
+                          </div>
+                          <div>
+                            This metric helps identify short-term performance trends and whether response times are improving or declining in recent days.
+                          </div>
+                        </div>
+                      }
+                    />
+                  </h4>
+                  <div className={`summary-value-large trend-indicator ${responseTimeSummary.recentTrendDirection}`}>
+                    {responseTimeSummary.recentTrendDirection === 'improving' && '↓'}
+                    {responseTimeSummary.recentTrendDirection === 'worsening' && '↑'}
+                    {responseTimeSummary.recentTrendDirection === 'stable' && '→'}
+                    {' '}
+                    {Math.abs(responseTimeSummary.recentTrendChange)}%
+                  </div>
+                  <div className="summary-subtext">
+                    {responseTimeSummary.recentTrendDirection === 'improving' ? 'Improving' : responseTimeSummary.recentTrendDirection === 'worsening' ? 'Worsening' : 'Stable'}
+                  </div>
+                </div>
+                <div className="summary-card">
+                  <h4>
+                    Avg % Wait Time
+                    <InfoIcon 
+                      isDarkMode={isDarkMode} 
+                      position="right"
+                      content={
+                        <div style={{ textAlign: 'left' }}>
+                          <p><strong>Calculation:</strong> Average percentage of conversations that waited 5+ minutes for a first response, calculated across all days in the selected date range.</p>
+                          <p><strong>Breakdown:</strong> Shows the average percentage for 5-10 minute waits (orange) and 10+ minute waits (red) separately.</p>
+                          <p><strong>Trend:</strong> Compares the most recent 7 days vs the previous 7 days to show if wait times are improving (↓), worsening (↑), or stable (→).</p>
+                        </div>
+                      }
+                    />
+                  </h4>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                     <span style={{ fontSize: '32px', fontWeight: 700 }}>{responseTimeSummary.avgPercentage5Plus || 0}%</span>
-                    <span style={{ fontSize: '14px', color: '#666' }}>5+ min</span>
+                    <span style={{ fontSize: '14px', color: isDarkMode ? '#b0b0b0' : '#666' }}>5+ min</span>
+                  </div>
+                  <div style={{ marginTop: '8px', fontSize: '13px', color: isDarkMode ? '#cccccc' : '#666' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span>5-10 min:</span>
+                      <span style={{ fontWeight: 600, color: '#ff9a74' }}>{responseTimeSummary.avgPercentage5to10 || 0}%</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>10+ min:</span>
+                      <span style={{ fontWeight: 600, color: '#fd8789' }}>{responseTimeSummary.avgPercentage10Plus || 0}%</span>
+                    </div>
                   </div>
                   {responseTimeSummary.trend !== 'no-data' && (
                     <>
-                      <div className={`trend-indicator ${responseTimeSummary.trend}`}>
+                      <div className={`trend-indicator ${responseTimeSummary.trend}`} style={{ marginTop: '12px' }}>
                         Trending:{' '}
                         {responseTimeSummary.trend === 'improving' && '↓'}
                         {responseTimeSummary.trend === 'worsening' && '↑'}
@@ -3287,7 +3816,49 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   )}
                 </div>
                 <div className="summary-card">
-                  <h4>Total Conversations</h4>
+                  <h4>
+                    Total Waits
+                    <InfoIcon 
+                      isDarkMode={isDarkMode} 
+                      position="left"
+                      content={
+                        <div style={{ textAlign: 'left' }}>
+                          <p><strong>Calculation:</strong> Total count of conversations that waited 5+ minutes for a first response, summed across all days in the selected date range.</p>
+                          <p><strong>Breakdown:</strong> Shows the total count for 5-10 minute waits (orange) and 10+ minute waits (red) separately.</p>
+                          <p><strong>Note:</strong> This is a cumulative count, not an average. Each conversation is counted once per day it occurred.</p>
+                        </div>
+                      }
+                    />
+                  </h4>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '32px', fontWeight: 700 }}>{responseTimeSummary.totalCount5Plus || 0}</span>
+                    <span style={{ fontSize: '14px', color: isDarkMode ? '#b0b0b0' : '#666' }}>5+ min</span>
+                  </div>
+                  <div style={{ fontSize: '13px', color: isDarkMode ? '#cccccc' : '#666' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span>5-10 min:</span>
+                      <span style={{ fontWeight: 600, color: '#ff9a74' }}>{responseTimeSummary.totalCount5to10 || 0}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>10+ min:</span>
+                      <span style={{ fontWeight: 600, color: '#fd8789' }}>{responseTimeSummary.totalCount10Plus || 0}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="summary-card">
+                  <h4>
+                    Total Conversations
+                    <InfoIcon 
+                      isDarkMode={isDarkMode} 
+                      position="left"
+                      content={
+                        <div style={{ textAlign: 'left' }}>
+                          <p><strong>Calculation:</strong> Total count of all conversations that received a first response, summed across all days in the selected date range.</p>
+                          <p><strong>Note:</strong> This includes conversations with response times under 5 minutes, 5-10 minutes, and 10+ minutes. Each conversation is counted once per day it occurred.</p>
+                        </div>
+                      }
+                    />
+                  </h4>
                   <div className="summary-value-large">
                     {responseTimeMetrics.reduce((sum, m) => sum + (m.totalConversations || 0), 0)}
                   </div>
@@ -3295,18 +3866,31 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     Across all data points
                   </div>
                 </div>
-                <div className="summary-card">
-                  <h4>Total Waits</h4>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                    <span style={{ fontSize: '32px', fontWeight: 700 }}>{responseTimeSummary.totalCount5Plus || 0}</span>
-                    <span style={{ fontSize: '14px', color: '#666' }}>5+ min</span>
-                  </div>
-                </div>
               </div>
 
               {/* Percentage Chart */}
               <div className="chart-container">
-                <h3 className="chart-title">Percentage of Conversations with Wait Time</h3>
+                <h3 className="chart-title">
+                  Percentage of Conversations with Wait Time
+                  <InfoIcon 
+                    isDarkMode={isDarkMode} 
+                    position="right"
+                    content={
+                      <div style={{ textAlign: 'left' }}>
+                        <p><strong>What this shows:</strong> Daily percentage of conversations that waited 5+ minutes for a first response, broken down by wait time buckets.</p>
+                        <p><strong>Lines:</strong></p>
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li><strong>5+ Min Wait %</strong> (amber, solid): Total percentage of conversations waiting 5+ minutes</li>
+                          <li><strong>5-10 Min Wait %</strong> (orange, dashed): Percentage waiting 5-10 minutes</li>
+                          <li><strong>10+ Min Wait %</strong> (red, dashed): Percentage waiting 10+ minutes</li>
+                        </ul>
+                        <p><strong>Reference Line:</strong> The red dotted line at 5% represents a target threshold. Values below this line indicate good performance.</p>
+                        <p><strong>How to use:</strong> Hover over data points to see exact values. Use the date range selector to analyze different time periods.</p>
+                      </div>
+                    }
+                  />
+                </h3>
+                <p className="chart-subtitle">Breakdown by wait time buckets: 5-10 minutes and 10+ minutes</p>
                 <ResponsiveContainer width="100%" height={400}>
                   <LineChart data={responseTimeChartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
@@ -3321,7 +3905,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     <YAxis 
                       stroke={isDarkMode ? '#ffffff' : '#292929'}
                       tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
-                      domain={[0, 100]}
+                      domain={[0, 15]}
                       label={{ value: 'Percentage %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                     />
                     <Tooltip 
@@ -3329,18 +3913,84 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
                     border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
                     borderRadius: '4px',
-                    color: isDarkMode ? '#e5e5e5' : '#292929'
+                    color: isDarkMode ? '#e5e5e5' : '#292929',
+                    itemStyle: { color: isDarkMode ? '#e5e5e5' : '#292929' },
+                    labelStyle: { color: isDarkMode ? '#ffffff' : '#292929', fontWeight: 600 }
                   }}
                     />
-                    <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
+                    <ReferenceLine 
+                      y={5} 
+                      stroke="#fd8789" 
+                      strokeDasharray="2 2" 
+                      strokeWidth={2}
+                      label={{ value: "Target: 5%", position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                    />
                     <Line 
                       type="monotone" 
                       dataKey="percentage5PlusMin" 
-                      stroke="#fbbf24" 
+                      stroke="#ffc107" 
                       strokeWidth={2}
                       name="5+ Min Wait %"
-                      dot={{ r: 4 }}
+                      dot={{ r: 4, fill: '#ffc107' }}
                       label={createHolidayLabel(responseTimeChartData, false, 'percentage5PlusMin')}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="percentage5to10Min" 
+                      stroke="#ff9a74" 
+                      strokeWidth={2}
+                      name="5-10 Min Wait %"
+                      dot={{ r: 4, fill: '#ff9a74' }}
+                      strokeDasharray="5 5"
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="percentage10PlusMin" 
+                      stroke="#fd8789" 
+                      strokeWidth={2}
+                      name="10+ Min Wait %"
+                      dot={{ r: 4, fill: '#fd8789' }}
+                      strokeDasharray="5 5"
+                    />
+                    <Legend 
+                      wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }}
+                      content={({ payload }) => {
+                        if (!payload) return null;
+                        // Reorder payload: 5+ Min Wait %, 5-10 Min Wait %, 10+ Min Wait %
+                        const orderedPayload = [
+                          payload.find(item => item.dataKey === 'percentage5PlusMin'),
+                          payload.find(item => item.dataKey === 'percentage5to10Min'),
+                          payload.find(item => item.dataKey === 'percentage10PlusMin')
+                        ].filter(Boolean);
+                        
+                        // Use default Recharts Legend rendering with reordered payload
+                        return (
+                          <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', padding: '10px 0' }}>
+                            {orderedPayload.map((entry, index) => {
+                              if (!entry) return null;
+                              const isDashed = entry.dataKey === 'percentage5to10Min' || entry.dataKey === 'percentage10PlusMin';
+                              return (
+                                <div key={`legend-item-${index}`} style={{ display: 'flex', alignItems: 'center', margin: '0 10px', cursor: 'pointer' }}>
+                                  <svg width="14" height="14" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
+                                    <line
+                                      x1="0"
+                                      y1="7"
+                                      x2="14"
+                                      y2="7"
+                                      stroke={entry.color}
+                                      strokeWidth={2}
+                                      strokeDasharray={isDashed ? '5 5' : '0'}
+                                    />
+                                  </svg>
+                                  <span style={{ color: isDarkMode ? '#ffffff' : '#292929', fontSize: '12px' }}>
+                                    {entry.value}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -3348,7 +3998,26 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
               {/* Count Chart */}
               <div className="chart-container">
-                <h3 className="chart-title">Count of Conversations with Wait Time</h3>
+                <h3 className="chart-title">
+                  Count of Conversations with Wait Time
+                  <InfoIcon 
+                    isDarkMode={isDarkMode} 
+                    position="right"
+                    content={
+                      <div style={{ textAlign: 'left' }}>
+                        <p><strong>What this shows:</strong> Daily count of conversations that waited 5+ minutes for a first response, broken down by wait time buckets.</p>
+                        <p><strong>Stacked Bars:</strong></p>
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li><strong>10+ Min Waits</strong> (red, bottom): Count of conversations waiting 10+ minutes</li>
+                          <li><strong>5-10 Min Waits</strong> (orange, top): Count of conversations waiting 5-10 minutes</li>
+                        </ul>
+                        <p><strong>Total Height:</strong> The full height of each bar represents the total count of 5+ minute waits for that day.</p>
+                        <p><strong>How to use:</strong> Hover over bars to see exact counts. Use this chart to understand volume trends and identify days with unusually high wait counts.</p>
+                      </div>
+                    }
+                  />
+                </h3>
+                <p className="chart-subtitle">Stacked bars showing breakdown: 5-10 minutes (orange) and 10+ minutes (red)</p>
                 <ResponsiveContainer width="100%" height={400}>
                   <BarChart data={responseTimeChartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
@@ -3370,14 +4039,25 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                     backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
                     border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
                     borderRadius: '4px',
-                    color: isDarkMode ? '#e5e5e5' : '#292929'
+                    color: isDarkMode ? '#e5e5e5' : '#292929',
+                    itemStyle: { color: isDarkMode ? '#e5e5e5' : '#292929' },
+                    labelStyle: { color: isDarkMode ? '#ffffff' : '#292929', fontWeight: 600 }
                   }}
                     />
                     <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                     <Bar 
-                      dataKey="count5PlusMin" 
-                      fill="#fbbf24"
-                      name="5+ Min Waits"
+                      dataKey="count10PlusMin" 
+                      stackId="waits"
+                      fill="#fd8789"
+                      name="10+ Min Waits"
+                      radius={[0, 0, 0, 0]}
+                    />
+                    <Bar 
+                      dataKey="count5to10Min" 
+                      stackId="waits"
+                      fill="#ff9a74"
+                      name="5-10 Min Waits"
+                      radius={[4, 4, 0, 0]}
                       label={createHolidayLabel(responseTimeChartData, true, 'count5PlusMin')}
                     />
                   </BarChart>
@@ -3390,7 +4070,26 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 {responseTimeTrendAnalysis && responseTimeBestWorst && (
                   <div className="insights-row">
                     <div className="summary-card trend-card">
-                      <h4>Trend Analysis</h4>
+                      <h4>
+                        Trend Analysis
+                        <InfoIcon 
+                          isDarkMode={isDarkMode} 
+                          position="right"
+                          content={
+                            <div style={{ textAlign: 'left' }}>
+                              <p><strong>What this shows:</strong> Analysis of wait time trends across the selected date range, comparing the first half vs second half of the period.</p>
+                              <p><strong>Metrics:</strong></p>
+                              <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                                <li><strong>First/Second Half:</strong> Average wait percentage for each half of the selected period</li>
+                                <li><strong>Trend:</strong> Direction of change (improving ↓, worsening ↑, or stable →)</li>
+                                <li><strong>Volatility:</strong> Standard deviation showing how much daily values vary</li>
+                                <li><strong>7-Day Moving Avg:</strong> Smoothed average to reduce day-to-day noise</li>
+                              </ul>
+                              <p><strong>How to use:</strong> Helps identify whether performance is improving or declining over time, and how consistent daily performance is.</p>
+                            </div>
+                          }
+                        />
+                      </h4>
                       <div className="trend-content">
                         <div className="trend-comparison">
                           <div className="trend-period">
@@ -3420,7 +4119,20 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                       </div>
                     </div>
                     <div className="summary-card best-worst-card">
-                      <h4>Best Day (Lowest %)</h4>
+                      <h4>
+                        Best Day (Lowest %)
+                        <InfoIcon 
+                          isDarkMode={isDarkMode} 
+                          position="right"
+                          content={
+                            <div style={{ textAlign: 'left' }}>
+                              <p><strong>What this shows:</strong> The day with the lowest percentage of conversations waiting 5+ minutes for a first response.</p>
+                              <p><strong>Breakdown:</strong> Shows the count of slow responses (5+ min) vs total conversations for that day.</p>
+                              <p><strong>How to use:</strong> Helps identify what made the best day successful - was it lower volume, better staffing, or other factors?</p>
+                            </div>
+                          }
+                        />
+                      </h4>
                       <div className="best-worst-content">
                         <div className="best-worst-date">{responseTimeBestWorst.bestPercentage.displayDate}</div>
                         <div className="best-worst-value">{responseTimeBestWorst.bestPercentage.percentage}%</div>
@@ -3430,7 +4142,20 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                       </div>
                     </div>
                     <div className="summary-card best-worst-card worst">
-                      <h4>Worst Day (Highest %)</h4>
+                      <h4>
+                        Worst Day (Highest %)
+                        <InfoIcon 
+                          isDarkMode={isDarkMode} 
+                          position="left"
+                          content={
+                            <div style={{ textAlign: 'left' }}>
+                              <p><strong>What this shows:</strong> The day with the highest percentage of conversations waiting 5+ minutes for a first response.</p>
+                              <p><strong>Breakdown:</strong> Shows the count of slow responses (5+ min) vs total conversations for that day.</p>
+                              <p><strong>How to use:</strong> Helps identify what went wrong on the worst day - was it unusually high volume, staffing issues, or other factors?</p>
+                            </div>
+                          }
+                        />
+                      </h4>
                       <div className="best-worst-content">
                         <div className="best-worst-date">{responseTimeBestWorst.worstPercentage.displayDate}</div>
                         <div className="best-worst-value">{responseTimeBestWorst.worstPercentage.percentage}%</div>
@@ -3442,49 +4167,30 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   </div>
                 )}
 
-                {/* Comparison Metrics */}
-                {responseTimeComparison && (
-                  <div className="insights-row">
-                    <div className="summary-card trend-card">
-                      <h4>Period Comparison</h4>
-                      <div className="trend-content">
-                        <div className="trend-comparison">
-                          <div className="trend-period">
-                            <span className="trend-label">Previous 7 Days</span>
-                            <span className="trend-value">{responseTimeComparison.previousPeriodAvg}%</span>
-                          </div>
-                          <div className="trend-arrow">→</div>
-                          <div className="trend-period">
-                            <span className="trend-label">Current 7 Days</span>
-                            <span className="trend-value">{responseTimeComparison.currentPeriodAvg}%</span>
-                          </div>
-                        </div>
-                        <div className={`trend-indicator ${responseTimeComparison.change < 0 ? 'improving' : responseTimeComparison.change > 0 ? 'worsening' : 'stable'}`}>
-                          {responseTimeComparison.change < 0 && '↓'}
-                          {responseTimeComparison.change > 0 && '↑'}
-                          {responseTimeComparison.change === 0 && '→'}
-                          {Math.abs(responseTimeComparison.change)}% ({Math.abs(responseTimeComparison.changePercent)}%)
-                        </div>
-                        <div className="volatility-metric">
-                          <span className="volatility-label">All-Time Average</span>
-                          <span className="volatility-value">{responseTimeComparison.allTimeAvg}%</span>
-                        </div>
-                        <div className="volatility-metric">
-                          <span className="volatility-label">vs All-Time</span>
-                          <span className={`volatility-value ${responseTimeComparison.vsAllTime < 0 ? 'improving' : responseTimeComparison.vsAllTime > 0 ? 'worsening' : 'stable'}`}>
-                            {responseTimeComparison.vsAllTime > 0 ? '+' : ''}{responseTimeComparison.vsAllTime}%
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 {/* Day-of-Week Analysis */}
                 {responseTimeDayOfWeek && responseTimeDayOfWeek.length > 0 && (
                   <div className="chart-container">
-                    <h3 className="chart-title">Day-of-Week Response Time Patterns</h3>
-                    <p className="chart-subtitle">Average total conversations with response and 5+ minute wait times by day of week</p>
+                    <h3 className="chart-title">
+                      Day-of-Week Response Time Patterns
+                      <InfoIcon 
+                        isDarkMode={isDarkMode} 
+                        position="right"
+                        content={
+                          <div style={{ textAlign: 'left' }}>
+                            <p><strong>What this shows:</strong> Average conversation counts by day of week, broken down by wait time buckets.</p>
+                            <p><strong>Stacked Bars:</strong></p>
+                            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                              <li><strong>10+ Min Waits</strong> (red, bottom): Average count waiting 10+ minutes</li>
+                              <li><strong>5-10 Min Waits</strong> (orange, middle): Average count waiting 5-10 minutes</li>
+                              <li><strong>Responses &lt; 5 Min</strong> (gray, top): Average count with response under 5 minutes</li>
+                            </ul>
+                            <p><strong>How to use:</strong> Identifies which days of the week typically have higher wait times. Helps with resource planning and identifying patterns.</p>
+                          </div>
+                        }
+                      />
+                    </h3>
+                    <p className="chart-subtitle">Average total conversations with response and wait times by day of week, broken down by wait time buckets</p>
                     <ResponsiveContainer width="100%" height={300}>
                       <BarChart data={responseTimeDayOfWeek} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
@@ -3557,7 +4263,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                                     <div style={{ marginBottom: '6px', color: isDarkMode ? '#ffffff' : '#292929' }}>
                                       <strong>Total Chats:</strong> {data.avgTotalWithResponse.toFixed(1)}
                                     </div>
-                                    <div style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>
+                                    <div style={{ marginBottom: '6px', color: isDarkMode ? '#ffffff' : '#292929' }}>
                                       <strong>Chats that waited 5+ Min:</strong> {data.avgCount5PlusMin.toFixed(1)}
                                       {data.avgPercentage5Plus > 0 && (
                                         <span 
@@ -3572,6 +4278,12 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                                         </span>
                                       )}
                                     </div>
+                                    <div style={{ marginBottom: '6px', color: isDarkMode ? '#ffffff' : '#292929' }}>
+                                      <strong>5-10 Min Waits:</strong> {data.avgCount5to10Min.toFixed(1)}
+                                    </div>
+                                    <div style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>
+                                      <strong>10+ Min Waits:</strong> {data.avgCount10PlusMin.toFixed(1)}
+                                    </div>
                                   </div>
                                 );
                               }
@@ -3579,7 +4291,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                             return null;
                           }}
                         />
-                        <Bar dataKey="avgCount5PlusMin" stackId="responses" fill="#fd8789" name="Avg Count 5+ Min" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="avgCount10PlusMin" stackId="responses" fill="#fd8789" name="Avg Count 10+ Min" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="avgCount5to10Min" stackId="responses" fill="#ff9a74" name="Avg Count 5-10 Min" radius={[0, 0, 0, 0]} />
                         <Bar dataKey="avgOtherResponses" stackId="responses" fill="#e0e0e0" name="Responses < 5 Min" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -3589,7 +4302,25 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                 {/* Volume vs Performance Correlation */}
                 {volumePerformanceData && volumeCorrelation && (
                   <div className="chart-container">
-                    <h3 className="chart-title">Volume vs Performance Correlation</h3>
+                    <h3 className="chart-title">
+                      Volume vs Performance Correlation
+                      <InfoIcon 
+                        isDarkMode={isDarkMode} 
+                        position="right"
+                        content={
+                          <div style={{ textAlign: 'left' }}>
+                            <p><strong>What this shows:</strong> Scatter plot analyzing the relationship between conversation volume and wait time performance.</p>
+                            <p><strong>Correlation Types:</strong></p>
+                            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                              <li><strong>Positive:</strong> Higher volume correlates with worse performance (more waits)</li>
+                              <li><strong>Negative:</strong> Higher volume correlates with better performance (fewer waits)</li>
+                              <li><strong>Weak:</strong> Little to no relationship between volume and performance</li>
+                            </ul>
+                            <p><strong>How to use:</strong> Helps identify if volume is a key driver of wait times. If correlation is strong and positive, consider scaling resources with volume.</p>
+                          </div>
+                        }
+                      />
+                    </h3>
                     <p className="chart-subtitle">
                       {volumeCorrelation.interpretation === 'weak' ? 'Weak' : volumeCorrelation.interpretation === 'moderate' ? 'Moderate' : 'Strong'} 
                       {' '}{volumeCorrelation.direction} correlation ({volumeCorrelation.correlation})
@@ -3627,7 +4358,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                                   border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
                                   borderRadius: '4px',
                                   padding: '8px 12px',
-                                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                  textAlign: 'left'
                                 }}>
                                   <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929', marginBottom: '4px' }}>
                                     <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>Total Conversations:</strong> {totalConversations}
@@ -3926,7 +4658,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         <ResultsView 
           data={resultsData}
           loading={loadingResults}
-          dateRange={dateRange === 'custom' ? 'custom' : resultsDateRange}
+          dateRange={dateRange}
           customStartDate={startDate}
           customEndDate={endDate}
         />
@@ -3957,71 +4689,283 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
     );
   }
 
-  // For this analysis, negative correlation is GOOD (higher on-track → lower slow response)
-  // Positive correlation is BAD (higher on-track → higher slow response)
-  const isGoodCorrelation = data.correlationDirection === 'negative';
-  const correlationColor = isGoodCorrelation ? '#4cec8c' : '#fd8789';
-  const correlationLabel = isGoodCorrelation
-    ? 'Higher on-track correlates with lower slow response rates (desired outcome)' 
-    : 'Higher on-track correlates with higher slow response rates (concerning)';
+  // Helper function to determine if correlation is good (negative = good)
+  const isGoodCorrelation = (direction) => direction === 'negative';
+  const getCorrelationColor = (direction) => isGoodCorrelation(direction) ? '#4cec8c' : '#fd8789';
+  const getCorrelationLabel = (direction) => isGoodCorrelation(direction)
+    ? 'Higher on-track correlates with lower wait times (desired)' 
+    : 'Higher on-track correlates with higher wait times (concerning)';
+
+  // Calculate key insights
+  const strongestCorrelation = Math.abs(data.correlation5to10) > Math.abs(data.correlation10Plus) 
+    ? { value: data.correlation5to10, bucket: '5-10 min', direction: data.correlation5to10Direction }
+    : { value: data.correlation10Plus, bucket: '10+ min', direction: data.correlation10PlusDirection };
+  
+  const isStronger5to10 = Math.abs(data.correlation5to10) > Math.abs(data.correlation10Plus);
+  const overallImpact = data.correlationStrength === 'strong' ? 'strong' : data.correlationStrength === 'moderate' ? 'moderate' : 'weak';
 
   return (
     <div className="results-view">
       <div className="results-header">
-        <h2 className="results-title">On Track Impact on Slow First Response Times</h2>
+        <h2 className="results-title">On Track Impact on Response Times</h2>
         <p className="results-subtitle">
-          Analyzing how TSE on-track status affects 5+ minute first response conversation rates
+          Analyzing how TSE on-track status affects 5+ minute first response rates, broken down by wait time buckets
         </p>
       </div>
 
+      {/* Key Insight Summary */}
+      <div style={{ 
+        backgroundColor: isDarkMode ? '#2a2a2a' : '#f8f9fa', 
+        border: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}`,
+        borderRadius: '8px',
+        padding: '16px 20px',
+        marginBottom: '24px'
+      }}>
+        <h3 style={{ 
+          fontSize: '16px', 
+          fontWeight: 600, 
+          color: isDarkMode ? '#ffffff' : '#292929',
+          marginBottom: '12px'
+        }}>
+          Key Insights
+        </h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div
+            style={{
+              padding: '8px 12px',
+              borderRadius: '4px',
+              backgroundColor: isGoodCorrelation(data.correlationDirection) 
+                ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
+                : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
+              borderLeft: `3px solid ${isGoodCorrelation(data.correlationDirection) ? '#4cec8c' : '#fd8789'}`,
+              fontSize: '13px',
+              color: isDarkMode ? '#e5e5e5' : '#292929',
+              lineHeight: '1.5'
+            }}
+          >
+            <strong>Overall Impact:</strong> On-track performance has a <strong style={{ color: overallImpact === 'strong' ? '#fd8789' : overallImpact === 'moderate' ? '#fbbf24' : '#4cec8c' }}>{overallImpact}</strong> impact on response times
+            {isGoodCorrelation(data.correlationDirection) ? ' (higher on-track = lower wait times)' : ' (concerning pattern)'}
+          </div>
+          <div
+            style={{
+              padding: '8px 12px',
+              borderRadius: '4px',
+              backgroundColor: isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)',
+              borderLeft: '3px solid #4cec8c',
+              fontSize: '13px',
+              color: isDarkMode ? '#e5e5e5' : '#292929',
+              lineHeight: '1.5'
+            }}
+          >
+            <strong>Wait Time Sensitivity:</strong> {isStronger5to10 ? '5-10 min waits' : '10+ min waits'} are {isStronger5to10 ? 'more' : 'less'} correlated with on-track performance than {isStronger5to10 ? '10+ min waits' : '5-10 min waits'}
+          </div>
+          <div
+            style={{
+              padding: '8px 12px',
+              borderRadius: '4px',
+              backgroundColor: (data.improvementPotential5to10 > 0 && data.improvementPotential10Plus > 0)
+                ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
+                : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
+              borderLeft: `3px solid ${(data.improvementPotential5to10 > 0 && data.improvementPotential10Plus > 0) ? '#4cec8c' : '#fd8789'}`,
+              fontSize: '13px',
+              color: isDarkMode ? '#e5e5e5' : '#292929',
+              lineHeight: '1.5'
+            }}
+          >
+            <strong>Improvement Potential:</strong> If all days matched High (80-100%) on-track performance, wait times could be{' '}
+            {data.improvementPotential5to10 > 0 ? 'reduced' : 'increased'} by{' '}
+            <strong style={{ color: data.improvementPotential5to10 > 0 ? '#4cec8c' : '#fd8789' }}>
+              {Math.abs(data.improvementPotential5to10).toFixed(2)}% for 5-10 min waits
+            </strong> and{' '}
+            {data.improvementPotential10Plus > 0 ? 'reduced' : 'increased'} by{' '}
+            <strong style={{ color: data.improvementPotential10Plus > 0 ? '#4cec8c' : '#fd8789' }}>
+              {Math.abs(data.improvementPotential10Plus).toFixed(2)}% for 10+ min waits
+            </strong>
+          </div>
+          <div
+            style={{
+              padding: '8px 12px',
+              borderRadius: '4px',
+              backgroundColor: Math.abs(strongestCorrelation.value) >= 0.7
+                ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
+                : Math.abs(strongestCorrelation.value) >= 0.3
+                ? (isDarkMode ? 'rgba(251, 191, 36, 0.1)' : 'rgba(251, 191, 36, 0.1)')
+                : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
+              borderLeft: `3px solid ${Math.abs(strongestCorrelation.value) >= 0.7 ? '#4cec8c' : Math.abs(strongestCorrelation.value) >= 0.3 ? '#fbbf24' : '#fd8789'}`,
+              fontSize: '13px',
+              color: isDarkMode ? '#e5e5e5' : '#292929',
+              lineHeight: '1.5'
+            }}
+          >
+            <strong>Correlation Strength:</strong> The {strongestCorrelation.bucket} wait time bucket shows the {Math.abs(strongestCorrelation.value) < 0.3 ? 'weakest' : Math.abs(strongestCorrelation.value) < 0.7 ? 'moderate' : 'strongest'} correlation ({strongestCorrelation.value > 0 ? '+' : ''}{strongestCorrelation.value.toFixed(2)})
+          </div>
+        </div>
+      </div>
 
       {/* Key Insights */}
-      <div className="results-insights">
+      <div className="results-insights" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+        {/* Overall 5+ Min Correlation */}
         <div className="insight-card results-correlation">
           <div className="insight-header">
-            <h3>Correlation Analysis</h3>
+            <h3>
+              5+ Min Wait Correlation
+              <InfoIcon 
+                isDarkMode={isDarkMode}
+                position="right"
+                content={
+                  <div style={{ textAlign: 'left' }}>
+                    <p><strong>What this measures:</strong> The correlation coefficient between daily on-track percentage and the overall 5+ minute wait rate (combining both 5-10 min and 10+ min waits).</p>
+                    <p><strong>Calculation:</strong> Uses Pearson correlation coefficient to measure the linear relationship between on-track % and wait rates across all days in the selected date range.</p>
+                    <p><strong>Interpretation:</strong></p>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      <li><strong>Negative correlation (desired):</strong> Higher on-track % correlates with lower wait times</li>
+                      <li><strong>Positive correlation (concerning):</strong> Higher on-track % correlates with higher wait times</li>
+                      <li><strong>Strength:</strong> Values closer to -1 or +1 indicate stronger correlation</li>
+                    </ul>
+                    <p><strong>Range:</strong> -1.0 (perfect negative) to +1.0 (perfect positive), with 0 indicating no correlation.</p>
+                  </div>
+                }
+              />
+            </h3>
           </div>
           <div className="correlation-content">
-            <div className="correlation-value" style={{ color: correlationColor }}>
+            <div className="correlation-value" style={{ color: getCorrelationColor(data.correlationDirection) }}>
               {data.correlation > 0 ? '+' : ''}{data.correlation.toFixed(2)}
             </div>
             <div className="correlation-label">
-              {data.correlationStrength.charAt(0).toUpperCase() + data.correlationStrength.slice(1)} {data.correlationDirection} correlation
-              {isGoodCorrelation ? ' (desired)' : ' (concerning)'}
+              {data.correlationStrength.charAt(0).toUpperCase() + data.correlationStrength.slice(1)} {data.correlationDirection}
             </div>
-            <div className="correlation-description">
-              {correlationLabel}
+            <div className="correlation-description" style={{ fontSize: '11px', marginTop: '8px' }}>
+              {getCorrelationLabel(data.correlationDirection)}
             </div>
           </div>
         </div>
 
+        {/* 5-10 Min Correlation */}
+        <div className="insight-card results-correlation">
+          <div className="insight-header">
+            <h3>
+              5-10 Min Wait Correlation
+              <InfoIcon 
+                isDarkMode={isDarkMode}
+                position="left"
+                content={
+                  <div style={{ textAlign: 'left' }}>
+                    <p><strong>What this measures:</strong> The correlation coefficient between daily on-track percentage and the 5-10 minute wait rate specifically.</p>
+                    <p><strong>Calculation:</strong> Uses Pearson correlation coefficient to measure the linear relationship between on-track % and 5-10 minute wait rates across all days in the selected date range.</p>
+                    <p><strong>Interpretation:</strong></p>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      <li><strong>Negative correlation (desired):</strong> Higher on-track % correlates with lower 5-10 min wait rates</li>
+                      <li><strong>Positive correlation (concerning):</strong> Higher on-track % correlates with higher 5-10 min wait rates</li>
+                      <li><strong>Strength:</strong> Values closer to -1 or +1 indicate stronger correlation</li>
+                    </ul>
+                    <p><strong>Why it matters:</strong> This helps identify if on-track performance has a stronger impact on moderate wait times (5-10 min) compared to longer waits (10+ min).</p>
+                  </div>
+                }
+              />
+            </h3>
+          </div>
+          <div className="correlation-content">
+            <div className="correlation-value" style={{ color: getCorrelationColor(data.correlation5to10Direction) }}>
+              {data.correlation5to10 > 0 ? '+' : ''}{data.correlation5to10.toFixed(2)}
+            </div>
+            <div className="correlation-label">
+              {data.correlation5to10Strength.charAt(0).toUpperCase() + data.correlation5to10Strength.slice(1)} {data.correlation5to10Direction}
+            </div>
+            <div className="correlation-description" style={{ fontSize: '11px', marginTop: '8px' }}>
+              {getCorrelationLabel(data.correlation5to10Direction)}
+            </div>
+          </div>
+        </div>
+
+        {/* 10+ Min Correlation */}
+        <div className="insight-card results-correlation">
+          <div className="insight-header">
+            <h3>
+              10+ Min Wait Correlation
+              <InfoIcon 
+                isDarkMode={isDarkMode}
+                position="left"
+                content={
+                  <div style={{ textAlign: 'left' }}>
+                    <p><strong>What this measures:</strong> The correlation coefficient between daily on-track percentage and the 10+ minute wait rate specifically.</p>
+                    <p><strong>Calculation:</strong> Uses Pearson correlation coefficient to measure the linear relationship between on-track % and 10+ minute wait rates across all days in the selected date range.</p>
+                    <p><strong>Interpretation:</strong></p>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      <li><strong>Negative correlation (desired):</strong> Higher on-track % correlates with lower 10+ min wait rates</li>
+                      <li><strong>Positive correlation (concerning):</strong> Higher on-track % correlates with higher 10+ min wait rates</li>
+                      <li><strong>Strength:</strong> Values closer to -1 or +1 indicate stronger correlation</li>
+                    </ul>
+                    <p><strong>Why it matters:</strong> This helps identify if on-track performance has a stronger impact on longer wait times (10+ min) compared to moderate waits (5-10 min). Comparing this with the 5-10 min correlation shows which wait time bucket is more sensitive to on-track performance.</p>
+                  </div>
+                }
+              />
+            </h3>
+          </div>
+          <div className="correlation-content">
+            <div className="correlation-value" style={{ color: getCorrelationColor(data.correlation10PlusDirection) }}>
+              {data.correlation10Plus > 0 ? '+' : ''}{data.correlation10Plus.toFixed(2)}
+            </div>
+            <div className="correlation-label">
+              {data.correlation10PlusStrength.charAt(0).toUpperCase() + data.correlation10PlusStrength.slice(1)} {data.correlation10PlusDirection}
+            </div>
+            <div className="correlation-description" style={{ fontSize: '11px', marginTop: '8px' }}>
+              {getCorrelationLabel(data.correlation10PlusDirection)}
+            </div>
+          </div>
+        </div>
+
+        {/* Improvement Potential */}
         <div className="insight-card results-summary">
           <div className="insight-header">
-            <h3>Overall Averages</h3>
+            <h3>
+              Improvement Potential
+              <InfoIcon 
+                isDarkMode={isDarkMode}
+                position="left"
+                content={
+                  <div style={{ textAlign: 'left' }}>
+                    <p><strong>What this shows:</strong> The potential reduction in wait time rates if all days in the selected date range performed at the High (80-100%) on-track level.</p>
+                    <p><strong>Calculation:</strong> Compares the current average wait rate with the average wait rate observed on days when on-track performance was High (80-100%).</p>
+                    <p><strong>Formula:</strong> Current Average - High Performance Average = Potential Reduction</p>
+                    <p><strong>Interpretation:</strong></p>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      <li><strong>Positive reduction (green):</strong> Indicates potential improvement - wait rates would decrease</li>
+                      <li><strong>Negative reduction (red):</strong> Indicates potential increase - wait rates would increase (concerning)</li>
+                    </ul>
+                    <p><strong>Use case:</strong> This metric helps quantify the business impact of improving on-track performance. It answers the question: "If we consistently maintained High on-track performance, how much would wait times improve?"</p>
+                    <p><strong>Note:</strong> This is a projection based on historical correlation, not a guarantee. Other factors may also influence wait times.</p>
+                  </div>
+                }
+              />
+            </h3>
           </div>
           <div className="summary-content">
             <div className="summary-item">
-              <span className="summary-label">Average On Track</span>
-              <span className="summary-value">{data.avgOnTrack.toFixed(2)}%</span>
+              <span className="summary-label">If all days matched High performance:</span>
             </div>
             <div className="summary-item">
-              <span className="summary-label">Average Slow Response Rate</span>
-              <span className="summary-value">{data.avgSlowResponse.toFixed(2)}%</span>
+              <span className="summary-label">5-10 min reduction</span>
+              <span className="summary-value" style={{ color: data.improvementPotential5to10 > 0 ? '#4cec8c' : '#fd8789' }}>
+                {data.improvementPotential5to10 > 0 ? '-' : '+'}{Math.abs(data.improvementPotential5to10).toFixed(2)}%
+              </span>
             </div>
             <div className="summary-item">
-              <span className="summary-label">Data Points</span>
-              <span className="summary-value">{data.dataPoints.length} days</span>
+              <span className="summary-label">10+ min reduction</span>
+              <span className="summary-value" style={{ color: data.improvementPotential10Plus > 0 ? '#4cec8c' : '#fd8789' }}>
+                {data.improvementPotential10Plus > 0 ? '-' : '+'}{Math.abs(data.improvementPotential10Plus).toFixed(2)}%
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Scatter Plot: On Track vs Slow Response */}
+      {/* Scatter Plot: On Track vs Wait Time Rates by Bucket */}
       <div className="results-chart-container">
-        <h3 className="chart-title">On Track vs Slow First Response Rate</h3>
-        <p className="chart-subtitle">Each point represents one day's on-track percentage and slow response rate</p>
+        <h3 className="chart-title">On Track vs Wait Time Rates by Bucket</h3>
+        <p className="chart-subtitle">Each point represents one day's on-track percentage and wait time rate, broken down by 5-10 min and 10+ min buckets</p>
         <ResponsiveContainer width="100%" height={400}>
-          <ScatterChart data={data.dataPoints} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+          <ScatterChart data={data.dataPoints} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
             <XAxis 
               type="number"
@@ -4031,24 +4975,22 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
               stroke={isDarkMode ? '#ffffff' : '#292929'}
               tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
               label={{ value: 'On Track %', position: 'insideBottom', offset: -5, fill: isDarkMode ? '#ffffff' : '#292929' }}
-              tickFormatter={(value) => value.toFixed(2)}
+              tickFormatter={(value) => value.toFixed(0)}
             />
             <YAxis 
               type="number"
-              dataKey="slowResponsePct"
-              name="Slow Response %"
-              domain={[0, 'dataMax + 5']}
+              name="Wait Time Rate %"
+              domain={[0, 'dataMax + 2']}
               stroke={isDarkMode ? '#ffffff' : '#292929'}
               tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
-              label={{ value: 'Slow First Response Rate (%)', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
-              tickFormatter={(value) => value.toFixed(2)}
+              label={{ value: 'Wait Time Rate (%)', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
+              tickFormatter={(value) => value.toFixed(1)}
             />
             <Tooltip 
               content={({ active, payload }) => {
                 if (active && payload && payload.length) {
-                  const data = payload[0].payload;
-                  const onTrackValue = data?.onTrack || 0;
-                  const slowResponseValue = data?.slowResponsePct || 0;
+                  const pointData = payload[0].payload;
+                  const onTrackValue = pointData?.onTrack || 0;
                   return (
                     <div style={{ 
                       backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
@@ -4057,11 +4999,17 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
                       padding: '8px 12px',
                       boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                     }}>
+                      <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929', marginBottom: '4px', fontWeight: 600 }}>
+                        Date: {pointData?.date ? formatDateFull(pointData.date) : 'N/A'}
+                      </div>
                       <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929', marginBottom: '4px' }}>
-                        <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>On Track %:</strong> {onTrackValue.toFixed(2)}%
+                        <strong>On Track %:</strong> {onTrackValue.toFixed(1)}%
+                      </div>
+                      <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929', marginBottom: '4px' }}>
+                        <strong style={{ color: '#3b82f6' }}>5-10 Min:</strong> {(pointData?.slowResponse5to10Pct || 0).toFixed(2)}%
                       </div>
                       <div style={{ fontSize: '12px', color: isDarkMode ? '#ffffff' : '#292929' }}>
-                        <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>Slow Response %:</strong> {slowResponseValue.toFixed(2)}%
+                        <strong style={{ color: '#ef4444' }}>10+ Min:</strong> {(pointData?.slowResponse10PlusPct || 0).toFixed(2)}%
                       </div>
                     </div>
                   );
@@ -4069,22 +5017,128 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
                 return null;
               }}
             />
+            <Legend 
+              wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }}
+              verticalAlign="top"
+              align="center"
+              margin={{ top: 0, bottom: 20 }}
+            />
+            {/* 5-10 Min Wait Scatter */}
             <Scatter 
-              name="On Track vs Slow Response" 
+              name="5-10 Min Wait Rate" 
               data={data.dataPoints} 
-              fill="#35a1b4"
+              dataKey="slowResponse5to10Pct"
+              fill="#3b82f6"
             >
               {data.dataPoints.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill="#35a1b4" opacity={0.6} />
+                <Cell key={`cell-5to10-${index}`} fill="#3b82f6" opacity={0.6} />
+              ))}
+            </Scatter>
+            {/* 10+ Min Wait Scatter */}
+            <Scatter 
+              name="10+ Min Wait Rate" 
+              data={data.dataPoints} 
+              dataKey="slowResponse10PlusPct"
+              fill="#ef4444"
+            >
+              {data.dataPoints.map((entry, index) => (
+                <Cell key={`cell-10plus-${index}`} fill="#ef4444" opacity={0.6} />
               ))}
             </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
       </div>
 
+      {/* What If Scenario Visualization */}
+      <div className="results-chart-container">
+        <h3 className="chart-title">Improvement Potential: Current vs High Performance Scenario</h3>
+        <p className="chart-subtitle">Comparison of current average wait rates vs potential rates if all days matched High (80-100%) on-track performance</p>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart 
+            data={[
+              {
+                bucket: '5-10 Min Waits',
+                current: data.avgSlowResponse5to10,
+                potential: data.rangeStats.find(r => r.range === 'High (80-100%)')?.avgSlowResponse5to10Pct || data.avgSlowResponse5to10,
+                reduction: data.improvementPotential5to10
+              },
+              {
+                bucket: '10+ Min Waits',
+                current: data.avgSlowResponse10Plus,
+                potential: data.rangeStats.find(r => r.range === 'High (80-100%)')?.avgSlowResponse10PlusPct || data.avgSlowResponse10Plus,
+                reduction: data.improvementPotential10Plus
+              }
+            ]}
+            margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+            <XAxis 
+              dataKey="bucket"
+              stroke={isDarkMode ? '#ffffff' : '#292929'}
+              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+            />
+            <YAxis 
+              stroke={isDarkMode ? '#ffffff' : '#292929'}
+              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+              domain={[0, 'dataMax + 1']}
+              label={{ value: 'Wait Rate (%)', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
+              tickFormatter={(value) => value.toFixed(1)}
+            />
+            <Tooltip 
+              contentStyle={{ 
+                backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                borderRadius: '4px',
+                color: isDarkMode ? '#e5e5e5' : '#292929'
+              }}
+              formatter={(value, name) => {
+                if (name === 'current') return [`${value.toFixed(2)}%`, 'Current Average'];
+                if (name === 'potential') return [`${value.toFixed(2)}%`, 'Potential (High Performance)'];
+                return [value, name];
+              }}
+            />
+            <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
+            <Bar 
+              dataKey="current" 
+              fill="#fd8789" 
+              name="Current Average"
+              radius={[4, 4, 0, 0]}
+            />
+            <Bar 
+              dataKey="potential" 
+              fill="#4cec8c" 
+              name="Potential (High Performance)"
+              radius={[4, 4, 0, 0]}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-around', 
+          marginTop: '16px',
+          padding: '12px',
+          backgroundColor: isDarkMode ? '#1e1e1e' : '#f8f9fa',
+          borderRadius: '6px'
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>5-10 Min Reduction</div>
+            <div style={{ fontSize: '18px', fontWeight: 700, color: data.improvementPotential5to10 > 0 ? '#4cec8c' : '#fd8789' }}>
+              {data.improvementPotential5to10 > 0 ? '-' : '+'}{Math.abs(data.improvementPotential5to10).toFixed(2)}%
+            </div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>10+ Min Reduction</div>
+            <div style={{ fontSize: '18px', fontWeight: 700, color: data.improvementPotential10Plus > 0 ? '#4cec8c' : '#fd8789' }}>
+              {data.improvementPotential10Plus > 0 ? '-' : '+'}{Math.abs(data.improvementPotential10Plus).toFixed(2)}%
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* On Track Range Analysis */}
       <div className="results-range-analysis">
         <h3 className="section-title">Performance by On Track Range</h3>
+        <p className="chart-subtitle" style={{ marginBottom: '16px' }}>Breakdown showing wait time rates for each on-track performance level</p>
         <div className="range-stats-grid">
           {data.rangeStats.map((range, index) => {
             const colors = ['#4cec8c', '#fbbf24', '#fd8789'];
@@ -4097,17 +5151,25 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
                 <div className="range-stat-content">
                   <div className="range-stat-item">
                     <span className="range-stat-label">Avg On Track</span>
-                    <span className="range-stat-value">{range.avgOnTrack.toFixed(2)}%</span>
+                    <span className="range-stat-value">{range.avgOnTrack.toFixed(1)}%</span>
+                  </div>
+                  <div className="range-stat-item" style={{ borderTop: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`, paddingTop: '8px', marginTop: '8px' }}>
+                    <span className="range-stat-label">Avg 5-10 Min Wait Rate</span>
+                    <span className="range-stat-value" style={{ color: '#3b82f6' }}>{range.avgSlowResponse5to10Pct.toFixed(2)}%</span>
                   </div>
                   <div className="range-stat-item">
-                    <span className="range-stat-label">Avg Slow Response Rate</span>
-                    <span className="range-stat-value">{range.avgSlowResponsePct.toFixed(2)}%</span>
+                    <span className="range-stat-label">Avg 10+ Min Wait Rate</span>
+                    <span className="range-stat-value" style={{ color: '#ef4444' }}>{range.avgSlowResponse10PlusPct.toFixed(2)}%</span>
+                  </div>
+                  <div className="range-stat-item" style={{ borderTop: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`, paddingTop: '8px', marginTop: '8px' }}>
+                    <span className="range-stat-label">Total 5-10 Min Waits</span>
+                    <span className="range-stat-value">{range.totalSlowResponses5to10 || 0}</span>
                   </div>
                   <div className="range-stat-item">
-                    <span className="range-stat-label">Total Slow Responses</span>
-                    <span className="range-stat-value">{range.totalSlowResponses}</span>
+                    <span className="range-stat-label">Total 10+ Min Waits</span>
+                    <span className="range-stat-value">{range.totalSlowResponses10Plus || 0}</span>
                   </div>
-                  <div className="range-stat-item">
+                  <div className="range-stat-item" style={{ borderTop: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`, paddingTop: '8px', marginTop: '8px' }}>
                     <span className="range-stat-label">Total Conversations</span>
                     <span className="range-stat-value">{range.totalConversations}</span>
                   </div>
@@ -4118,79 +5180,6 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
         </div>
       </div>
 
-      {/* Trend Over Time */}
-      <div className="results-chart-container">
-        <h3 className="chart-title">On Track and Slow Response Trends Over Time</h3>
-        <p className="chart-subtitle">Dual-axis chart showing both metrics over the analysis period</p>
-        <ResponsiveContainer width="100%" height={400}>
-          <LineChart data={data.dataPoints} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
-            <XAxis 
-              dataKey="date"
-              stroke={isDarkMode ? '#ffffff' : '#292929'}
-              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 11 }}
-              angle={-45}
-              textAnchor="end"
-              height={80}
-              tickFormatter={(value) => {
-                // eslint-disable-next-line no-unused-vars
-                const [year, month, day] = value.split('-').map(Number);
-                return `${month}/${day}`;
-              }}
-            />
-            <YAxis 
-              yAxisId="left"
-              stroke={isDarkMode ? '#ffffff' : '#292929'}
-              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
-              domain={[0, 100]}
-              label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
-              tickFormatter={(value) => value.toFixed(2)}
-            />
-            <YAxis 
-              yAxisId="right"
-              orientation="right"
-              stroke={isDarkMode ? '#ffffff' : '#292929'}
-              tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
-              domain={[0, 'dataMax + 5']}
-              label={{ value: 'Slow Response Rate %', angle: 90, position: 'insideRight', fill: isDarkMode ? '#ffffff' : '#292929' }}
-              tickFormatter={(value) => value.toFixed(2)}
-            />
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
-                border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
-                borderRadius: '4px',
-                color: isDarkMode ? '#e5e5e5' : '#292929'
-              }}
-              formatter={(value, name) => {
-                if (name === 'onTrack') return [`${value.toFixed(2)}%`, 'On Track'];
-                if (name === 'slowResponsePct') return [`${value.toFixed(2)}%`, 'Slow Response Rate'];
-                return [value, name];
-              }}
-              labelFormatter={formatDateFull}
-            />
-            <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
-            <Line 
-              yAxisId="left"
-              type="monotone" 
-              dataKey="onTrack" 
-              stroke="#4cec8c" 
-              strokeWidth={3}
-              dot={{ fill: '#4cec8c', r: 4 }}
-              name="On Track %"
-            />
-            <Line 
-              yAxisId="right"
-              type="monotone" 
-              dataKey="slowResponsePct" 
-              stroke="#fd8789" 
-              strokeWidth={2}
-              dot={{ fill: '#fd8789', r: 3 }}
-              name="Slow Response Rate %"
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
     </div>
   );
 }

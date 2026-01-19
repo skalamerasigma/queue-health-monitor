@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "./AuthContext";
 import { useTheme } from "./ThemeContext";
 import HistoricalView from "./HistoricalView";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend, BarChart, Bar } from 'recharts';
-import { formatDateTimeUTC, formatTimestampUTC, formatDateForChart } from "./utils/dateUtils";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend, BarChart, Bar, ReferenceLine } from 'recharts';
+import { formatDateTimeUTC, formatTimestampUTC, formatDateForChart, formatDateForTooltip } from "./utils/dateUtils";
 import "./Dashboard.css";
 
 // TSE Region mapping
@@ -241,6 +242,122 @@ const EXCLUDED_TSE_NAMES = [
   "svc-prd-tse-intercom SVC"
 ];
 
+// InfoIcon Component for tooltips
+const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0, right: 0 });
+  const iconRef = useRef(null);
+
+  const updateTooltipPosition = () => {
+    if (iconRef.current) {
+      const rect = iconRef.current.getBoundingClientRect();
+      if (position === 'left') {
+        setTooltipPosition({
+          top: rect.top,
+          right: window.innerWidth - rect.left + 24,
+          left: undefined
+        });
+      } else {
+        setTooltipPosition({
+          top: rect.top,
+          left: rect.right + 24,
+          right: undefined
+        });
+      }
+    }
+  };
+
+  const handleMouseEnter = () => {
+    setIsOpen(true);
+    // Small delay to ensure DOM is updated
+    setTimeout(updateTooltipPosition, 0);
+  };
+
+  const getTooltipStyle = () => {
+    if (!isOpen || tooltipPosition.top === 0) {
+      return { display: 'none' };
+    }
+
+    const style = {
+      position: 'fixed',
+      top: `${tooltipPosition.top}px`,
+      zIndex: 999999,
+      minWidth: '280px',
+      maxWidth: '400px',
+      backgroundColor: isDarkMode ? '#1e1e1e' : 'white',
+      border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`,
+      borderRadius: '8px',
+      padding: '12px 16px',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+      fontSize: '12px',
+      lineHeight: '1.5',
+      color: isDarkMode ? '#e5e5e5' : '#292929',
+      pointerEvents: 'auto',
+      whiteSpace: 'normal',
+      textAlign: 'left'
+    };
+
+    if (position === 'left') {
+      style.right = `${tooltipPosition.right}px`;
+      style.left = 'auto';
+    } else {
+      style.left = `${tooltipPosition.left}px`;
+      style.right = 'auto';
+    }
+
+    return style;
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      updateTooltipPosition();
+      const handleScroll = () => updateTooltipPosition();
+      const handleResize = () => updateTooltipPosition();
+      window.addEventListener('scroll', handleScroll, true);
+      window.addEventListener('resize', handleResize);
+      return () => {
+        window.removeEventListener('scroll', handleScroll, true);
+        window.removeEventListener('resize', handleResize);
+      };
+    }
+  }, [isOpen, position]);
+
+  return (
+    <span ref={iconRef} style={{ position: 'relative', display: 'inline-block', marginLeft: '6px', verticalAlign: 'middle' }}>
+      <button
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: isDarkMode ? '#999' : '#666',
+          cursor: 'pointer',
+          padding: '2px',
+          display: 'flex',
+          alignItems: 'center',
+          fontSize: '14px',
+          lineHeight: 1,
+          borderRadius: '50%',
+          width: '18px',
+          height: '18px',
+          justifyContent: 'center'
+        }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setIsOpen(false)}
+      >
+        ℹ️
+      </button>
+      {isOpen && createPortal(
+        <div
+          style={getTooltipStyle()}
+          onMouseEnter={() => setIsOpen(true)}
+          onMouseLeave={() => setIsOpen(false)}
+        >
+          {content}
+        </div>,
+        document.body
+      )}
+    </span>
+  );
+};
 
 // Thresholds from Accountability Framework
 const THRESHOLDS = {
@@ -1692,7 +1809,16 @@ function Dashboard(props) {
           loadingHistorical={loadingHistorical}
           onNavigateToConversations={(filterTag) => {
             setActiveView("conversations");
-            setFilterTag(Array.isArray(filterTag) ? filterTag : [filterTag]);
+            const tags = Array.isArray(filterTag) ? filterTag : [filterTag];
+            // If navigating to unassigned conversations, set TSE filter and reset tag filter
+            if (tags.includes("unassigned")) {
+              setFilterTSE("unassigned");
+              setFilterTag(["all"]);
+            } else {
+              // For other filters, set tag filter and reset TSE filter
+              setFilterTag(tags);
+              setFilterTSE("all");
+            }
           }}
           onNavigateToTSEView={() => {
             setActiveView("tse");
@@ -2542,45 +2668,90 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   const [showAllWaits, setShowAllWaits] = useState(false);
   const [isWaitRateIconHovered, setIsWaitRateIconHovered] = useState(false);
   const [isOpenChatsIconHovered, setIsOpenChatsIconHovered] = useState(false);
+  const [isUnassignedIconHovered, setIsUnassignedIconHovered] = useState(false);
+  const [isSnoozedIconHovered, setIsSnoozedIconHovered] = useState(false);
+  const [isAlertSummaryIconHovered, setIsAlertSummaryIconHovered] = useState(false);
   
-  // Prepare on-track trend data (last 7 days)
-  const onTrackTrendData = useMemo(() => {
+  // Prepare on-track trend data with breakdown (Overall, Open, Snoozed)
+  const onTrackChartData = useMemo(() => {
     console.log('Overview: Processing on-track trend data, snapshots:', historicalSnapshots);
     if (!historicalSnapshots || historicalSnapshots.length === 0) {
       console.log('Overview: No historical snapshots available');
       return [];
     }
     
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
+    
     const processed = historicalSnapshots
       .map(snapshot => {
-        const tseData = snapshot.tse_data || snapshot.tseData || [];
+        const tseData = (snapshot.tse_data || snapshot.tseData || []).filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
         const totalTSEs = tseData.length;
         if (totalTSEs === 0) return null;
 
+        let onTrackOpen = 0;
+        let onTrackSnoozed = 0;
         let onTrackBoth = 0;
+        
         tseData.forEach(tse => {
           const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
-          // Support both old and new field names for backwards compatibility
           const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
           const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+          
+          if (meetsOpen) onTrackOpen++;
+          if (meetsWaitingOnTSE) onTrackSnoozed++;
           if (meetsOpen && meetsWaitingOnTSE) onTrackBoth++;
         });
 
-        const onTrack = totalTSEs > 0 ? Math.round((onTrackBoth / totalTSEs) * 100) : 0;
-        
         return {
           date: snapshot.date,
-          displayLabel: formatDateForChart(snapshot.date),
-          onTrack
+          totalTSEs,
+          openOnTrack: totalTSEs > 0 ? Math.round((onTrackOpen / totalTSEs) * 100) : 0,
+          snoozedOnTrack: totalTSEs > 0 ? Math.round((onTrackSnoozed / totalTSEs) * 100) : 0,
+          overallOnTrack: totalTSEs > 0 ? Math.round((onTrackBoth / totalTSEs) * 100) : 0
         };
       })
       .filter(item => item !== null)
       .sort((a, b) => a.date.localeCompare(b.date));
-      // Don't limit to 7 days - we need more for week-over-week comparison
     
-    console.log('Overview: Processed on-track trend data:', processed);
+    console.log('Overview: Processed on-track chart data:', processed);
     return processed;
   }, [historicalSnapshots]);
+
+  // Calculate moving averages for Team Daily On Track chart
+  const onTrackChartDataWithMovingAvg = useMemo(() => {
+    if (!onTrackChartData.length) return [];
+    
+    return onTrackChartData.map((item, index) => {
+      if (index < 2) {
+        return { 
+          ...item, 
+          movingAvgOverall: item.overallOnTrack,
+          movingAvgOpen: item.openOnTrack,
+          movingAvgSnoozed: item.snoozedOnTrack
+        };
+      }
+      const window = onTrackChartData.slice(Math.max(0, index - 2), index + 1);
+      const avgOverall = window.reduce((sum, d) => sum + d.overallOnTrack, 0) / window.length;
+      const avgOpen = window.reduce((sum, d) => sum + d.openOnTrack, 0) / window.length;
+      const avgSnoozed = window.reduce((sum, d) => sum + d.snoozedOnTrack, 0) / window.length;
+      
+      return { 
+        ...item, 
+        movingAvgOverall: Math.round(avgOverall * 10) / 10,
+        movingAvgOpen: Math.round(avgOpen * 10) / 10,
+        movingAvgSnoozed: Math.round(avgSnoozed * 10) / 10
+      };
+    });
+  }, [onTrackChartData]);
+
+  // Legacy onTrackTrendData for backward compatibility
+  const onTrackTrendData = useMemo(() => {
+    return onTrackChartData.map(item => ({
+      date: item.date,
+      displayLabel: formatDateForChart(item.date),
+      onTrack: item.overallOnTrack
+    }));
+  }, [onTrackChartData]);
 
   // Prepare response time trend data (5+ minute)
   const responseTimeTrendData = useMemo(() => {
@@ -2592,6 +2763,8 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           date: metric.date,
           displayLabel: formatDateForChart(metric.date),
           percentage5Plus: parseFloat(metric.percentage5PlusMin || 0),
+          percentage5to10: parseFloat(metric.percentage5to10Min || 0),
+          percentage10Plus: parseFloat(metric.percentage10PlusMin || 0),
           percentage: parseFloat(metric.percentage5PlusMin || 0) // Use 5+ min for backward compatibility
         };
       })
@@ -2633,19 +2806,15 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     };
   }, [onTrackTrendData, responseTimeTrendData]);
 
-  // Calculate moving averages for charts
+  // Legacy onTrackTrendWithMovingAvg for backward compatibility
   const onTrackTrendWithMovingAvg = useMemo(() => {
-    if (!onTrackTrendData || onTrackTrendData.length === 0) return [];
-    
-    return onTrackTrendData.map((item, index) => {
-      if (index < 2) {
-        return { ...item, movingAvg: item.onTrack };
-      }
-      const window = onTrackTrendData.slice(Math.max(0, index - 2), index + 1);
-      const avg = window.reduce((sum, d) => sum + d.onTrack, 0) / window.length;
-      return { ...item, movingAvg: Math.round(avg) };
-    });
-  }, [onTrackTrendData]);
+    return onTrackChartDataWithMovingAvg.map(item => ({
+      date: item.date,
+      displayLabel: formatDateForChart(item.date),
+      onTrack: item.overallOnTrack,
+      movingAvg: item.movingAvgOverall
+    }));
+  }, [onTrackChartDataWithMovingAvg]);
 
   const responseTimeTrendWithMovingAvg = useMemo(() => {
     if (!responseTimeTrendData || responseTimeTrendData.length === 0) return [];
@@ -2667,10 +2836,40 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     });
   }, [responseTimeTrendData]);
 
+  // Prepare response time chart data for Percentage of Conversations with Wait Time chart
+  const responseTimeChartData = useMemo(() => {
+    if (!responseTimeMetrics || responseTimeMetrics.length === 0) return [];
+    
+    return responseTimeMetrics
+      .map(metric => ({
+        date: metric.date,
+        displayLabel: formatDateForChart(metric.date),
+        percentage5PlusMin: parseFloat(metric.percentage5PlusMin || 0),
+        percentage5to10Min: parseFloat(metric.percentage5to10Min || 0),
+        percentage10PlusMin: parseFloat(metric.percentage10PlusMin || 0),
+        count5PlusMin: metric.count5PlusMin || 0,
+        count5to10Min: metric.count5to10Min || 0,
+        count10PlusMin: metric.count10PlusMin || 0,
+        totalConversations: metric.totalConversations || 0
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-7); // Last 7 days
+  }, [responseTimeMetrics]);
+
   // Calculate current response time percentages (most recent day)
   const currentResponseTimePct5Plus = useMemo(() => {
     if (responseTimeTrendData.length === 0) return 0;
     return Math.round(responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage5Plus || 0);
+  }, [responseTimeTrendData]);
+
+  const currentResponseTimePct5to10 = useMemo(() => {
+    if (responseTimeTrendData.length === 0) return 0;
+    return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage5to10 || 0) * 10) / 10;
+  }, [responseTimeTrendData]);
+
+  const currentResponseTimePct10Plus = useMemo(() => {
+    if (responseTimeTrendData.length === 0) return 0;
+    return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage10Plus || 0) * 10) / 10;
   }, [responseTimeTrendData]);
 
   // Calculate average response time percentages (last 7 days)
@@ -2942,9 +3141,10 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   // Calculate trend indicators
   const onTrackTrend = useMemo(() => {
     if (onTrackTrendData.length < 2) return { direction: 'stable', change: 0 };
-    const first = onTrackTrendData[0].onTrack;
-    const last = onTrackTrendData[onTrackTrendData.length - 1].onTrack;
-    const change = last - first;
+    // Compare today vs yesterday (same as responseTimeTrend and Today vs Yesterday card)
+    const today = onTrackTrendData[onTrackTrendData.length - 1].onTrack;
+    const yesterday = onTrackTrendData[onTrackTrendData.length - 2].onTrack;
+    const change = today - yesterday;
     return {
       direction: change > 0 ? 'up' : change < 0 ? 'down' : 'stable',
       change: Math.abs(change)
@@ -2953,14 +3153,626 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
 
   const responseTimeTrend = useMemo(() => {
     if (responseTimeTrendData.length < 2) return { direction: 'stable', change: 0 };
-    const first = responseTimeTrendData[0].percentage;
-    const last = responseTimeTrendData[responseTimeTrendData.length - 1].percentage;
-    const change = last - first;
+    // Compare today vs yesterday (same as Today vs Yesterday card)
+    const today = responseTimeTrendData[responseTimeTrendData.length - 1].percentage;
+    const yesterday = responseTimeTrendData[responseTimeTrendData.length - 2].percentage;
+    const change = today - yesterday;
     return {
       direction: change < 0 ? 'up' : change > 0 ? 'down' : 'stable', // Lower is better for response time
       change: Math.abs(change)
     };
   }, [responseTimeTrendData]);
+
+  // Calculate trend for Avg Initial Response (compare last 7 days vs previous 7 days)
+  const avgInitialResponseTrend = useMemo(() => {
+    if (!conversations || conversations.length === 0) return { direction: 'stable', change: 0 };
+    
+    const now = Date.now();
+    const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = now - (14 * 24 * 60 * 60 * 1000);
+    
+    const toTimestamp = (timestamp) => {
+      if (!timestamp) return null;
+      return timestamp > 1e12 ? timestamp : timestamp * 1000;
+    };
+    
+    let recentTotal = 0, recentCount = 0;
+    let previousTotal = 0, previousCount = 0;
+    
+    conversations.forEach(conv => {
+      const createdAt = toTimestamp(conv.created_at || conv.createdAt || conv.first_opened_at);
+      if (!createdAt) return;
+      
+      const timeToReply = conv.statistics?.time_to_admin_reply;
+      const firstAdminReplyAt = conv.statistics?.first_admin_reply_at;
+      
+      let responseSeconds = null;
+      if (timeToReply !== null && timeToReply !== undefined) {
+        responseSeconds = timeToReply;
+      } else if (firstAdminReplyAt && createdAt) {
+        responseSeconds = firstAdminReplyAt - createdAt;
+      }
+      
+      if (responseSeconds === null || responseSeconds < 0) return;
+      
+      const responseMinutes = responseSeconds / 60;
+      
+      if (createdAt >= sevenDaysAgo) {
+        recentTotal += responseMinutes;
+        recentCount++;
+      } else if (createdAt >= fourteenDaysAgo && createdAt < sevenDaysAgo) {
+        previousTotal += responseMinutes;
+        previousCount++;
+      }
+    });
+    
+    const recentAvg = recentCount > 0 ? recentTotal / recentCount : 0;
+    const previousAvg = previousCount > 0 ? previousTotal / previousCount : 0;
+    const change = recentAvg - previousAvg;
+    
+    return {
+      direction: change < 0 ? 'up' : change > 0 ? 'down' : 'stable', // Lower is better
+      change: Math.abs(change)
+    };
+  }, [conversations]);
+
+  // Calculate trend for Same-Day Close % (compare last 7 days vs previous 7 days)
+  const sameDayCloseTrend = useMemo(() => {
+    if (!conversations || conversations.length === 0) return { direction: 'stable', change: 0 };
+    
+    const now = Date.now();
+    const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = now - (14 * 24 * 60 * 60 * 1000);
+    
+    const toUtcDate = (timestamp) => {
+      if (!timestamp) return null;
+      const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
+      return new Date(ms).toISOString().slice(0, 10);
+    };
+    
+    let recentClosedTotal = 0, recentClosedSameDay = 0;
+    let previousClosedTotal = 0, previousClosedSameDay = 0;
+    
+    conversations.forEach(conv => {
+      const state = (conv.state || "").toLowerCase();
+      if (state !== "closed") return;
+      
+      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
+      const closedAt = conv.closed_at || conv.closedAt;
+      const createdDate = toUtcDate(createdAt);
+      const closedDate = toUtcDate(closedAt);
+      
+      if (!createdDate || !closedDate) return;
+      
+      const createdTimestamp = toUtcDate(createdAt) ? new Date(createdDate).getTime() : null;
+      if (!createdTimestamp) return;
+      
+      if (createdTimestamp >= sevenDaysAgo) {
+        recentClosedTotal++;
+        if (createdDate === closedDate) recentClosedSameDay++;
+      } else if (createdTimestamp >= fourteenDaysAgo && createdTimestamp < sevenDaysAgo) {
+        previousClosedTotal++;
+        if (createdDate === closedDate) previousClosedSameDay++;
+      }
+    });
+    
+    const recentPct = recentClosedTotal > 0 ? (recentClosedSameDay / recentClosedTotal) * 100 : 0;
+    const previousPct = previousClosedTotal > 0 ? (previousClosedSameDay / previousClosedTotal) * 100 : 0;
+    const change = recentPct - previousPct;
+    
+    return {
+      direction: change > 0 ? 'up' : change < 0 ? 'down' : 'stable', // Higher is better
+      change: Math.abs(change)
+    };
+  }, [conversations]);
+
+  // Calculate Improvement Potential (based on Impact page logic)
+  const improvementPotential = useMemo(() => {
+    if (!historicalSnapshots || historicalSnapshots.length === 0 || !responseTimeMetrics || responseTimeMetrics.length === 0) {
+      return null;
+    }
+
+    const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
+    
+    // Create a map of date -> on-track data
+    const onTrackByDate = {};
+    historicalSnapshots.forEach(snapshot => {
+      const tseData = (snapshot.tse_data || snapshot.tseData || []).filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      if (tseData.length === 0) return;
+
+      let onTrackCount = 0;
+      let totalCount = 0;
+
+      tseData.forEach(tse => {
+        totalCount++;
+        const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
+        const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+        const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        
+        if (meetsOpen && meetsWaitingOnTSE) {
+          onTrackCount++;
+        }
+      });
+
+      const onTrackPct = totalCount > 0 ? Math.round((onTrackCount / totalCount) * 100) : 0;
+      onTrackByDate[snapshot.date] = {
+        date: snapshot.date,
+        onTrack: onTrackPct
+      };
+    });
+
+    // Combine with response time metrics
+    const combinedData = responseTimeMetrics
+      .map(metric => {
+        const onTrack = onTrackByDate[metric.date];
+        if (!onTrack) return null;
+
+        return {
+          date: metric.date,
+          onTrack: onTrack.onTrack,
+          slowResponse5to10Pct: parseFloat(metric.percentage5to10Min || 0),
+          slowResponse10PlusPct: parseFloat(metric.percentage10PlusMin || 0)
+        };
+      })
+      .filter(d => d !== null);
+
+    if (combinedData.length === 0) return null;
+
+    // Calculate current averages
+    const currentAvg5to10 = combinedData.reduce((sum, d) => sum + d.slowResponse5to10Pct, 0) / combinedData.length;
+    const currentAvg10Plus = combinedData.reduce((sum, d) => sum + d.slowResponse10PlusPct, 0) / combinedData.length;
+
+    // Group by on-track ranges
+    const highRangeData = combinedData.filter(d => d.onTrack >= 80);
+    
+    if (highRangeData.length === 0) return null;
+
+    const highAvg5to10 = highRangeData.reduce((sum, d) => sum + d.slowResponse5to10Pct, 0) / highRangeData.length;
+    const highAvg10Plus = highRangeData.reduce((sum, d) => sum + d.slowResponse10PlusPct, 0) / highRangeData.length;
+
+    const improvement5to10 = currentAvg5to10 - highAvg5to10;
+    const improvement10Plus = currentAvg10Plus - highAvg10Plus;
+
+    return {
+      improvement5to10: Math.round(improvement5to10 * 100) / 100,
+      improvement10Plus: Math.round(improvement10Plus * 100) / 100,
+      currentAvg5to10: Math.round(currentAvg5to10 * 100) / 100,
+      currentAvg10Plus: Math.round(currentAvg10Plus * 100) / 100,
+      highAvg5to10: Math.round(highAvg5to10 * 100) / 100,
+      highAvg10Plus: Math.round(highAvg10Plus * 100) / 100,
+      highRangeDays: highRangeData.length,
+      totalDays: combinedData.length
+    };
+  }, [historicalSnapshots, responseTimeMetrics]);
+
+  // Calculate key insights
+  const keyInsights = useMemo(() => {
+    const insights = [];
+    
+    // On Track performance - always include current status
+    if (metrics.onTrackOverall >= 80) {
+      insights.push({
+        type: 'positive',
+        text: `Strong on-track performance: ${metrics.onTrackOverall}% of TSEs are meeting targets`
+      });
+    } else if (metrics.onTrackOverall < 60) {
+      insights.push({
+        type: 'warning',
+        text: `On-track performance needs attention: Only ${metrics.onTrackOverall}% of TSEs are meeting targets`
+      });
+    } else {
+      // Middle range - still provide insight
+      insights.push({
+        type: 'positive',
+        text: `On-track performance: ${metrics.onTrackOverall}% of TSEs are meeting targets`
+      });
+    }
+    
+    // Wait Rate - always include current status
+    if (currentResponseTimePct5Plus <= 5) {
+      insights.push({
+        type: 'positive',
+        text: `Wait rate is at target: ${currentResponseTimePct5Plus}% of conversations have 5+ min wait time`
+      });
+    } else if (currentResponseTimePct5Plus > 10) {
+      insights.push({
+        type: 'warning',
+        text: `Wait rate exceeds target: ${currentResponseTimePct5Plus}% of conversations have 5+ min wait time (target: 5%)`
+      });
+    } else {
+      // Middle range - still provide insight
+      insights.push({
+        type: 'warning',
+        text: `Wait rate: ${currentResponseTimePct5Plus}% of conversations have 5+ min wait time (target: 5%)`
+      });
+    }
+    
+    // Response time breakdown
+    if (currentResponseTimePct10Plus > 3) {
+      insights.push({
+        type: 'warning',
+        text: `${currentResponseTimePct10Plus}% of conversations have 10+ min wait time - focus area for improvement`
+      });
+    }
+    
+    // Trend insights - calculate period length
+    const onTrackPeriodDays = onTrackTrendData.length > 1 
+      ? Math.ceil((new Date(onTrackTrendData[onTrackTrendData.length - 1].date) - new Date(onTrackTrendData[0].date)) / (1000 * 60 * 60 * 24))
+      : 0;
+    const responseTimePeriodDays = responseTimeTrendData.length > 1
+      ? Math.ceil((new Date(responseTimeTrendData[responseTimeTrendData.length - 1].date) - new Date(responseTimeTrendData[0].date)) / (1000 * 60 * 60 * 24))
+      : 0;
+    
+    const formatPeriod = (days) => {
+      if (days <= 7) return 'last 7 days';
+      if (days <= 14) return 'last 2 weeks';
+      if (days <= 30) return 'last 30 days';
+      if (days <= 60) return 'last 2 months';
+      return `${Math.round(days / 30)} months`;
+    };
+    
+    // Trend insights with lower thresholds to catch more changes
+    if (onTrackTrend.direction === 'up' && onTrackTrend.change >= 2 && onTrackPeriodDays > 0) {
+      insights.push({
+        type: 'positive',
+        text: `On-track performance improving: +${onTrackTrend.change.toFixed(1)}% vs yesterday`
+      });
+    } else if (onTrackTrend.direction === 'down' && onTrackTrend.change >= 2 && onTrackPeriodDays > 0) {
+      insights.push({
+        type: 'warning',
+        text: `On-track performance declining: -${onTrackTrend.change.toFixed(1)}% vs yesterday`
+      });
+    }
+    
+    if (responseTimeTrend.direction === 'down' && responseTimeTrend.change >= 1 && responseTimePeriodDays > 0) {
+      insights.push({
+        type: 'positive',
+        text: `Wait rate improving: -${responseTimeTrend.change.toFixed(1)}% vs yesterday`
+      });
+    } else if (responseTimeTrend.direction === 'up' && responseTimeTrend.change >= 1 && responseTimePeriodDays > 0) {
+      insights.push({
+        type: 'warning',
+        text: `Wait rate worsening: +${responseTimeTrend.change.toFixed(1)}% vs yesterday`
+      });
+    }
+    
+    // Add Impact tab insights if correlation data is available
+    if (improvementPotential && historicalSnapshots.length > 0 && responseTimeMetrics.length > 0) {
+      // Calculate correlation for 5+ min wait rate
+      const combinedData = responseTimeMetrics
+        .map(metric => {
+          const snapshot = historicalSnapshots.find(s => s.date === metric.date);
+          if (!snapshot) return null;
+          
+          const tseData = (snapshot.tse_data || snapshot.tseData || []).filter(tse => !["Prerit Sachdeva", "Stephen Skalamera"].includes(tse.name));
+          if (tseData.length === 0) return null;
+          
+          let onTrackCount = 0;
+          tseData.forEach(tse => {
+            const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
+            const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+            const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+            if (meetsOpen && meetsWaitingOnTSE) onTrackCount++;
+          });
+          
+          const onTrackPct = tseData.length > 0 ? Math.round((onTrackCount / tseData.length) * 100) : 0;
+          
+          return {
+            onTrack: onTrackPct,
+            slowResponsePct: parseFloat(metric.percentage5PlusMin || 0)
+          };
+        })
+        .filter(d => d !== null);
+      
+      if (combinedData.length >= 3) {
+        // Calculate correlation
+        const avgOnTrack = combinedData.reduce((sum, d) => sum + d.onTrack, 0) / combinedData.length;
+        const avgSlowResponse = combinedData.reduce((sum, d) => sum + d.slowResponsePct, 0) / combinedData.length;
+        
+        let numerator = 0;
+        let sumSqOnTrack = 0;
+        let sumSqY = 0;
+        
+        combinedData.forEach(d => {
+          const onTrackDiff = d.onTrack - avgOnTrack;
+          const yDiff = d.slowResponsePct - avgSlowResponse;
+          numerator += onTrackDiff * yDiff;
+          sumSqOnTrack += onTrackDiff * onTrackDiff;
+          sumSqY += yDiff * yDiff;
+        });
+        
+        const correlation = sumSqOnTrack > 0 && sumSqY > 0
+          ? numerator / Math.sqrt(sumSqOnTrack * sumSqY)
+          : 0;
+        
+        const correlationStrength = Math.abs(correlation) < 0.3 ? 'weak' : Math.abs(correlation) < 0.7 ? 'moderate' : 'strong';
+        const correlationDirection = correlation < 0 ? 'negative' : 'positive';
+        
+        // Add correlation insight
+        if (Math.abs(correlation) >= 0.3) {
+          insights.push({
+            type: correlationDirection === 'negative' ? 'positive' : 'warning',
+            text: `On-track performance shows ${correlationStrength} ${correlationDirection} correlation (${correlation > 0 ? '+' : ''}${correlation.toFixed(2)}) with wait rates${correlationDirection === 'negative' ? ' - higher on-track correlates with lower wait times' : ' - this is concerning'}`
+          });
+        }
+        
+        // Add improvement potential insight
+        if (improvementPotential.improvement5to10 > 0 || improvementPotential.improvement10Plus > 0) {
+          const totalImprovement = improvementPotential.improvement5to10 + improvementPotential.improvement10Plus;
+          insights.push({
+            type: 'positive',
+            text: `Improvement potential: Maintaining High (80-100%) on-track could reduce wait times by ${totalImprovement.toFixed(1)}% overall`
+          });
+        }
+      }
+    }
+    
+    return insights.slice(0, 4); // Limit to top 4 insights
+  }, [metrics.onTrackOverall, currentResponseTimePct5Plus, currentResponseTimePct10Plus, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, improvementPotential, historicalSnapshots, responseTimeMetrics]);
+
+  // Calculate Region Performance Summary
+  const regionPerformance = useMemo(() => {
+    if (!metrics.byTSE || metrics.byTSE.length === 0) return [];
+    
+    const regionStats = { 'UK': { total: 0, onTrack: 0 }, 'NY': { total: 0, onTrack: 0 }, 'SF': { total: 0, onTrack: 0 }, 'Other': { total: 0, onTrack: 0 } };
+    
+    metrics.byTSE.forEach(tse => {
+      const region = getTSERegion(tse.name);
+      const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
+      const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+      const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+      
+      regionStats[region].total++;
+      if (meetsOpen && meetsWaitingOnTSE) {
+        regionStats[region].onTrack++;
+      }
+    });
+    
+    return Object.entries(regionStats)
+      .filter(([region]) => regionStats[region].total > 0)
+      .map(([region, stats]) => {
+        const onTrackPct = stats.total > 0 ? Math.round((stats.onTrack / stats.total) * 100) : 0;
+        return {
+          region,
+          total: stats.total,
+          onTrack: stats.onTrack,
+          onTrackPct,
+          icon: REGION_ICONS[region] || null
+        };
+      })
+      .sort((a, b) => b.onTrackPct - a.onTrackPct);
+  }, [metrics.byTSE]);
+
+  // Calculate Alert Summary
+  const alertSummary = useMemo(() => {
+    if (!metrics.alerts || metrics.alerts.length === 0) {
+      return {
+        total: 0,
+        byType: { open_threshold: 0, waiting_on_tse_threshold: 0 },
+        bySeverity: { high: 0, medium: 0 }
+      };
+    }
+    
+    const byType = { open_threshold: 0, waiting_on_tse_threshold: 0 };
+    const bySeverity = { high: 0, medium: 0 };
+    
+    metrics.alerts.forEach(alert => {
+      byType[alert.type] = (byType[alert.type] || 0) + 1;
+      bySeverity[alert.severity] = (bySeverity[alert.severity] || 0) + 1;
+    });
+    
+    return {
+      total: metrics.alerts.length,
+      byType,
+      bySeverity
+    };
+  }, [metrics.alerts]);
+
+  // Calculate hourly chat counts for today (last 24 hours)
+  const hourlyChatCounts = useMemo(() => {
+    if (!conversations || conversations.length === 0) {
+      return Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
+    }
+
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    
+    const hourlyCounts = Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
+    
+    conversations.forEach(conv => {
+      const createdAt = conv.created_at || conv.createdAt;
+      if (!createdAt) return;
+      
+      // Convert to timestamp (handle both Unix seconds and milliseconds)
+      const timestamp = typeof createdAt === 'number' 
+        ? (createdAt < 10000000000 ? createdAt * 1000 : createdAt)
+        : new Date(createdAt).getTime();
+      
+      const convDate = new Date(timestamp);
+      
+      // Only count conversations from the last 24 hours
+      if (convDate >= oneDayAgo && convDate <= now) {
+        const hour = convDate.getHours();
+        if (hour >= 0 && hour < 24) {
+          hourlyCounts[hour].count++;
+        }
+      }
+    });
+    
+    return hourlyCounts;
+  }, [conversations]);
+
+  // Calculate OPEN CHATS age breakdown
+  const openChatsAgeBreakdown = useMemo(() => {
+    if (!conversations || conversations.length === 0) return { '0-2h': 0, '2-4h': 0, '4-8h': 0, '8h+': 0 };
+    
+    const now = Date.now();
+    const breakdown = { '0-2h': 0, '2-4h': 0, '4-8h': 0, '8h+': 0 };
+    
+    conversations.forEach(conv => {
+      const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+      if (conv.state !== "open" || isSnoozed) return;
+      
+      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
+      if (!createdAt) return;
+      
+      const createdTimestamp = createdAt > 1e12 ? createdAt : createdAt * 1000;
+      const ageHours = (now - createdTimestamp) / (1000 * 60 * 60);
+      
+      if (ageHours < 2) breakdown['0-2h']++;
+      else if (ageHours < 4) breakdown['2-4h']++;
+      else if (ageHours < 8) breakdown['4-8h']++;
+      else breakdown['8h+']++;
+    });
+    
+    return breakdown;
+  }, [conversations]);
+
+  // Calculate SNOOZED trends (compare to yesterday if available)
+  const snoozedTrends = useMemo(() => {
+    if (!historicalSnapshots || historicalSnapshots.length < 2) {
+      return { waitingOnTSE: null, waitingOnCustomer: null, total: null };
+    }
+    
+    const sorted = [...historicalSnapshots].sort((a, b) => a.date.localeCompare(b.date));
+    const today = sorted[sorted.length - 1];
+    const yesterday = sorted[sorted.length - 2];
+    
+    const calculateSnoozedCounts = (snapshot) => {
+      const tseData = snapshot.tse_data || snapshot.tseData || [];
+      let waitingOnTSE = 0;
+      let waitingOnCustomer = 0;
+      let total = 0;
+      
+      tseData.forEach(tse => {
+        waitingOnTSE += tse.waitingOnTSE || tse.actionableSnoozed || 0;
+        // Note: waitingOnCustomer is not directly stored in snapshot, would need to calculate from conversations
+        // For now, we'll use 0 as a placeholder - this could be enhanced if needed
+        waitingOnCustomer += 0;
+        total += tse.snoozed || 0;
+      });
+      
+      return { waitingOnTSE, waitingOnCustomer, total };
+    };
+    
+    const todayCounts = calculateSnoozedCounts(today);
+    const yesterdayCounts = calculateSnoozedCounts(yesterday);
+    
+    return {
+      waitingOnTSE: {
+        today: todayCounts.waitingOnTSE,
+        yesterday: yesterdayCounts.waitingOnTSE,
+        change: todayCounts.waitingOnTSE - yesterdayCounts.waitingOnTSE,
+        direction: todayCounts.waitingOnTSE > yesterdayCounts.waitingOnTSE ? 'up' : todayCounts.waitingOnTSE < yesterdayCounts.waitingOnTSE ? 'down' : 'stable'
+      },
+      waitingOnCustomer: {
+        today: todayCounts.waitingOnCustomer,
+        yesterday: yesterdayCounts.waitingOnCustomer,
+        change: todayCounts.waitingOnCustomer - yesterdayCounts.waitingOnCustomer,
+        direction: todayCounts.waitingOnCustomer > yesterdayCounts.waitingOnCustomer ? 'up' : todayCounts.waitingOnCustomer < yesterdayCounts.waitingOnCustomer ? 'down' : 'stable'
+      },
+      total: {
+        today: todayCounts.total,
+        yesterday: yesterdayCounts.total,
+        change: todayCounts.total - yesterdayCounts.total,
+        direction: todayCounts.total > yesterdayCounts.total ? 'up' : todayCounts.total < yesterdayCounts.total ? 'down' : 'stable'
+      }
+    };
+  }, [historicalSnapshots]);
+
+  // Calculate Recent Performance Comparison (Today vs Yesterday)
+  const recentPerformanceComparison = useMemo(() => {
+    if (!onTrackTrendData || onTrackTrendData.length < 1) return null;
+    if (!responseTimeTrendData || responseTimeTrendData.length < 2) return null;
+    
+    // Use realtime on-track for today, historical snapshot for yesterday
+    const todayOnTrackRealtime = metrics.onTrackOverall || 0;
+    const yesterdayOnTrack = onTrackTrendData[onTrackTrendData.length - 1];
+    
+    const todayResponseTime = responseTimeTrendData[responseTimeTrendData.length - 1];
+    const yesterdayResponseTime = responseTimeTrendData[responseTimeTrendData.length - 2];
+    
+    return {
+      onTrack: {
+        today: todayOnTrackRealtime,
+        yesterday: yesterdayOnTrack.onTrack,
+        change: todayOnTrackRealtime - yesterdayOnTrack.onTrack,
+        direction: todayOnTrackRealtime > yesterdayOnTrack.onTrack ? 'up' : todayOnTrackRealtime < yesterdayOnTrack.onTrack ? 'down' : 'stable'
+      },
+      waitRate: {
+        today: todayResponseTime.percentage5Plus,
+        yesterday: yesterdayResponseTime.percentage5Plus,
+        change: todayResponseTime.percentage5Plus - yesterdayResponseTime.percentage5Plus,
+        direction: todayResponseTime.percentage5Plus < yesterdayResponseTime.percentage5Plus ? 'up' : todayResponseTime.percentage5Plus > yesterdayResponseTime.percentage5Plus ? 'down' : 'stable' // Lower is better
+      }
+    };
+  }, [onTrackTrendData, responseTimeTrendData, metrics.onTrackOverall]);
+
+  // Calculate Top/Bottom Performers
+  const topBottomPerformers = useMemo(() => {
+    if (!metrics.byTSE || metrics.byTSE.length === 0) return { top: [], bottom: [] };
+    
+    const performers = metrics.byTSE
+      .map(tse => {
+        const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
+        const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+        const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        const isOnTrack = meetsOpen && meetsWaitingOnTSE;
+        
+        return {
+          id: tse.id,
+          name: tse.name,
+          open: tse.open || 0,
+          waitingOnTSE: totalWaitingOnTSE,
+          isOnTrack,
+          region: getTSERegion(tse.name)
+        };
+      })
+      .filter(tse => tse.name && !EXCLUDED_TSE_NAMES.includes(tse.name))
+      .sort((a, b) => {
+        // Sort by on-track status first, then by open count (lower is better)
+        if (a.isOnTrack !== b.isOnTrack) {
+          return a.isOnTrack ? -1 : 1;
+        }
+        return a.open - b.open;
+      });
+    
+    const top = performers.slice(0, 3).filter(p => p.isOnTrack);
+    const bottom = performers.slice(-3).filter(p => !p.isOnTrack).reverse();
+    
+    return { top, bottom };
+  }, [metrics.byTSE]);
+
+  // Calculate Response Time Distribution
+  const responseTimeDistribution = useMemo(() => {
+    if (!conversations || conversations.length === 0) return { '0-2min': 0, '2-5min': 0, '5-10min': 0, '10+min': 0 };
+    
+    const distribution = { '0-2min': 0, '2-5min': 0, '5-10min': 0, '10+min': 0 };
+    
+    conversations.forEach(conv => {
+      const timeToReply = conv.statistics?.time_to_admin_reply;
+      const firstAdminReplyAt = conv.statistics?.first_admin_reply_at;
+      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
+      
+      let responseMinutes = null;
+      if (timeToReply !== null && timeToReply !== undefined) {
+        responseMinutes = timeToReply / 60;
+      } else if (firstAdminReplyAt && createdAt) {
+        const createdTimestamp = createdAt > 1e12 ? createdAt : createdAt * 1000;
+        const replyTimestamp = firstAdminReplyAt > 1e12 ? firstAdminReplyAt : firstAdminReplyAt * 1000;
+        responseMinutes = (replyTimestamp - createdTimestamp) / (1000 * 60);
+      }
+      
+      if (responseMinutes !== null && responseMinutes >= 0) {
+        if (responseMinutes < 2) distribution['0-2min']++;
+        else if (responseMinutes < 5) distribution['2-5min']++;
+        else if (responseMinutes < 10) distribution['5-10min']++;
+        else distribution['10+min']++;
+      }
+    });
+    
+    return distribution;
+  }, [conversations]);
 
   // Combine on-track and response time data for the trends chart
   const onTrackAndResponseTrendData = useMemo(() => {
@@ -2993,46 +3805,61 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
 
   return (
     <div className="modern-overview">
+      {/* Key Insights Section */}
+      <div className="key-insights-section" style={{
+        marginBottom: '24px',
+        padding: '16px',
+        backgroundColor: isDarkMode ? '#1a1a1a' : '#f5f5f5',
+        borderRadius: '8px',
+        border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`
+      }}>
+        <h3 style={{
+          margin: '0 0 12px 0',
+          fontSize: '16px',
+          fontWeight: 600,
+          color: isDarkMode ? '#ffffff' : '#292929'
+        }}>
+          Key Insights
+        </h3>
+        {keyInsights.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {keyInsights.map((insight, idx) => (
+              <div
+                key={idx}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '4px',
+                  backgroundColor: insight.type === 'positive' 
+                    ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
+                    : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
+                  borderLeft: `3px solid ${insight.type === 'positive' ? '#4cec8c' : '#fd8789'}`,
+                  fontSize: '13px',
+                  color: isDarkMode ? '#e5e5e5' : '#292929',
+                  lineHeight: '1.5'
+                }}
+              >
+                {insight.text}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ 
+            padding: '8px 12px',
+            fontSize: '13px',
+            color: isDarkMode ? '#999' : '#666',
+            fontStyle: 'italic'
+          }}>
+            No key insights available at this time.
+          </div>
+        )}
+      </div>
+
       {/* Key KPIs - Organized by Realtime vs Historical */}
       <div className="overview-kpis">
         {/* Realtime Metrics Section */}
         <div className="kpi-section">
           <h3 className="kpi-section-title">Today / Realtime Metrics</h3>
           <div className="kpi-section-cards realtime-kpis">
-            <div className="kpi-card primary">
-              <div className="kpi-label">Realtime On Track</div>
-              <div className="kpi-content-with-viz">
-                <div className="kpi-value">{metrics.onTrackOverall || 0}%</div>
-                <div className="kpi-viz-container">
-                  <svg className="kpi-circular-progress" viewBox="0 0 60 60" width="60" height="60">
-                    <circle
-                      className="kpi-progress-bg"
-                      cx="30"
-                      cy="30"
-                      r="26"
-                      fill="none"
-                      stroke="#e0e0e0"
-                      strokeWidth="4"
-                    />
-                    <circle
-                      className="kpi-progress-fill"
-                      cx="30"
-                      cy="30"
-                      r="26"
-                      fill="none"
-                      stroke="#35a1b4"
-                      strokeWidth="4"
-                      strokeDasharray={`${(metrics.onTrackOverall || 0) * 1.634} 163.4`}
-                      strokeDashoffset="41"
-                      strokeLinecap="round"
-                      transform="rotate(-90 30 30)"
-                    />
-                  </svg>
-                </div>
-              </div>
-              <div className="kpi-subtitle">Current snapshot</div>
-            </div>
-
             <div
               className="kpi-card primary kpi-card-clickable"
               onClick={() => setIsWaitRateModalOpen(true)}
@@ -3048,11 +3875,45 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                 onMouseEnter={() => setIsWaitRateIconHovered(true)}
                 onMouseLeave={() => setIsWaitRateIconHovered(false)}
               />
-              <div className="kpi-label">Wait Rate</div>
+              <div className="kpi-label">
+                Performance Metrics vs Yesterday
+                <InfoIcon 
+                  content={
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Performance Metrics vs Yesterday</div>
+                      <div style={{ marginBottom: '8px' }}>
+                        <strong>Wait Rate:</strong> Percentage of conversations with 5+ minute wait time before first admin reply.
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li>Shows breakdown: 5+ min (total), 5-10 min, and 10+ min</li>
+                          <li>Trend compares today vs yesterday</li>
+                        </ul>
+                      </div>
+                      <div style={{ marginBottom: '8px' }}>
+                        <strong>On Track:</strong> Percentage of TSEs meeting both thresholds (≤5 open chats AND ≤5 conversations waiting on TSE).
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li>Shows Overall, Open-only, and Snoozed-only breakdowns</li>
+                          <li>Trend compares today (realtime) vs yesterday</li>
+                        </ul>
+                      </div>
+                      <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginTop: '8px' }}>
+                        Click to see detailed Wait Rate breakdown by hour and responder.
+                      </div>
+                    </div>
+                  }
+                  isDarkMode={isDarkMode}
+                  position="left"
+                />
+              </div>
               <div className="kpi-content-with-viz">
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                  <span style={{ fontSize: '24px', fontWeight: 700 }}>{currentResponseTimePct5Plus}%</span>
-                  <span style={{ fontSize: '14px', color: isDarkMode ? '#ffffff' : '#666' }}>5+ min</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                    <span style={{ fontSize: '24px', fontWeight: 700 }}>{currentResponseTimePct5Plus}%</span>
+                    <span style={{ fontSize: '14px', color: isDarkMode ? '#999' : '#666' }}>Wait Rate</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
+                    <span>5-10 min: {currentResponseTimePct5to10}%</span>
+                    <span>10+ min: {currentResponseTimePct10Plus}%</span>
+                  </div>
                 </div>
                 {responseTimeTrendData.length >= 2 && (() => {
                   const dataPoints = responseTimeTrendData.slice(-7);
@@ -3091,63 +3952,184 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                 })()}
               </div>
               {responseTimeTrendData.length >= 2 && (
-                <div className={`kpi-trend ${responseTimeTrend.direction}`}>
-                  {responseTimeTrend.direction === 'up' ? '↓' : responseTimeTrend.direction === 'down' ? '↑' : '→'}
-                  {responseTimeTrend.change > 0 && ` ${responseTimeTrend.change.toFixed(1)}%`}
+                <div>
+                  <div className={`kpi-trend ${responseTimeTrend.direction}`}>
+                    {responseTimeTrend.direction === 'up' ? '↓' : responseTimeTrend.direction === 'down' ? '↑' : '→'}
+                    {responseTimeTrend.change > 0 && ` ${responseTimeTrend.change.toFixed(1)}%`}
+                  </div>
+                  <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
+                    vs yesterday
+                  </div>
                 </div>
               )}
-              <div className="kpi-subtitle">Most recent day</div>
+              
+              {/* On Track % Section */}
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}` }}>
+                <div className="kpi-content-with-viz">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                      <span style={{ fontSize: '20px', fontWeight: 700 }}>{metrics.onTrackOverall || 0}%</span>
+                      <span style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666' }}>On Track</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
+                      <span>Open: {metrics.onTrackOpenOnly || 0}%</span>
+                      <span>Snoozed: {metrics.onTrackSnoozedOnly || 0}%</span>
+                    </div>
+                  </div>
+                  {onTrackTrendData.length >= 2 && (() => {
+                    const dataPoints = onTrackTrendData.slice(-7);
+                    const maxValue = Math.max(...dataPoints.map(p => p.onTrack), 1);
+                    const minValue = Math.min(...dataPoints.map(p => p.onTrack), 0);
+                    const range = maxValue - minValue || 1;
+                    const sparkWidth = 140;
+                    const sparkHeight = 30;
+                    
+                    return (
+                      <div className="kpi-sparkline-container">
+                        <svg className="kpi-sparkline" viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} width={sparkWidth} height={sparkHeight}>
+                          {dataPoints.map((point, idx) => {
+                            if (idx === 0) return null;
+                            const prevPoint = dataPoints[idx - 1];
+                            const x = (idx / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
+                            const y = sparkHeight - ((point.onTrack - minValue) / range) * sparkHeight;
+                            const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
+                            const prevY = sparkHeight - ((prevPoint.onTrack - minValue) / range) * sparkHeight;
+                            return (
+                              <line
+                                key={idx}
+                                x1={prevX}
+                                y1={prevY}
+                                x2={x}
+                                y2={y}
+                                stroke={onTrackTrend.direction === 'up' ? '#4cec8c' : onTrackTrend.direction === 'down' ? '#fd8789' : '#999'}
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                              />
+                            );
+                          })}
+                        </svg>
+                      </div>
+                    );
+                  })()}
+                </div>
+                {onTrackTrendData.length >= 2 && (
+                  <div>
+                    <div className={`kpi-trend ${onTrackTrend.direction}`}>
+                      {onTrackTrend.direction === 'up' ? '↑' : onTrackTrend.direction === 'down' ? '↓' : '→'}
+                      {onTrackTrend.change > 0 && ` ${onTrackTrend.change.toFixed(1)}%`}
+                    </div>
+                    <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
+                      vs yesterday
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="kpi-card primary">
-              <div className="kpi-label">Avg Initial Response</div>
-              <div className="kpi-content-with-viz">
-                <div className="kpi-value">{avgInitialResponseMinutes} min</div>
+              <div className="kpi-label">
+                Real-time Intercom Metrics
+                <InfoIcon 
+                  content="Key real-time metrics from Intercom: Average initial response time, total open conversations, unassigned conversations count, and same-day close percentage."
+                  isDarkMode={isDarkMode}
+                  position="left"
+                />
               </div>
-              <div className="kpi-subtitle">Realtime average</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
+                {/* Avg Initial Response */}
+                <div>
+                  <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Avg Initial Response</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '20px', fontWeight: 600 }}>{avgInitialResponseMinutes} min</span>
+                    {avgInitialResponseTrend.change > 0 && (
+                      <span className={`kpi-trend ${avgInitialResponseTrend.direction}`} style={{ fontSize: '12px' }}>
+                        {avgInitialResponseTrend.direction === 'up' ? '↓' : avgInitialResponseTrend.direction === 'down' ? '↑' : '→'}
+                        {avgInitialResponseTrend.change > 0 && ` ${avgInitialResponseTrend.change.toFixed(1)} min`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* OPEN CHATS */}
+                <div>
+                  <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Open Chats</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '20px', fontWeight: 600 }}>{metrics.totalOpen}</span>
+                    {recentPerformanceComparison?.openChats && (
+                      <span className="kpi-trend" style={{ color: isDarkMode ? '#999' : '#666', fontSize: '12px' }}>
+                        {recentPerformanceComparison.openChats.direction === 'up' ? '↑' : recentPerformanceComparison.openChats.direction === 'down' ? '↓' : '→'}
+                        {recentPerformanceComparison.openChats.change !== 0 && ` ${Math.abs(recentPerformanceComparison.openChats.change)}`}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '6px', fontSize: '10px', color: isDarkMode ? '#999' : '#666' }}>
+                    <div>0-2h: {openChatsAgeBreakdown['0-2h']} • 2-4h: {openChatsAgeBreakdown['2-4h']} • 4-8h: {openChatsAgeBreakdown['4-8h']} • 8h+: {openChatsAgeBreakdown['8h+']}</div>
+                  </div>
+                </div>
+
+                {/* Unassigned Conversations */}
+                {metrics.unassignedConversations && (
+                  <div>
+                    <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Unassigned Conversations</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '20px', fontWeight: 600, color: metrics.unassignedConversations.total > 5 ? '#fd8789' : '#ffc107' }}>
+                        {metrics.unassignedConversations.total}
+                      </span>
+                      {metrics.unassignedConversations.medianWaitTime > 0 && (
+                        <span style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666' }}>
+                          Median: {metrics.unassignedConversations.medianWaitTime.toFixed(1)}h
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Same-Day Close %} */}
+                <div>
+                  <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Same-Day Close %</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '20px', fontWeight: 600 }}>{sameDayClosePct}%</span>
+                    {sameDayCloseTrend.change > 0 && (
+                      <span className={`kpi-trend ${sameDayCloseTrend.direction}`} style={{ fontSize: '12px' }}>
+                        {sameDayCloseTrend.direction === 'up' ? '↑' : sameDayCloseTrend.direction === 'down' ? '↓' : '→'}
+                        {sameDayCloseTrend.change > 0 && ` ${sameDayCloseTrend.change.toFixed(1)}%`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="kpi-card primary">
-              <div className="kpi-label">Same-Day Close %</div>
-              <div className="kpi-content-with-viz">
-                <div className="kpi-value">{sameDayClosePct}%</div>
-              </div>
-              <div className="kpi-subtitle">Closed same day</div>
-            </div>
+
 
             <div 
               className="kpi-card kpi-card-clickable"
-              onClick={() => onNavigateToConversations && onNavigateToConversations(["open"])}
+              onClick={() => onNavigateToConversations && onNavigateToConversations([
+                "waitingontse",
+                "waitingoncustomer",
+                "waitingoncustomer-resolved",
+                "waitingoncustomer-unresolved"
+              ])}
               style={{ cursor: onNavigateToConversations ? 'pointer' : 'default' }}
             >
               <img 
-                src={isOpenChatsIconHovered 
+                src={isSnoozedIconHovered 
                   ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768730937/3_150_x_150_px_18_v8m7rw.svg"
                   : "https://res.cloudinary.com/doznvxtja/image/upload/v1768731268/3_150_x_150_px_19_cpangf.svg"
                 }
-                alt="Open Chats indicator"
+                alt="Snoozed indicator"
                 className="wait-rate-kpi-gif"
-                onMouseEnter={() => setIsOpenChatsIconHovered(true)}
-                onMouseLeave={() => setIsOpenChatsIconHovered(false)}
+                onMouseEnter={() => setIsSnoozedIconHovered(true)}
+                onMouseLeave={() => setIsSnoozedIconHovered(false)}
               />
-              <div className="kpi-label">OPEN CHATS</div>
-              <div className="kpi-content-with-viz">
-                <div className="kpi-value">{metrics.totalOpen}</div>
-                <div className="kpi-bar-indicator">
-                  <div 
-                    className="kpi-bar-fill" 
-                    style={{ 
-                      width: `${Math.min((metrics.totalOpen / 20) * 100, 100)}%`,
-                      backgroundColor: metrics.totalOpen <= 5 ? '#4cec8c' : metrics.totalOpen <= 6 ? '#ffc107' : '#fd8789'
-                    }}
-                  />
-                </div>
+              <div className="kpi-label">
+                SNOOZED
+                <InfoIcon 
+                  content="Breakdown of snoozed conversations: Waiting on TSE (actionable), Waiting on Customer - Resolved, and Waiting on Customer - Unresolved. Shows trends vs yesterday."
+                  isDarkMode={isDarkMode}
+                  position="left"
+                />
               </div>
-              <div className="kpi-subtitle">Currently open</div>
-            </div>
-
-            <div className="kpi-card">
-              <div className="kpi-label">SNOOZED</div>
               {(() => {
                 const waitingOnTSECount = metrics.waitingOnTSE.length;
                 const waitingOnCustomerResolved = metrics.waitingOnCustomer ? metrics.waitingOnCustomer.filter(conv => {
@@ -3171,6 +4153,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                       <div className="tse-metric">
                         <span className="metric-label">Waiting on TSE:</span>
                         <span className="metric-value">{waitingOnTSECount}</span>
+                        {snoozedTrends.waitingOnTSE && snoozedTrends.waitingOnTSE.change !== 0 && (
+                          <span className={`kpi-trend ${snoozedTrends.waitingOnTSE.direction}`} style={{ fontSize: '11px', marginLeft: '6px' }}>
+                            {snoozedTrends.waitingOnTSE.direction === 'up' ? '↑' : '↓'} {Math.abs(snoozedTrends.waitingOnTSE.change)}
+                          </span>
+                        )}
                       </div>
                       <div className="kpi-mini-bar">
                         <div 
@@ -3186,6 +4173,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                       <div className="tse-metric">
                         <span className="metric-label">Waiting On Customer - Resolved:</span>
                         <span className="metric-value">{waitingOnCustomerResolved}</span>
+                        {snoozedTrends.waitingOnCustomer && snoozedTrends.waitingOnCustomer.change !== 0 && (
+                          <span className={`kpi-trend ${snoozedTrends.waitingOnCustomer.direction}`} style={{ fontSize: '11px', marginLeft: '6px' }}>
+                            {snoozedTrends.waitingOnCustomer.direction === 'up' ? '↑' : '↓'} {Math.abs(snoozedTrends.waitingOnCustomer.change)}
+                          </span>
+                        )}
                       </div>
                       <div className="kpi-mini-bar">
                         <div 
@@ -3219,171 +4211,355 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           </div>
         </div>
 
-        {/* Last 7 Days Averages Section */}
+        {/* Secondary Metrics Section */}
         <div className="kpi-section">
-          <h3 className="kpi-section-title">Last 7 Days Averages</h3>
+          <h3 className="kpi-section-title">Secondary Metrics</h3>
           <div className="kpi-section-cards">
-            <div className="kpi-card primary">
-              <div className="kpi-label">Team On Track</div>
-              <div className="kpi-content-with-viz">
-                <div className="kpi-value">{currentOnTrack}%</div>
-                {onTrackTrendData.length >= 2 && (() => {
-                  const dataPoints = onTrackTrendData.slice(-7);
-                  const maxValue = Math.max(...dataPoints.map(p => p.onTrack), 1);
-                  const minValue = Math.min(...dataPoints.map(p => p.onTrack), 0);
-                  const range = maxValue - minValue || 1;
-                  const sparkWidth = 440;
-                  const sparkHeight = 30;
-                  
-                  return (
-                    <div className="kpi-sparkline-container">
-                      <svg className="kpi-sparkline" viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} width={sparkWidth} height={sparkHeight}>
-                        {dataPoints.map((point, idx) => {
-                          if (idx === 0) return null;
-                          const prevPoint = dataPoints[idx - 1];
-                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
-                          const y = sparkHeight - ((point.onTrack - minValue) / range) * sparkHeight;
-                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
-                          const prevY = sparkHeight - ((prevPoint.onTrack - minValue) / range) * sparkHeight;
-                          return (
-                            <line
-                              key={idx}
-                              x1={prevX}
-                              y1={prevY}
-                              x2={x}
-                              y2={y}
-                              stroke={onTrackTrend.direction === 'up' ? '#4cec8c' : onTrackTrend.direction === 'down' ? '#fd8789' : '#999'}
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                            />
-                          );
-                        })}
-                      </svg>
+            {/* Region Performance Summary */}
+            {regionPerformance.length > 0 && (
+              <div className="kpi-card">
+                <div className="kpi-label">
+                  Region Performance
+                  <InfoIcon 
+                    content="On-track percentage by region (UK, NY, SF, Other). Shows how many TSEs in each region are meeting both thresholds (open and waiting-on-TSE)."
+                    isDarkMode={isDarkMode}
+                    position="right"
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+                  {regionPerformance.map((region) => {
+                    const iconUrl = region.region === 'NY' && isDarkMode 
+                      ? 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg'
+                      : region.icon;
+                    return (
+                      <div key={region.region} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                        {iconUrl && (
+                          <img src={iconUrl} alt={region.region} style={{ width: '20px', height: '20px' }} />
+                        )}
+                      <span style={{ flex: 1, color: isDarkMode ? '#e5e5e5' : '#292929' }}>{region.region}:</span>
+                      <span style={{ 
+                        fontWeight: 600, 
+                        color: region.onTrackPct >= 80 ? '#4cec8c' : region.onTrackPct >= 60 ? '#ffc107' : '#fd8789' 
+                      }}>
+                        {region.onTrackPct}%
+                      </span>
+                      <span style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666' }}>
+                        ({region.onTrack}/{region.total})
+                      </span>
                     </div>
-                  );
-                })()}
+                    );
+                  })}
+                </div>
               </div>
-              {onTrackTrendData.length >= 2 && (
-                <div className={`kpi-trend ${onTrackTrend.direction}`}>
-                  {onTrackTrend.direction === 'up' ? '↑' : onTrackTrend.direction === 'down' ? '↓' : '→'}
-                  {onTrackTrend.change > 0 && ` ${onTrackTrend.change}%`}
+            )}
+
+            {/* Alert Summary Card */}
+            <div 
+              className="kpi-card kpi-card-clickable"
+              onClick={() => onNavigateToTSEView && onNavigateToTSEView()}
+              style={{ cursor: onNavigateToTSEView ? 'pointer' : 'default' }}
+            >
+              <img 
+                src={isAlertSummaryIconHovered 
+                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768730937/3_150_x_150_px_18_v8m7rw.svg"
+                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1768731268/3_150_x_150_px_19_cpangf.svg"
+                }
+                alt="Alert Summary indicator"
+                className="wait-rate-kpi-gif"
+                onMouseEnter={() => setIsAlertSummaryIconHovered(true)}
+                onMouseLeave={() => setIsAlertSummaryIconHovered(false)}
+              />
+              <div className="kpi-label">
+                Alert Summary
+                <InfoIcon 
+                  content="Total count of threshold violations: Open Threshold (≥6 open chats) and Waiting on TSE (≥7 conversations). Shows breakdown by severity (High/Medium). Click to view TSE view with alerts."
+                  isDarkMode={isDarkMode}
+                  position="right"
+                />
+              </div>
+              <div className="kpi-content-with-viz">
+                <div className="kpi-value" style={{ color: alertSummary.total > 0 ? '#fd8789' : '#4cec8c' }}>
+                  {alertSummary.total}
+                </div>
+              </div>
+              {alertSummary.total > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px', fontSize: '11px', color: isDarkMode ? '#999' : '#666' }}>
+                  <div>Open Threshold: {alertSummary.byType.open_threshold || 0}</div>
+                  <div>Waiting on TSE: {alertSummary.byType.waiting_on_tse_threshold || 0}</div>
+                  <div style={{ marginTop: '4px' }}>
+                    High: {alertSummary.bySeverity.high || 0} | Medium: {alertSummary.bySeverity.medium || 0}
+                  </div>
                 </div>
               )}
-              <div className="kpi-subtitle">Last 7 days avg</div>
+              <div className="kpi-subtitle">{alertSummary.total === 0 ? 'No alerts' : 'Active alerts'}</div>
             </div>
 
-            <div className="kpi-card primary">
-              <div className="kpi-label">Wait Rate</div>
-              <div className="kpi-content-with-viz">
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                  <span style={{ fontSize: '24px', fontWeight: 700 }}>{avgResponseTimePct5Plus}%</span>
-                  <span style={{ fontSize: '14px', color: isDarkMode ? '#ffffff' : '#666' }}>5+ min</span>
+
+            {/* Improvement Potential */}
+            {improvementPotential && (
+              <div className="kpi-card">
+                <div className="kpi-label">
+                  Improvement Potential
+                  <InfoIcon 
+                    content={
+                      <div style={{ textAlign: 'left' }}>
+                        <p><strong>What this shows:</strong> The potential reduction in wait time rates if all days matched High (80-100%) on-track performance.</p>
+                        <p><strong>Calculation:</strong> Compares the current average wait rate with the average wait rate observed on days when on-track performance was High (80-100%).</p>
+                        <p><strong>Interpretation:</strong></p>
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li><strong>Positive reduction (green):</strong> Indicates potential improvement - wait rates would decrease</li>
+                          <li><strong>Negative reduction (red):</strong> Indicates potential increase - wait rates would increase (concerning)</li>
+                        </ul>
+                        <p style={{ marginTop: '8px' }}><strong>Based on:</strong> {improvementPotential.totalDays} days analyzed ({improvementPotential.highRangeDays} High performance days)</p>
+                      </div>
+                    }
+                    isDarkMode={isDarkMode}
+                    position="left"
+                  />
                 </div>
-                {responseTimeTrendData.length >= 2 && (() => {
-                  const dataPoints = responseTimeTrendData.slice(-7);
-                  const maxValue = Math.max(...dataPoints.map(p => p.percentage), 1);
-                  const minValue = Math.min(...dataPoints.map(p => p.percentage), 0);
-                  const range = maxValue - minValue || 1;
-                  const sparkWidth = 440;
-                  const sparkHeight = 30;
-                  
-                  return (
-                    <div className="kpi-sparkline-container">
-                      <svg className="kpi-sparkline" viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} width={sparkWidth} height={sparkHeight}>
-                        {dataPoints.map((point, idx) => {
-                          if (idx === 0) return null;
-                          const prevPoint = dataPoints[idx - 1];
-                          const x = (idx / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
-                          const y = sparkHeight - ((point.percentage - minValue) / range) * sparkHeight;
-                          const prevX = ((idx - 1) / Math.max(dataPoints.length - 1, 1)) * sparkWidth;
-                          const prevY = sparkHeight - ((prevPoint.percentage - minValue) / range) * sparkHeight;
-                          return (
-                            <line
-                              key={idx}
-                              x1={prevX}
-                              y1={prevY}
-                              x2={x}
-                              y2={y}
-                              stroke="#35a1b4"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                            />
-                          );
-                        })}
-                      </svg>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>5-10 Min Waits</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '18px', fontWeight: 600, color: improvementPotential.improvement5to10 > 0 ? '#4cec8c' : '#fd8789' }}>
+                        {improvementPotential.improvement5to10 > 0 ? '-' : '+'}{Math.abs(improvementPotential.improvement5to10).toFixed(2)}%
+                      </span>
+                      <span style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666' }}>
+                        (current: {improvementPotential.currentAvg5to10.toFixed(2)}% → high: {improvementPotential.highAvg5to10.toFixed(2)}%)
+                      </span>
                     </div>
-                  );
-                })()}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>10+ Min Waits</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '18px', fontWeight: 600, color: improvementPotential.improvement10Plus > 0 ? '#4cec8c' : '#fd8789' }}>
+                        {improvementPotential.improvement10Plus > 0 ? '-' : '+'}{Math.abs(improvementPotential.improvement10Plus).toFixed(2)}%
+                      </span>
+                      <span style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666' }}>
+                        (current: {improvementPotential.currentAvg10Plus.toFixed(2)}% → high: {improvementPotential.highAvg10Plus.toFixed(2)}%)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="kpi-subtitle">If all days matched High (80-100%) on-track</div>
               </div>
-              <div className="kpi-subtitle">Last 7 days avg</div>
-            </div>
-
+            )}
           </div>
         </div>
+
+        {/* Additional Insights Section */}
+        <div className="kpi-section">
+          <h3 className="kpi-section-title">Additional Insights</h3>
+          <div className="kpi-section-cards">
+            {/* Response Time Distribution */}
+            <div className="kpi-card">
+              <div className="kpi-label">
+                Response Time Distribution
+                <InfoIcon 
+                  content="Distribution of initial response times across all conversations. Shows how many conversations fall into each time bucket."
+                  isDarkMode={isDarkMode}
+                  position="right"
+                />
+              </div>
+              <div style={{ marginTop: '12px' }}>
+                <ResponsiveContainer width="100%" height={120}>
+                  <BarChart data={[
+                    { name: '0-2min', value: responseTimeDistribution['0-2min'], fill: '#4cec8c' },
+                    { name: '2-5min', value: responseTimeDistribution['2-5min'], fill: '#ffc107' },
+                    { name: '5-10min', value: responseTimeDistribution['5-10min'], fill: '#ff9a74' },
+                    { name: '10+min', value: responseTimeDistribution['10+min'], fill: '#fd8789' }
+                  ]} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+                    <XAxis 
+                      dataKey="name" 
+                      stroke={isDarkMode ? '#ffffff' : '#666'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 10 }}
+                    />
+                    <YAxis 
+                      stroke={isDarkMode ? '#ffffff' : '#666'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 10 }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                        border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+                        borderRadius: '4px',
+                        color: isDarkMode ? '#e5e5e5' : '#292929'
+                      }}
+                    />
+                    <Bar dataKey="value" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       {/* Trend Charts */}
       <div className="overview-charts">
         <div className="trend-card">
           <div className="trend-header">
-            <h4>On Track Trend</h4>
+            <h4>
+              Team Daily On Track Percentage Trends
+              <InfoIcon 
+                isDarkMode={isDarkMode}
+                content={
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Team Daily On Track Trends</div>
+                    <div style={{ marginBottom: '6px' }}>
+                      <strong>Chart Elements:</strong>
+                      <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                        <li><strong>Solid lines:</strong> Daily on-track percentages</li>
+                        <li><strong>Dashed lines:</strong> 3-day moving averages (smoothed trend)</li>
+                        <li><strong>Gray dotted line:</strong> Target reference at 80%</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>How to read:</strong> Values above the 80% target line indicate good performance. The moving average lines help smooth out daily fluctuations to show the underlying trend.
+                    </div>
+                  </div>
+                }
+                position="right"
+              />
+            </h4>
             <span className="trend-period">7 days</span>
           </div>
-          {onTrackTrendWithMovingAvg.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={onTrackTrendWithMovingAvg} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
-                <defs>
-                  <linearGradient id="onTrackGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#35a1b4" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#35a1b4" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
+          {onTrackChartDataWithMovingAvg.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={onTrackChartDataWithMovingAvg} margin={{ top: 70, right: 80, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
                 <XAxis 
-                  dataKey="displayLabel" 
-                  stroke={isDarkMode ? '#ffffff' : '#666'}
-                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
+                  dataKey="date" 
+                  stroke={isDarkMode ? '#ffffff' : '#292929'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                  tickFormatter={formatDateForChart}
                 />
                 <YAxis 
-                  stroke={isDarkMode ? '#ffffff' : '#666'}
-                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
+                  stroke={isDarkMode ? '#ffffff' : '#292929'}
+                  tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                   domain={[0, 100]}
-                  label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#666' }}
+                  label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                 />
                 <Tooltip 
                   contentStyle={{ 
                     backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
-                    border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+                    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
                     borderRadius: '4px',
                     color: isDarkMode ? '#e5e5e5' : '#292929'
                   }}
+                  labelFormatter={formatDateForTooltip}
                   formatter={(value, name) => {
-                    if (name === 'On Track %') return [`${value.toFixed(1)}%`, 'Daily On Track %'];
-                    if (name === '3-Day Moving Avg') return [`${value.toFixed(1)}%`, '3-Day Moving Average'];
-                    return [`${value.toFixed(1)}%`, name];
+                    if (name.includes('Moving Avg') || name.includes('3-Day Avg')) return [`${value.toFixed(1)}%`, name];
+                    return [`${value}%`, name];
                   }}
-                  labelFormatter={(value) => `Date: ${value}`}
                 />
-                <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
-                <Area 
-                  type="monotone" 
-                  dataKey="onTrack" 
-                  stroke="#35a1b4" 
+                <ReferenceLine 
+                  y={80} 
+                  stroke="#999" 
                   strokeWidth={2}
-                  fill="url(#onTrackGradient)"
-                  name="On Track %"
-                  label={createHolidayLabel(onTrackTrendWithMovingAvg)}
+                  strokeDasharray="2 2"
+                  label={{ value: "Target (80%)", position: "top", fill: isDarkMode ? '#999' : '#666', fontSize: 11, offset: 10 }}
                 />
                 <Line 
                   type="monotone" 
-                  dataKey="movingAvg" 
+                  dataKey="overallOnTrack" 
+                  stroke="#4cec8c" 
+                  strokeWidth={3}
+                  dot={{ fill: '#4cec8c', r: 4 }}
+                  name="Overall On Track"
+                  label={(props) => {
+                    const holidayLabel = createHolidayLabel(onTrackChartDataWithMovingAvg, false);
+                    return holidayLabel ? holidayLabel(props) : null;
+                  }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="movingAvgOverall" 
                   stroke="#4cec8c" 
                   strokeWidth={2}
                   strokeDasharray="5 5"
                   dot={false}
-                  name="3-Day Moving Avg"
+                  name="Overall 3-Day Avg"
                 />
-              </AreaChart>
+                <Line 
+                  type="monotone" 
+                  dataKey="openOnTrack" 
+                  stroke="#35a1b4" 
+                  strokeWidth={2}
+                  dot={{ fill: '#35a1b4', r: 3 }}
+                  name="Open On Track"
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="movingAvgOpen" 
+                  stroke="#35a1b4" 
+                  strokeWidth={1.5}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="Open 3-Day Avg"
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="snoozedOnTrack" 
+                  stroke="#ff9a74" 
+                  strokeWidth={2}
+                  dot={{ fill: '#ff9a74', r: 3 }}
+                  name="Snoozed On Track"
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="movingAvgSnoozed" 
+                  stroke="#ff9a74" 
+                  strokeWidth={1.5}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  name="Snoozed 3-Day Avg"
+                />
+                <Legend 
+                  wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }}
+                  content={({ payload }) => {
+                    if (!payload) return null;
+                    // Reorder payload: Overall 3-Day Avg, Overall On Track, Open 3-Day Avg, Open On Track, Snoozed 3-Day Avg, Snoozed On Track
+                    const orderedPayload = [
+                      payload.find(item => item.dataKey === 'movingAvgOverall'),
+                      payload.find(item => item.dataKey === 'overallOnTrack'),
+                      payload.find(item => item.dataKey === 'movingAvgOpen'),
+                      payload.find(item => item.dataKey === 'openOnTrack'),
+                      payload.find(item => item.dataKey === 'movingAvgSnoozed'),
+                      payload.find(item => item.dataKey === 'snoozedOnTrack')
+                    ].filter(Boolean);
+                    
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', padding: '10px 0' }}>
+                        {orderedPayload.map((entry, index) => {
+                          if (!entry) return null;
+                          const isDashed = entry.dataKey?.includes('movingAvg') || entry.dataKey === 'movingAvgOverall' || entry.dataKey === 'movingAvgOpen' || entry.dataKey === 'movingAvgSnoozed';
+                          return (
+                            <div key={`legend-item-${index}`} style={{ display: 'flex', alignItems: 'center', margin: '0 10px', cursor: 'pointer' }}>
+                              <svg width="14" height="14" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
+                                <line
+                                  x1="0"
+                                  y1="7"
+                                  x2="14"
+                                  y2="7"
+                                  stroke={entry.color}
+                                  strokeWidth={isDashed ? 2 : 3}
+                                  strokeDasharray={isDashed ? '5 5' : '0'}
+                                />
+                              </svg>
+                              <span style={{ color: isDarkMode ? '#ffffff' : '#292929', fontSize: '12px' }}>
+                                {entry.value}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  }}
+                />
+              </LineChart>
             </ResponsiveContainer>
           ) : (
             <div className="chart-placeholder">
@@ -3395,66 +4571,147 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
 
         <div className="trend-card">
           <div className="trend-header">
-            <h4>Response Time Trend</h4>
+            <h4>
+              Percentage of Conversations with Wait Time
+              <InfoIcon 
+                isDarkMode={isDarkMode} 
+                position="right"
+                content={
+                  <div style={{ textAlign: 'left' }}>
+                    <p><strong>What this shows:</strong> Daily percentage of conversations that waited 5+ minutes for a first response, broken down by wait time buckets.</p>
+                    <p><strong>Lines:</strong></p>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      <li><strong>5+ Min Wait %</strong> (amber, solid): Total percentage of conversations waiting 5+ minutes</li>
+                      <li><strong>5-10 Min Wait %</strong> (orange, dashed): Percentage waiting 5-10 minutes</li>
+                      <li><strong>10+ Min Wait %</strong> (red, dashed): Percentage waiting 10+ minutes</li>
+                    </ul>
+                    <p><strong>Reference Line:</strong> The red dotted line at 5% represents a target threshold. Values below this line indicate good performance.</p>
+                    <p><strong>How to use:</strong> Hover over data points to see exact values.</p>
+                  </div>
+                }
+              />
+            </h4>
             <span className="trend-period">7 days</span>
           </div>
-          {responseTimeTrendWithMovingAvg.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={responseTimeTrendWithMovingAvg} margin={{ top: 70, right: 10, left: 0, bottom: 5 }}>
-                <defs>
-                  <linearGradient id="responseGradient5Plus" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#fbbf24" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
-                <XAxis 
-                  dataKey="displayLabel" 
-                  stroke={isDarkMode ? '#ffffff' : '#666'}
-                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
-                />
-                <YAxis 
-                  stroke={isDarkMode ? '#ffffff' : '#666'}
-                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
-                  domain={[0, 'auto']}
-                  label={{ value: 'Wait Rate %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#666' }}
-                />
-                <Tooltip 
+          {responseTimeChartData.length > 0 ? (() => {
+            // Calculate dynamic Y-axis domain based on data
+            const maxValue = Math.max(
+              ...responseTimeChartData.map(d => Math.max(
+                d.percentage5PlusMin || 0,
+                d.percentage5to10Min || 0,
+                d.percentage10PlusMin || 0
+              ))
+            );
+            // Use max value + 20% padding, but cap at 20% for readability
+            const yAxisMax = Math.min(Math.ceil(maxValue * 1.2), 20);
+            
+            return (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={responseTimeChartData} margin={{ top: 70, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+                  <XAxis 
+                    dataKey="displayLabel" 
+                    stroke={isDarkMode ? '#ffffff' : '#292929'}
+                    tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 11 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                  />
+                  <YAxis 
+                    stroke={isDarkMode ? '#ffffff' : '#292929'}
+                    tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                    domain={[0, yAxisMax]}
+                    label={{ value: 'Percentage %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
+                  />
+                  <Tooltip 
                   contentStyle={{ 
                     backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
-                    border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+                    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
                     borderRadius: '4px',
-                    color: isDarkMode ? '#e5e5e5' : '#292929'
+                    color: isDarkMode ? '#e5e5e5' : '#292929',
+                    itemStyle: { color: isDarkMode ? '#e5e5e5' : '#292929' },
+                    labelStyle: { color: isDarkMode ? '#ffffff' : '#292929', fontWeight: 600 }
                   }}
-                  formatter={(value, name) => {
-                    if (name === '5+ Min Wait %') return [`${value.toFixed(1)}%`, 'Daily 5+ Min Wait %'];
-                    if (name === '5+ Min Moving Avg') return [`${value.toFixed(1)}%`, '3-Day Moving Average'];
-                    return [`${value.toFixed(1)}%`, name];
-                  }}
-                  labelFormatter={(value) => `Date: ${value}`}
-                />
-                <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
-                <Area 
-                  type="monotone" 
-                  dataKey="percentage5Plus" 
-                  stroke="#fbbf24" 
+                  />
+                  <ReferenceLine
+                  y={5} 
+                  stroke="#fd8789" 
+                  strokeDasharray="2 2" 
                   strokeWidth={2}
-                  fill="url(#responseGradient5Plus)"
+                  label={{ value: "Target: 5%", position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="percentage5PlusMin"
+                  stroke="#ffc107" 
+                  strokeWidth={2}
                   name="5+ Min Wait %"
-                  label={createHolidayLabel(responseTimeTrendWithMovingAvg, false, 'percentage5Plus')}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="movingAvg5Plus" 
-                  stroke="#f59e0b" 
-                  strokeWidth={2}
+                  dot={{ r: 4, fill: '#ffc107' }}
+                  label={createHolidayLabel(responseTimeChartData, false)}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="percentage5to10Min"
+                  stroke="#ff9a74" 
+                  strokeWidth={3}
+                  name="5-10 Min Wait %"
+                  dot={{ r: 5, fill: '#ff9a74' }}
                   strokeDasharray="5 5"
-                  dot={false}
-                  name="5+ Min Moving Avg"
+                  activeDot={{ r: 7 }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="percentage10PlusMin"
+                  stroke="#fd8789" 
+                  strokeWidth={3}
+                  name="10+ Min Wait %"
+                  dot={{ r: 5, fill: '#fd8789' }}
+                  strokeDasharray="5 5"
+                  activeDot={{ r: 7 }}
                 />
-              </AreaChart>
+                <Legend 
+                  wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }}
+                  content={({ payload }) => {
+                    if (!payload) return null;
+                    // Reorder payload: 5+ Min Wait %, 5-10 Min Wait %, 10+ Min Wait %
+                    const orderedPayload = [
+                      payload.find(item => item.dataKey === 'percentage5PlusMin'),
+                      payload.find(item => item.dataKey === 'percentage5to10Min'),
+                      payload.find(item => item.dataKey === 'percentage10PlusMin')
+                    ].filter(Boolean);
+                    
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', padding: '10px 0' }}>
+                        {orderedPayload.map((entry, index) => {
+                          if (!entry) return null;
+                          const isDashed = entry.dataKey === 'percentage5to10Min' || entry.dataKey === 'percentage10PlusMin';
+                          return (
+                            <div key={`legend-item-${index}`} style={{ display: 'flex', alignItems: 'center', margin: '0 10px', cursor: 'pointer' }}>
+                              <svg width="14" height="14" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
+                                <line
+                                  x1="0"
+                                  y1="7"
+                                  x2="14"
+                                  y2="7"
+                                  stroke={entry.color}
+                                  strokeWidth={2}
+                                  strokeDasharray={isDashed ? '5 5' : '0'}
+                                />
+                              </svg>
+                              <span style={{ color: isDarkMode ? '#ffffff' : '#292929', fontSize: '12px' }}>
+                                {entry.value}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  }}
+                />
+              </LineChart>
             </ResponsiveContainer>
-          ) : (
+            );
+          })() : (
             <div className="chart-placeholder">
               <p>No response time data available</p>
               <span>Metrics are captured daily at midnight UTC</span>
@@ -3462,81 +4719,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           )}
         </div>
 
-        {/* On Track and Slow Response Trends Over Time */}
-        {onTrackAndResponseTrendData.length > 0 && (
-          <div className="trend-card">
-            <div className="trend-header">
-              <h4>On Track and Slow Response Trends Over Time</h4>
-              <span className="trend-period">Last 7 days</span>
-            </div>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={onTrackAndResponseTrendData} margin={{ top: 30, right: 50, left: 50, bottom: 60 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
-                <XAxis 
-                  dataKey="displayLabel"
-                  stroke={isDarkMode ? '#ffffff' : '#666'}
-                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis 
-                  yAxisId="left"
-                  stroke={isDarkMode ? '#ffffff' : '#666'}
-                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
-                  domain={[0, 100]}
-                  label={{ value: 'On Track %', angle: -90, position: 'left', fill: isDarkMode ? '#ffffff' : '#666', offset: 10 }}
-                  tickFormatter={(value) => value.toFixed(0)}
-                />
-                <YAxis 
-                  yAxisId="right"
-                  orientation="right"
-                  stroke={isDarkMode ? '#ffffff' : '#666'}
-                  tick={{ fill: isDarkMode ? '#ffffff' : '#666', fontSize: 11 }}
-                  domain={[0, 'dataMax + 5']}
-                  label={{ value: 'Slow Response Rate %', angle: 90, position: 'right', fill: isDarkMode ? '#ffffff' : '#666', offset: 10 }}
-                  tickFormatter={(value) => value.toFixed(1)}
-                />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
-                    border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
-                    borderRadius: '4px',
-                    color: isDarkMode ? '#e5e5e5' : '#292929'
-                  }}
-                  formatter={(value, name) => {
-                    if (name === 'onTrack') return [`${value.toFixed(2)}%`, 'On Track'];
-                    if (name === 'slowResponsePct') return [`${value.toFixed(2)}%`, 'Slow Response Rate'];
-                    return [value, name];
-                  }}
-                  labelFormatter={(value) => {
-                    // value is displayLabel like "1/13"
-                    return value;
-                  }}
-                />
-                <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
-                <Line 
-                  yAxisId="left"
-                  type="monotone" 
-                  dataKey="onTrack" 
-                  stroke="#4cec8c" 
-                  strokeWidth={3}
-                  dot={{ fill: '#4cec8c', r: 4 }}
-                  name="On Track %"
-                />
-                <Line 
-                  yAxisId="right"
-                  type="monotone" 
-                  dataKey="slowResponsePct" 
-                  stroke="#fd8789" 
-                  strokeWidth={2}
-                  dot={{ fill: '#fd8789', r: 3 }}
-                  name="Slow Response Rate %"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
       </div>
 
       <div className="trend-card aging-card">

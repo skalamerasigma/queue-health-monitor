@@ -189,6 +189,19 @@
   min-width: 150px;
 }
 
+.dark-mode .filter-select,
+.dark-mode .date-input {
+  background: #2a2a2a;
+  color: #ffffff;
+  border-color: #35a1b4;
+}
+
+.dark-mode .filter-select option,
+.dark-mode .date-input option {
+  background: #2a2a2a;
+  color: #ffffff;
+}
+
 .apply-date-button {
   background: #35a1b4;
   color: white;
@@ -1098,7 +1111,7 @@
 
 .response-time-summary {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 24px;
   width: 100%;
