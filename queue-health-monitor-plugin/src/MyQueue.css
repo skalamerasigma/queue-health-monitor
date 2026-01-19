@@ -29,7 +29,8 @@
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .dark-mode-toggle-button {
@@ -171,6 +172,11 @@
   background-color: rgba(76, 236, 140, 0.15);
 }
 
+.dark-mode .status-card.on-track .status-message {
+  color: #4cec8c;
+  font-weight: 500;
+}
+
 .status-card.over-limit {
   border-left-color: var(--accent-error);
   background-color: rgba(253, 135, 137, 0.1);
@@ -217,21 +223,26 @@
   color: #333;
 }
 
+.dark-mode .status-message {
+  color: var(--text-primary);
+}
+
 /* Metrics Grid */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
   margin-bottom: 30px;
 }
 
 .metric-card {
   background: white;
   border-radius: 8px;
-  padding: 20px;
+  padding: 12px 15px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   border: 2px solid transparent;
   transition: all 0.2s, background-color 0.3s ease;
+  min-width: 0;
 }
 
 .dark-mode .metric-card {
@@ -248,17 +259,27 @@
 }
 
 .metric-label {
-  font-size: 14px;
+  font-size: 12px;
   color: #666;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-weight: 500;
+  line-height: 1.3;
+}
+
+.dark-mode .metric-label {
+  color: var(--text-secondary);
 }
 
 .metric-value {
-  font-size: 36px;
+  font-size: 28px;
   font-weight: 700;
   color: #1a1a1a;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  line-height: 1.2;
+}
+
+.dark-mode .metric-value {
+  color: var(--text-primary);
 }
 
 .metric-card.over-limit .metric-value {
@@ -266,9 +287,14 @@
 }
 
 .metric-target {
-  font-size: 12px;
+  font-size: 11px;
   color: #999;
   margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+.dark-mode .metric-target {
+  color: var(--text-secondary);
 }
 
 .metric-alert {
@@ -298,6 +324,10 @@
   color: #333;
 }
 
+.dark-mode .filter-group label {
+  color: var(--text-primary);
+}
+
 .filter-select,
 .search-input {
   padding: 8px 12px;
@@ -305,6 +335,98 @@
   border-radius: 4px;
   font-size: 14px;
   min-width: 200px;
+  background: white;
+  color: #333;
+}
+
+.dark-mode .filter-select,
+.dark-mode .search-input {
+  background: var(--bg-card);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--text-primary);
+}
+
+/* Filter Dropdown */
+.filter-dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.filter-dropdown-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.filter-dropdown-arrow {
+  margin-left: 8px;
+  font-size: 10px;
+  color: #666;
+}
+
+.dark-mode .filter-dropdown-arrow {
+  color: var(--text-secondary);
+}
+
+.filter-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 250px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.dark-mode .filter-dropdown-menu {
+  background: var(--bg-card);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.filter-checkbox-label {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-size: 14px;
+  color: #333;
+}
+
+.filter-checkbox-label:hover {
+  background-color: #f5f5f5;
+}
+
+.dark-mode .filter-checkbox-label {
+  color: var(--text-primary);
+}
+
+.dark-mode .filter-checkbox-label:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.filter-checkbox {
+  margin-right: 10px;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: #0066cc;
+}
+
+.dark-mode .filter-checkbox {
+  accent-color: #35a1b4;
+}
+
+.dark-mode .search-input::placeholder {
+  color: var(--text-secondary);
 }
 
 .search-input {
@@ -332,10 +454,18 @@
   color: #1a1a1a;
 }
 
+.dark-mode .conversations-section h3 {
+  color: var(--text-primary);
+}
+
 .no-conversations {
   padding: 40px;
   text-align: center;
   color: #999;
+}
+
+.dark-mode .no-conversations {
+  color: var(--text-secondary);
 }
 
 .conversations-table {
@@ -348,29 +478,49 @@
 }
 
 .conversations-table th {
-  background-color: #f5f5f5;
+  background-color: #ffffff;
   padding: 12px;
   text-align: left;
   font-weight: 600;
   font-size: 14px;
-  color: #333;
-  border-bottom: 2px solid #ddd;
+  color: #1a1a1a;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.dark-mode .conversations-table th {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-bottom-color: rgba(255, 255, 255, 0.2);
 }
 
 .conversations-table td {
   padding: 12px;
   border-bottom: 1px solid #eee;
   font-size: 14px;
+  color: #333;
+}
+
+.dark-mode .conversations-table td {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
 }
 
 .conversations-table tr:hover {
   background-color: #f9f9f9;
 }
 
+.dark-mode .conversations-table tr:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
 .conv-id {
   font-family: monospace;
   font-size: 12px;
   color: #666;
+}
+
+.dark-mode .conv-id {
+  color: var(--text-secondary);
 }
 
 .status-badge-small {
@@ -385,9 +535,19 @@
   color: #1976d2;
 }
 
+.dark-mode .status-badge-small.open {
+  background-color: rgba(53, 161, 180, 0.2);
+  color: #35a1b4;
+}
+
 .status-badge-small.snoozed {
   background-color: #fff3e0;
   color: #f57c00;
+}
+
+.dark-mode .status-badge-small.snoozed {
+  background-color: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
 }
 
 .tags-list {
@@ -404,16 +564,29 @@
   color: #666;
 }
 
+.dark-mode .tag-badge {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+}
+
 .no-tags {
   color: #999;
   font-style: italic;
   font-size: 12px;
 }
 
+.dark-mode .no-tags {
+  color: var(--text-secondary);
+}
+
 .intercom-link {
   color: #0066cc;
   text-decoration: none;
   font-weight: 500;
+}
+
+.dark-mode .intercom-link {
+  color: #35a1b4;
 }
 
 .intercom-link:hover {
@@ -426,6 +599,11 @@
   border-radius: 8px;
   padding: 20px;
   margin-top: 20px;
+  transition: background-color 0.3s ease;
+}
+
+.dark-mode .tips-section {
+  background: var(--bg-card);
 }
 
 .tips-section h3 {
@@ -433,6 +611,10 @@
   font-size: 18px;
   font-weight: 600;
   color: #1a1a1a;
+}
+
+.dark-mode .tips-section h3 {
+  color: var(--text-primary);
 }
 
 .tips-section ul {
@@ -444,6 +626,10 @@
   margin-bottom: 8px;
   color: #666;
   line-height: 1.5;
+}
+
+.dark-mode .tips-section li {
+  color: var(--text-primary);
 }
 
 /* Responsive */
@@ -480,8 +666,4 @@
   .conversations-table td {
     padding: 8px;
   }
-}
-
-.conversations-table th {
-  background-color: #464646 !important;
 }

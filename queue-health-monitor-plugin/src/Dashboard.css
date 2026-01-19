@@ -1324,6 +1324,11 @@
   line-height: 1;
 }
 
+.dark-mode .avatar-away-indicator {
+  background: rgba(30, 30, 30, 0.9);
+  border-color: var(--bg-card);
+}
+
 .avatar-available-indicator {
   position: absolute;
   bottom: -2px;
@@ -1561,7 +1566,7 @@
 }
 
 .dark-mode .tags-cell {
-  color: #000000;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -4042,9 +4047,19 @@
   transition: all 0.2s;
 }
 
+.dark-mode .help-status-item {
+  background: var(--bg-card);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
 .help-status-item:hover {
   border-color: #35a1b4;
   box-shadow: 0 2px 8px rgba(53, 161, 180, 0.15);
+}
+
+.dark-mode .help-status-item:hover {
+  border-color: #35a1b4;
+  box-shadow: 0 2px 8px rgba(53, 161, 180, 0.3);
 }
 
 .help-status-badge {
@@ -4085,11 +4100,19 @@
   font-weight: 700;
 }
 
+.dark-mode .help-status-item strong {
+  color: var(--text-primary);
+}
+
 .help-status-item p {
   margin: 4px 0;
   font-size: 13px;
   color: #666;
   line-height: 1.5;
+}
+
+.dark-mode .help-status-item p {
+  color: var(--text-primary);
 }
 
 .help-status-detail {
@@ -4099,11 +4122,19 @@
   margin-top: 4px !important;
 }
 
+.dark-mode .help-status-detail {
+  color: var(--text-secondary) !important;
+}
+
 .help-section ul {
   margin: 0;
   padding-left: 24px;
   color: #666;
   line-height: 1.8;
+}
+
+.dark-mode .help-section ul {
+  color: var(--text-primary);
 }
 
 .help-section li {
@@ -4117,6 +4148,10 @@
 .help-section strong {
   color: #292929;
   font-weight: 600;
+}
+
+.dark-mode .help-section strong {
+  color: var(--text-primary);
 }
 
 .modal-body {

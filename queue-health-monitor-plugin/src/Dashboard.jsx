@@ -2953,6 +2953,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage10Plus || 0) * 10) / 10;
   }, [responseTimeTrendData]);
 
+  const currentResponseTimePct5to10 = useMemo(() => {
+    if (responseTimeTrendData.length === 0) return 0;
+    return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage5to10 || 0) * 10) / 10;
+  }, [responseTimeTrendData]);
+
 
   const sameDayClosePct = useMemo(() => {
     const conversationList = conversations || [];
@@ -3449,30 +3454,16 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       });
     }
     
-    // Wait Rate - always include current status
-    if (currentResponseTimePct5Plus <= 5) {
+    // Response time breakdown - 10+ min wait (only threshold)
+    if (currentResponseTimePct10Plus > 10) {
+      insights.push({
+        type: 'warning',
+        text: `${currentResponseTimePct10Plus}% of conversations have 10+ min wait time - exceeds target (target: ≤10%)`
+      });
+    } else if (currentResponseTimePct10Plus > 0) {
       insights.push({
         type: 'positive',
-        text: `Wait rate is at target: ${currentResponseTimePct5Plus}% of conversations have 5+ min wait time`
-      });
-    } else if (currentResponseTimePct5Plus > 10) {
-      insights.push({
-        type: 'warning',
-        text: `Wait rate exceeds target: ${currentResponseTimePct5Plus}% of conversations have 5+ min wait time (target: 5%)`
-      });
-    } else {
-      // Middle range - still provide insight
-      insights.push({
-        type: 'warning',
-        text: `Wait rate: ${currentResponseTimePct5Plus}% of conversations have 5+ min wait time (target: 5%)`
-      });
-    }
-    
-    // Response time breakdown
-    if (currentResponseTimePct10Plus > 3) {
-      insights.push({
-        type: 'warning',
-        text: `${currentResponseTimePct10Plus}% of conversations have 10+ min wait time - focus area for improvement`
+        text: `${currentResponseTimePct10Plus}% of conversations have 10+ min wait time - within target (target: ≤10%)`
       });
     }
     
@@ -3582,7 +3573,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     }
     
     return insights.slice(0, 4); // Limit to top 4 insights
-  }, [metrics.onTrackOverall, currentResponseTimePct5Plus, currentResponseTimePct10Plus, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, improvementPotential, historicalSnapshots, responseTimeMetrics]);
+  }, [metrics.onTrackOverall, currentResponseTimePct5Plus, currentResponseTimePct5to10, currentResponseTimePct10Plus, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, improvementPotential, historicalSnapshots, responseTimeMetrics]);
 
   // Calculate Region Performance Summary
   const regionPerformance = useMemo(() => {
@@ -4577,7 +4568,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                       <li><strong>5-10 Min Wait %</strong> (orange, dashed): Percentage waiting 5-10 minutes</li>
                       <li><strong>10+ Min Wait %</strong> (red, dashed): Percentage waiting 10+ minutes</li>
                     </ul>
-                    <p><strong>Reference Line:</strong> The red dotted line at 5% represents a target threshold. Values below this line indicate good performance.</p>
+                    <p><strong>Reference Line:</strong> The red dashed line at 10% represents the target threshold for 10+ Min Waits (≤10%). Values at or below this line indicate good performance.</p>
                     <p><strong>How to use:</strong> Hover over data points to see exact values.</p>
                   </div>
                 }
@@ -4626,11 +4617,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   }}
                   />
                   <ReferenceLine
-                  y={5} 
+                  y={10} 
                   stroke="#fd8789" 
                   strokeDasharray="2 2" 
                   strokeWidth={2}
-                  label={{ value: "Target: 5%", position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                  label={{ value: "Target: ≤10% (10+ Min Waits)", position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                   />
                   <Line 
                     type="monotone" 
@@ -5072,7 +5063,11 @@ function TSEDetailsModal({ tse, conversations, historicalSnapshots = [], respons
     'Other': { text: 'Other' }
   };
   const regionLabel = regionLabels[region] || regionLabels['Other'];
-  const regionIconUrl = REGION_ICONS[region];
+  // Use dark mode icon for NY when in dark mode
+  let regionIconUrl = REGION_ICONS[region];
+  if (region === 'NY' && isDarkMode) {
+    regionIconUrl = 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg';
+  }
   const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
   
   // Calculate status for the modal
@@ -5225,7 +5220,7 @@ function TSEDetailsModal({ tse, conversations, historicalSnapshots = [], respons
     } else if (onTrackPercentage < 60) {
       insights.push({
         type: 'warning',
-        text: `Performance needs attention: Only ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`
+        text: `Only ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`
       });
     }
 
@@ -5251,7 +5246,7 @@ function TSEDetailsModal({ tse, conversations, historicalSnapshots = [], respons
     } else if (trend.direction === 'worsening') {
       insights.push({
         type: 'warning',
-        text: `Performance declining: ${trend.change.toFixed(1)}% on-track ${trend.period}`
+        text: `${trend.change.toFixed(1)}% on-track ${trend.period}`
       });
     }
 
@@ -5733,6 +5728,7 @@ function TSEDetailsModal({ tse, conversations, historicalSnapshots = [], respons
 }
 
 function ConversationTable({ conversations }) {
+  const { isDarkMode } = useTheme();
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
   const [columnWidths, setColumnWidths] = useState({
@@ -5996,11 +5992,11 @@ function ConversationTable({ conversations }) {
               if (tag === "N/A") {
                 return "transparent"; // No background for N/A
               } else if (tag === "Waiting On TSE - Deep Dive") {
-                return "#ffd0d0"; // Red background (darker)
+                return isDarkMode ? "#4a1f1f" : "#ffd0d0"; // Dark red in dark mode, light red in light mode
               } else if (tag === "Waiting On Customer - Unresolved") {
-                return "#fff0c0"; // Yellow background (darker)
+                return isDarkMode ? "#4a3d1f" : "#fff0c0"; // Dark yellow-brown in dark mode, light yellow in light mode
               } else if (tag === "Waiting On Customer - Resolved") {
-                return "#d0f0dc"; // Green background (darker)
+                return isDarkMode ? "#1f3a2a" : "#d0f0dc"; // Dark green in dark mode, light green in light mode
               }
               return "transparent"; // No background for "No Active Snooze Workflows"
             };
@@ -6412,8 +6408,7 @@ function HelpModal({ onClose }) {
               <p><strong>Insight Types:</strong></p>
               <ul>
                 <li><strong>On-Track Performance:</strong> Current percentage of TSEs meeting targets, with status indicators (Strong ≥80%, Needs Attention &lt;60%)</li>
-                <li><strong>Wait Rate Status:</strong> Current percentage of conversations with 5+ minute wait times, compared to target (5%)</li>
-                <li><strong>Response Time Breakdown:</strong> Highlights when 10+ minute wait times exceed 3%</li>
+                <li><strong>Response Time Status:</strong> Current percentage of conversations with 10+ minute wait times, compared to target (≤10%)</li>
                 <li><strong>Trend Indicators:</strong> Shows improving or declining trends for both on-track and wait rate metrics</li>
                 <li><strong>Impact Insights:</strong> Correlation analysis and improvement potential from the Impact tab</li>
               </ul>
@@ -6576,7 +6571,7 @@ function HelpModal({ onClose }) {
                     <li><strong>10+ Min Wait %:</strong> Red/pink line - percentage waiting 10+ minutes</li>
                   </ul>
                 </li>
-                <li><strong>Target Line:</strong> Horizontal dotted line at 5% indicating the target</li>
+                <li><strong>Target Line:</strong> Horizontal dashed line at 10% indicating the target for 10+ Min Waits (≤10%)</li>
                 <li><strong>Y-Axis:</strong> Scales dynamically up to 20% to ensure readability</li>
                 <li><strong>Data Source:</strong> Response time metrics collected nightly</li>
               </ul>
@@ -7097,7 +7092,7 @@ function HelpModal({ onClose }) {
               </div>
               <p><strong>Purpose:</strong> Comprehensive analysis of first response times, focusing on customer experience quality by tracking conversations with extended wait times before the first admin reply.</p>
               
-              <p><strong>Target:</strong> The goal is to keep the percentage of conversations with 5+ minute wait times at or below 5%.</p>
+              <p><strong>Target:</strong> The goal is to keep the percentage of conversations with 10+ minute wait times at or below 10%.</p>
 
               <p><strong>Date Range & TSE Filter:</strong> Same as Daily On Track Trends tab - select date range and TSEs to analyze. Filters apply to all visualizations.</p>
 
@@ -7135,7 +7130,7 @@ function HelpModal({ onClose }) {
                     <li><strong>10+ Min Wait %:</strong> Red/pink line - percentage waiting 10+ minutes</li>
                   </ul>
                 </li>
-                <li><strong>Target Line:</strong> Horizontal dotted line at 5% indicating the target</li>
+                <li><strong>Target Line:</strong> Horizontal dashed line at 10% indicating the target for 10+ Min Waits (≤10%)</li>
                 <li><strong>Y-Axis:</strong> Scales dynamically up to 20% (or higher if needed) to ensure readability</li>
                 <li><strong>Legend:</strong> Ordered to show 5+ Min first, then 5-10 Min, then 10+ Min</li>
                 <li><strong>Holiday Indicators:</strong> Icons mark holidays</li>

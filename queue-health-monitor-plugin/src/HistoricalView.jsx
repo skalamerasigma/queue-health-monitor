@@ -3597,29 +3597,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
               {(() => {
                 const insights = [];
                 
-                // Average wait rate vs target
-                if (responseTimeSummary.avgPercentage5Plus <= 5) {
-                  insights.push({
-                    type: 'positive',
-                    text: `Wait rate at target: ${responseTimeSummary.avgPercentage5Plus}% average 5+ min wait rate (target: ≤5%)`
-                  });
-                } else if (responseTimeSummary.avgPercentage5Plus > 10) {
+                // 10+ min breakdown (only threshold)
+                if (responseTimeSummary.avgPercentage10Plus > 10) {
                   insights.push({
                     type: 'warning',
-                    text: `Wait rate exceeds target: ${responseTimeSummary.avgPercentage5Plus}% average 5+ min wait rate (target: ≤5%)`
+                    text: `${responseTimeSummary.avgPercentage10Plus}% average 10+ min wait rate - exceeds target (target: ≤10%)`
                   });
-                }
-                
-                // 10+ min breakdown
-                if (responseTimeSummary.avgPercentage10Plus > 3) {
-                  insights.push({
-                    type: 'warning',
-                    text: `${responseTimeSummary.avgPercentage10Plus}% average 10+ min wait rate - focus area for improvement`
-                  });
-                } else if (responseTimeSummary.avgPercentage10Plus <= 1) {
+                } else if (responseTimeSummary.avgPercentage10Plus > 0) {
                   insights.push({
                     type: 'positive',
-                    text: `Excellent 10+ min performance: Only ${responseTimeSummary.avgPercentage10Plus}% average wait rate`
+                    text: `${responseTimeSummary.avgPercentage10Plus}% average 10+ min wait rate - within target (target: ≤10%)`
                   });
                 }
                 
@@ -3857,7 +3844,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                           <li><strong>5-10 Min Wait %</strong> (orange, dashed): Percentage waiting 5-10 minutes</li>
                           <li><strong>10+ Min Wait %</strong> (red, dashed): Percentage waiting 10+ minutes</li>
                         </ul>
-                        <p><strong>Reference Line:</strong> The red dotted line at 5% represents a target threshold. Values below this line indicate good performance.</p>
+                        <p><strong>Reference Line:</strong> The red dashed line at 10% represents the target threshold for 10+ Min Waits (≤10%). Values at or below this line indicate good performance.</p>
                         <p><strong>How to use:</strong> Hover over data points to see exact values. Use the date range selector to analyze different time periods.</p>
                       </div>
                     }
@@ -3892,11 +3879,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
                   }}
                     />
                     <ReferenceLine 
-                      y={5} 
+                      y={10} 
                       stroke="#fd8789" 
                       strokeDasharray="2 2" 
                       strokeWidth={2}
-                      label={{ value: "Target: 5%", position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      label={{ value: "Target: ≤10% (10+ Min Waits)", position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                     />
                     <Line 
                       type="monotone" 
