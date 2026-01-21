@@ -421,6 +421,239 @@ async function fetchAllOpenTeamConversations(authHeader, options = {}) {
   // Now fetch closed conversations closed today (unless skipClosed is true)
   if (skipClosed) {
     console.log(`[API] SKIPPING closed conversations fetch (skipClosed=true). Returning ${all.length} conversations.`);
+  } else if (closedOnly) {
+    // Fetch only closed conversations (skipClosed=false, closedOnly=true)
+    console.log(`[API] Fetching ONLY closed conversations closed today...`);
+    
+    let closedStartingAfter = null;
+    let closedPageCount = 0;
+    
+    while (closedPageCount < MAX_PAGES) {
+      // Search for closed conversations updated in last 24 hours (we'll filter by closed_at client-side)
+      // Using updated_at ensures we catch conversations that were created earlier but closed today
+      const closedBody = {
+        query: {
+          operator: "AND",
+          value: [
+            {
+              field: "updated_at",
+              operator: ">",
+              value: last24HoursTimestamp
+            },
+            {
+              field: "state",
+              operator: "=",
+              value: "closed"
+            }
+          ]
+        },
+        pagination: {
+          per_page: 150,
+          ...(closedStartingAfter ? { starting_after: closedStartingAfter } : {})
+        }
+      };
+      
+      console.log(`[API] Searching for closed conversations with updated_at > ${last24HoursTimestamp} (last 24 hours: ${new Date(last24HoursTimestamp * 1000).toISOString()}), state=closed`);
+
+      const closedResp = await fetch(
+        `${INTERCOM_BASE_URL}/conversations/search`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": authHeader,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Intercom-Version": "2.12"
+          },
+          body: JSON.stringify(closedBody)
+        }
+      );
+
+      if (!closedResp.ok) {
+        const text = await closedResp.text();
+        console.warn(`[API] Error fetching closed conversations: ${closedResp.status}: ${text}`);
+        break; // Don't fail completely if closed conversation search fails
+      }
+
+      const closedData = await closedResp.json();
+      const closedItems = closedData.data || closedData.conversations || [];
+      
+      console.log(`[API] Found ${closedItems.length} closed conversations in search results (page ${closedPageCount + 1})`);
+      debug.closedSearch.found += closedItems.length;
+      debug.closedSearch.pages += 1;
+      
+      if (closedItems.length > 0) {
+        const sampleIds = closedItems.slice(0, 5).map(item => ({
+          id: item.id,
+          state: item.state,
+          admin_assignee_id: item.admin_assignee_id,
+          team_assignee_id: item.team_assignee_id
+        }));
+        console.log(`[API] Sample closed conversation IDs:`, sampleIds);
+        if (debug.closedSearch.sampleSearchIds.length === 0) {
+          debug.closedSearch.sampleSearchIds = sampleIds;
+        }
+      }
+
+      if (closedItems.length === 0) {
+        console.log(`[API] No more closed conversations found, stopping pagination`);
+        break; // No more closed conversations
+      }
+
+      // Fetch full details for closed conversations
+      // Aggressively optimized: Large batch size, no delays
+      const CLOSED_BATCH_SIZE = 50; // Increased to 50 for maximum parallelization
+      const enrichedClosedItems = [];
+      
+      for (let i = 0; i < closedItems.length; i += CLOSED_BATCH_SIZE) {
+        const batch = closedItems.slice(i, i + CLOSED_BATCH_SIZE);
+        const batchPromises = batch.map(async (item) => {
+          try {
+            const convResp = await fetch(
+              `${INTERCOM_BASE_URL}/conversations/${item.id}`,
+              {
+                headers: {
+                  "Authorization": authHeader,
+                  "Accept": "application/json",
+                  "Intercom-Version": "2.10"
+                }
+              }
+            );
+            
+            if (convResp.ok) {
+              const fullConv = await convResp.json();
+              
+              // Verify it's actually closed and closed today
+              const convState = fullConv.state || item.state;
+              if (convState !== "closed") {
+                debug.closedSearch.skipped.notClosed += 1;
+                return null;
+              }
+              
+              // Get closed_at from various possible locations
+              // Intercom API might store it in different places
+              const closedAt = fullConv.closed_at || 
+                             fullConv.statistics?.last_close_at || 
+                             item.closed_at ||
+                             item.statistics?.last_close_at;
+              
+              if (!closedAt) {
+                debug.closedSearch.skipped.noClosedAt += 1;
+                return null;
+              }
+              
+              const closedAtSeconds = typeof closedAt === "number" 
+                ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
+                : Math.floor(new Date(closedAt).getTime() / 1000);
+              
+              if (closedAtSeconds < todayStartSeconds || closedAtSeconds >= todayEndSeconds) {
+                debug.closedSearch.skipped.outOfRange += 1;
+                return null;
+              }
+              
+              // Get assignment info - check multiple sources
+              let adminAssignee = item.admin_assignee || fullConv.admin_assignee;
+              let adminAssigneeId = item.admin_assignee_id || fullConv.admin_assignee_id;
+              
+              // From api.txt, we saw admin_assignee_id is at the top level
+              // Also check teammates array which contains admin IDs
+              if (!adminAssigneeId) {
+                if (fullConv.admin_assignee_id) {
+                  adminAssigneeId = fullConv.admin_assignee_id;
+                } else if (fullConv.teammates && fullConv.teammates.admins && fullConv.teammates.admins.length > 0) {
+                  // Use first teammate as assignee
+                  adminAssigneeId = fullConv.teammates.admins[0].id;
+                } else if (fullConv.statistics && fullConv.statistics.last_closed_by_id) {
+                  // Fallback: use last admin who closed it
+                  adminAssigneeId = fullConv.statistics.last_closed_by_id;
+                }
+              }
+              
+              // Also verify team assignment
+              const teamAssigneeId = fullConv.team_assignee_id || item.team_assignee_id;
+              if (teamAssigneeId !== "5480079" && String(teamAssigneeId) !== "5480079") {
+                debug.closedSearch.skipped.wrongTeam += 1;
+                return null;
+              }
+              
+              debug.closedSearch.included += 1;
+              if (debug.closedSearch.sampleIncludedIds.length < 5) {
+                debug.closedSearch.sampleIncludedIds.push({
+                  id: item.id,
+                  admin_assignee_id: adminAssigneeId,
+                  closed_at: closedAtSeconds
+                });
+              }
+              
+              // Use cached admin fetch instead of direct fetch
+              if (adminAssigneeId && !adminAssignee) {
+                adminAssignee = await fetchAdminCached(adminAssigneeId);
+              }
+              
+              return {
+                ...item,
+                tags: fullConv.tags?.tags || fullConv.tags || item.tags || [],
+                admin_assignee_id: adminAssigneeId,
+                admin_assignee: adminAssignee,
+                team_assignee_id: fullConv.team_assignee_id || item.team_assignee_id,
+                snoozed_until: fullConv.snoozed_until || item.snoozed_until,
+                updated_at: fullConv.updated_at || item.updated_at,
+                last_contacted_at: fullConv.last_contacted_at || item.last_contacted_at,
+                statistics: fullConv.statistics || item.statistics,
+                source: fullConv.source || item.source,
+                state: "closed",
+                closed_at: closedAt
+              };
+            }
+          } catch (err) {
+            console.warn(`Failed to fetch details for closed conversation ${item.id}:`, err.message);
+          }
+          return null;
+        });
+        
+      // Use Promise.allSettled to ensure we don't lose results if one promise fails
+      const batchResults = await Promise.allSettled(batchPromises);
+      const validResults = batchResults
+        .map(result => result.status === 'fulfilled' ? result.value : null)
+        .filter(result => result !== null);
+      enrichedClosedItems.push(...validResults);
+      debug.closedSearch.enriched += validResults.length;
+      
+      // Log any failures
+      const failures = batchResults.filter(r => r.status === 'rejected');
+      if (failures.length > 0) {
+        console.warn(`[API] ${failures.length} closed conversation fetches failed in batch ${Math.floor(i / CLOSED_BATCH_SIZE) + 1}`);
+      }
+        
+        // Removed delay entirely - process batches immediately for maximum speed
+      }
+      
+      all = all.concat(enrichedClosedItems);
+      closedPageCount++;
+      console.log(`[API] After page ${closedPageCount}: Total closed conversations included so far: ${all.filter(c => c.state === 'closed').length}`);
+      
+      const closedStateCounts = enrichedClosedItems.reduce((acc, conv) => {
+        const state = conv.state || "unknown";
+        acc[state] = (acc[state] || 0) + 1;
+        return acc;
+      }, {});
+      console.log(`[API] Closed conversations page ${closedPageCount}: fetched ${closedItems.length}, enriched ${enrichedClosedItems.length} (states: ${JSON.stringify(closedStateCounts)}) (total conversations: ${all.length})`);
+
+      const closedPages = closedData.pages || {};
+      const closedNext = closedPages.next;
+      
+      if (!closedNext) {
+        break;
+      }
+      
+      if (typeof closedNext === "string") {
+        closedStartingAfter = closedNext;
+      } else if (closedNext && typeof closedNext.starting_after === "string") {
+        closedStartingAfter = closedNext.starting_after;
+      } else {
+        break;
+      }
+    }
   } else {
     console.log(`[API] Fetched ${all.length} open/snoozed conversations. Now fetching closed conversations closed today...`);
 
@@ -655,241 +888,6 @@ async function fetchAllOpenTeamConversations(authHeader, options = {}) {
       break;
     }
     }
-  } else if (closedOnly) {
-    // Fetch only closed conversations
-    console.log(`[API] Fetching ONLY closed conversations closed today...`);
-    
-    let closedStartingAfter = null;
-    let closedPageCount = 0;
-    
-    while (closedPageCount < MAX_PAGES) {
-      // Search for closed conversations updated in last 24 hours (we'll filter by closed_at client-side)
-      // Using updated_at ensures we catch conversations that were created earlier but closed today
-      const closedBody = {
-        query: {
-          operator: "AND",
-          value: [
-            {
-              field: "updated_at",
-              operator: ">",
-              value: last24HoursTimestamp
-            },
-            {
-              field: "state",
-              operator: "=",
-              value: "closed"
-            }
-          ]
-        },
-        pagination: {
-          per_page: 150,
-          ...(closedStartingAfter ? { starting_after: closedStartingAfter } : {})
-        }
-      };
-      
-      console.log(`[API] Searching for closed conversations with updated_at > ${last24HoursTimestamp} (last 24 hours: ${new Date(last24HoursTimestamp * 1000).toISOString()}), state=closed`);
-
-      const closedResp = await fetch(
-        `${INTERCOM_BASE_URL}/conversations/search`,
-        {
-          method: "POST",
-          headers: {
-            "Authorization": authHeader,
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "Intercom-Version": "2.12"
-          },
-          body: JSON.stringify(closedBody)
-        }
-      );
-
-      if (!closedResp.ok) {
-        const text = await closedResp.text();
-        console.warn(`[API] Error fetching closed conversations: ${closedResp.status}: ${text}`);
-        break; // Don't fail completely if closed conversation search fails
-      }
-
-      const closedData = await closedResp.json();
-      const closedItems = closedData.data || closedData.conversations || [];
-      
-      console.log(`[API] Found ${closedItems.length} closed conversations in search results (page ${closedPageCount + 1})`);
-      debug.closedSearch.found += closedItems.length;
-      debug.closedSearch.pages += 1;
-      
-      if (closedItems.length > 0) {
-        const sampleIds = closedItems.slice(0, 5).map(item => ({
-          id: item.id,
-          state: item.state,
-          admin_assignee_id: item.admin_assignee_id,
-          team_assignee_id: item.team_assignee_id
-        }));
-        console.log(`[API] Sample closed conversation IDs:`, sampleIds);
-        if (debug.closedSearch.sampleSearchIds.length === 0) {
-          debug.closedSearch.sampleSearchIds = sampleIds;
-        }
-      }
-
-      if (closedItems.length === 0) {
-        console.log(`[API] No more closed conversations found, stopping pagination`);
-        break; // No more closed conversations
-      }
-
-      // Fetch full details for closed conversations
-      // Aggressively optimized: Large batch size, no delays
-      const CLOSED_BATCH_SIZE = 50; // Increased to 50 for maximum parallelization
-      const enrichedClosedItems = [];
-      
-      for (let i = 0; i < closedItems.length; i += CLOSED_BATCH_SIZE) {
-        const batch = closedItems.slice(i, i + CLOSED_BATCH_SIZE);
-        const batchPromises = batch.map(async (item) => {
-          try {
-            const convResp = await fetch(
-              `${INTERCOM_BASE_URL}/conversations/${item.id}`,
-              {
-                headers: {
-                  "Authorization": authHeader,
-                  "Accept": "application/json",
-                  "Intercom-Version": "2.10"
-                }
-              }
-            );
-            
-            if (convResp.ok) {
-              const fullConv = await convResp.json();
-              
-              // Verify it's actually closed and closed today
-              const convState = fullConv.state || item.state;
-              if (convState !== "closed") {
-                debug.closedSearch.skipped.notClosed += 1;
-                return null;
-              }
-              
-              // Get closed_at from various possible locations
-              // Intercom API might store it in different places
-              const closedAt = fullConv.closed_at || 
-                             fullConv.statistics?.last_close_at || 
-                             item.closed_at ||
-                             item.statistics?.last_close_at;
-              
-              if (!closedAt) {
-                debug.closedSearch.skipped.noClosedAt += 1;
-                return null;
-              }
-              
-              const closedAtSeconds = typeof closedAt === "number" 
-                ? (closedAt > 1e12 ? Math.floor(closedAt / 1000) : closedAt)
-                : Math.floor(new Date(closedAt).getTime() / 1000);
-              
-              if (closedAtSeconds < todayStartSeconds || closedAtSeconds >= todayEndSeconds) {
-                debug.closedSearch.skipped.outOfRange += 1;
-                return null;
-              }
-              
-              // Get assignment info - check multiple sources
-              let adminAssignee = item.admin_assignee || fullConv.admin_assignee;
-              let adminAssigneeId = item.admin_assignee_id || fullConv.admin_assignee_id;
-              
-              // From api.txt, we saw admin_assignee_id is at the top level
-              // Also check teammates array which contains admin IDs
-              if (!adminAssigneeId) {
-                if (fullConv.admin_assignee_id) {
-                  adminAssigneeId = fullConv.admin_assignee_id;
-                } else if (fullConv.teammates && fullConv.teammates.admins && fullConv.teammates.admins.length > 0) {
-                  // Use first teammate as assignee
-                  adminAssigneeId = fullConv.teammates.admins[0].id;
-                } else if (fullConv.statistics && fullConv.statistics.last_closed_by_id) {
-                  // Fallback: use last admin who closed it
-                  adminAssigneeId = fullConv.statistics.last_closed_by_id;
-                }
-              }
-              
-              // Also verify team assignment
-              const teamAssigneeId = fullConv.team_assignee_id || item.team_assignee_id;
-              if (teamAssigneeId !== "5480079" && String(teamAssigneeId) !== "5480079") {
-                debug.closedSearch.skipped.wrongTeam += 1;
-                return null;
-              }
-              
-              debug.closedSearch.included += 1;
-              if (debug.closedSearch.sampleIncludedIds.length < 5) {
-                debug.closedSearch.sampleIncludedIds.push({
-                  id: item.id,
-                  admin_assignee_id: adminAssigneeId,
-                  closed_at: closedAtSeconds
-                });
-              }
-              
-              // Use cached admin fetch instead of direct fetch
-              if (adminAssigneeId && !adminAssignee) {
-                adminAssignee = await fetchAdminCached(adminAssigneeId);
-              }
-              
-              return {
-                ...item,
-                tags: fullConv.tags?.tags || fullConv.tags || item.tags || [],
-                admin_assignee_id: adminAssigneeId,
-                admin_assignee: adminAssignee,
-                team_assignee_id: fullConv.team_assignee_id || item.team_assignee_id,
-                snoozed_until: fullConv.snoozed_until || item.snoozed_until,
-                updated_at: fullConv.updated_at || item.updated_at,
-                last_contacted_at: fullConv.last_contacted_at || item.last_contacted_at,
-                statistics: fullConv.statistics || item.statistics,
-                source: fullConv.source || item.source,
-                state: "closed",
-                closed_at: closedAt
-              };
-            }
-          } catch (err) {
-            console.warn(`Failed to fetch details for closed conversation ${item.id}:`, err.message);
-          }
-          return null;
-        });
-        
-      // Use Promise.allSettled to ensure we don't lose results if one promise fails
-      const batchResults = await Promise.allSettled(batchPromises);
-      const validResults = batchResults
-        .map(result => result.status === 'fulfilled' ? result.value : null)
-        .filter(result => result !== null);
-      enrichedClosedItems.push(...validResults);
-      debug.closedSearch.enriched += validResults.length;
-      
-      // Log any failures
-      const failures = batchResults.filter(r => r.status === 'rejected');
-      if (failures.length > 0) {
-        console.warn(`[API] ${failures.length} closed conversation fetches failed in batch ${Math.floor(i / CLOSED_BATCH_SIZE) + 1}`);
-      }
-        
-        // Removed delay entirely - process batches immediately for maximum speed
-      }
-      
-      all = all.concat(enrichedClosedItems);
-      closedPageCount++;
-      console.log(`[API] After page ${closedPageCount}: Total closed conversations included so far: ${all.filter(c => c.state === 'closed').length}`);
-      
-      const closedStateCounts = enrichedClosedItems.reduce((acc, conv) => {
-        const state = conv.state || "unknown";
-        acc[state] = (acc[state] || 0) + 1;
-        return acc;
-      }, {});
-      console.log(`[API] Closed conversations page ${closedPageCount}: fetched ${closedItems.length}, enriched ${enrichedClosedItems.length} (states: ${JSON.stringify(closedStateCounts)}) (total conversations: ${all.length})`);
-
-      const closedPages = closedData.pages || {};
-      const closedNext = closedPages.next;
-      
-      if (!closedNext) {
-        break;
-      }
-      
-      if (typeof closedNext === "string") {
-        closedStartingAfter = closedNext;
-      } else if (closedNext && typeof closedNext.starting_after === "string") {
-        closedStartingAfter = closedNext.starting_after;
-      } else {
-        break;
-      }
-    }
-  } else {
-    console.log(`[API] Skipping closed conversations (skipClosed=true)`);
   }
 
   const finalStateCounts = all.reduce((acc, conv) => {
