@@ -486,7 +486,7 @@ const THRESHOLDS = {
 };
 
 function Dashboard(props) {
-  const { conversations = [], teamMembers = [], loading, error, onRefresh, lastUpdated } = props;
+  const { conversations = [], teamMembers = [], loading, loadingClosedConversations = false, error, onRefresh, lastUpdated } = props;
   const { logout, user } = useAuth();
   const { isDarkMode, toggleDarkMode } = useTheme();
   
@@ -5306,16 +5306,33 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                 >
                   <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Same-Day Close % (Today)</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '20px', fontWeight: 600 }}>{sameDayClosePct}%</span>
-                    {sameDayCloseTrend.change > 0 && (
-                      <span className={`kpi-trend ${sameDayCloseTrend.direction}`} style={{ fontSize: '12px' }}>
-                        {sameDayCloseTrend.direction === 'up' ? '↑' : sameDayCloseTrend.direction === 'down' ? '↓' : '→'}
-                        {sameDayCloseTrend.change > 0 && ` ${sameDayCloseTrend.change.toFixed(1)}%`}
-                      </span>
+                    {loadingClosedConversations ? (
+                      <div className="same-day-close-spinner" style={{ 
+                        width: '20px', 
+                        height: '20px', 
+                        border: `2px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                        borderTop: `2px solid ${isDarkMode ? '#fff' : '#333'}`,
+                        borderRadius: '50%',
+                        animation: 'spin 0.8s linear infinite'
+                      }} />
+                    ) : (
+                      <>
+                        <span style={{ fontSize: '20px', fontWeight: 600 }}>{sameDayClosePct}%</span>
+                        {sameDayCloseTrend.change > 0 && (
+                          <span className={`kpi-trend ${sameDayCloseTrend.direction}`} style={{ fontSize: '12px' }}>
+                            {sameDayCloseTrend.direction === 'up' ? '↑' : sameDayCloseTrend.direction === 'down' ? '↓' : '→'}
+                            {sameDayCloseTrend.change > 0 && ` ${sameDayCloseTrend.change.toFixed(1)}%`}
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
                   <div style={{ fontSize: '10px', color: isDarkMode ? '#666' : '#999', marginTop: '4px' }}>
-                    {sameDayCloseData.conversations.length} of {sameDayCloseData.totalClosed} closed today
+                    {loadingClosedConversations ? (
+                      'Loading closed conversations...'
+                    ) : (
+                      `${sameDayCloseData.conversations.length} of ${sameDayCloseData.totalClosed} closed today`
+                    )}
                   </div>
                 </div>
               </div>
