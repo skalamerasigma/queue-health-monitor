@@ -206,7 +206,6 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
         console.log('App: Team members loaded successfully:', teamMembers.map(m => ({ id: m.id, email: m.email, name: m.name })));
       }
       
-      const dataSetStartTime = performance.now();
       setData({ conversations, teamMembers });
       setLastUpdated(new Date());
       const totalTime = performance.now() - fetchStartTime;
