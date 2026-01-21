@@ -3899,60 +3899,25 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   }, [responseTimeTrendData]);
 
 
-  // Calculate Same-Day Close % for conversations closed today (UTC timezone, matching API filtering)
-  // Counts all conversations closed today (UTC), regardless of when created
+  // Calculate Close Rate %: Percentage of conversations created today that were closed (PT timezone)
+  // Counts all conversations created today (PT), then calculates what percentage were closed
   const sameDayCloseData = useMemo(() => {
     const conversationList = conversations || [];
-    if (conversationList.length === 0) return { pct: 0, conversations: [], totalClosed: 0 };
+    if (conversationList.length === 0) return { pct: 0, conversations: [], totalClosed: 0, totalCreated: 0 };
 
-    // Calculate today's window: 2am PT to 6pm PT (same as Wait Rate)
     const now = new Date();
     
-    // Get current PT offset (handles daylight saving automatically)
+    // Get current PT time formatter
     const ptFormatter = new Intl.DateTimeFormat('en-US', { 
       timeZone: 'America/Los_Angeles', 
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', hour12: false 
     });
-    const ptParts = ptFormatter.formatToParts(now);
-    const ptYear = parseInt(ptParts.find(p => p.type === 'year').value);
-    const ptMonth = parseInt(ptParts.find(p => p.type === 'month').value) - 1;
-    const ptDay = parseInt(ptParts.find(p => p.type === 'day').value);
-    
-    // Create 2am PT and 6pm PT for today in UTC
-    const todayPT = new Date(Date.UTC(ptYear, ptMonth, ptDay));
-    
-    // Determine PT offset (PST = -8, PDT = -7)
-    const jan = new Date(ptYear, 0, 1);
-    const jul = new Date(ptYear, 6, 1);
-    const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
-    const isDST = now.getTimezoneOffset() < stdOffset;
-    const ptOffsetHours = isDST ? 7 : 8; // PDT = UTC-7, PST = UTC-8
-    
-    // 2am PT = 2 + ptOffsetHours in UTC
-    const startHourUTC = 2 + ptOffsetHours;
-    // 6pm PT = 18 + ptOffsetHours in UTC  
-    const endHourUTC = 18 + ptOffsetHours;
-    
-    const windowStart = new Date(todayPT);
-    windowStart.setUTCHours(startHourUTC, 0, 0, 0);
-    
-    const windowEnd = new Date(todayPT);
-    if (endHourUTC >= 24) {
-      windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
-      windowEnd.setUTCHours(endHourUTC - 24, 0, 0, 0);
-    } else {
-      windowEnd.setUTCHours(endHourUTC, 0, 0, 0);
-    }
 
     const toTimestamp = (timestamp) => {
       if (!timestamp) return null;
       return timestamp > 1e12 ? timestamp : timestamp * 1000;
     };
-
-    let closedTotal = 0;
-    let closedSameDay = 0;
-    const sameDayConversations = [];
 
     // Get today's date string in PT timezone
     const ptDateFormatter = new Intl.DateTimeFormat('en-US', { 
@@ -3973,70 +3938,56 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       });
     };
 
-    // Debug: Count closed conversations
-    const totalClosedInList = conversationList.filter(c => (c.state || "").toLowerCase() === "closed").length;
-    console.log(`[Same-Day Close] Total closed conversations in list: ${totalClosedInList}`);
-    console.log(`[Same-Day Close] Today PT date string: ${todayPTDateStr}`);
-    console.log(`[Same-Day Close] Current PT time: ${ptFormatter.format(now)}`);
+    let totalCreatedToday = 0;
+    let totalClosedToday = 0;
+    const closedConversations = [];
 
-    let filteredOutNoClosedAt = 0;
-    let filteredOutWrongDate = 0;
-    let filteredOutServiceAccount = 0;
-    let includedCount = 0;
+    console.log(`[Close Rate] Today PT date string: ${todayPTDateStr}`);
+    console.log(`[Close Rate] Current PT time: ${ptFormatter.format(now)}`);
 
+    // Loop through ALL conversations to find those created today
     conversationList.forEach(conv => {
-      const state = (conv.state || "").toLowerCase();
-      if (state !== "closed") return;
-
       const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
-      const closedAt = conv.closed_at || conv.closedAt;
-      const createdTimestamp = toTimestamp(createdAt);
-      const closedTimestamp = toTimestamp(closedAt);
-      
-      if (!closedTimestamp) {
-        filteredOutNoClosedAt++;
-        return;
-      }
-      
-      // Get closed date in PT
-      const closedDateStr = toPTDateStr(closedAt);
-      
-      // Only include conversations closed today (in PT)
-      if (!closedDateStr || closedDateStr !== todayPTDateStr) {
-        if (closedDateStr) {
-          filteredOutWrongDate++;
-          // Log first few mismatches for debugging
-          if (filteredOutWrongDate <= 3) {
-            console.log(`[Same-Day Close] Filtered out - wrong date: closedDateStr=${closedDateStr}, todayPTDateStr=${todayPTDateStr}, closedAt=${closedAt}`);
-          }
-        }
-        return;
-      }
+      if (!createdAt) return;
 
-      // Get assignee info early to filter out service account
-      const assignee = conv.admin_assignee || conv.adminAssignee || conv.assignee;
-      const assigneeName = assignee?.name || 'Unassigned';
-      
-      // Exclude service account closures from all calculations
-      if (assigneeName === 'svc-prd-tse-intercom SVC') {
-        filteredOutServiceAccount++;
-        return;
-      }
-
-      // Get created date in PT for same-day comparison
+      // Get created date in PT
       const createdDateStr = toPTDateStr(createdAt);
+      
+      // Only count conversations created today (in PT)
+      if (!createdDateStr || createdDateStr !== todayPTDateStr) {
+        return;
+      }
 
-      closedTotal++;
-      includedCount++;
-      // Check if created and closed on the same day (both in PT)
-      if (createdDateStr && closedDateStr && createdDateStr === closedDateStr) {
-        closedSameDay++;
+      totalCreatedToday++;
+
+      // Check if this conversation is closed
+      const state = (conv.state || "").toLowerCase();
+      if (state === "closed") {
+        const closedAt = conv.closed_at || conv.closedAt;
+        const closedTimestamp = toTimestamp(closedAt);
+        
+        if (!closedTimestamp) {
+          return; // Closed but no closed_at timestamp
+        }
+
+        // Get assignee info to filter out service account
+        const assignee = conv.admin_assignee || conv.adminAssignee || conv.assignee;
+        const assigneeName = assignee?.name || 'Unassigned';
+        
+        // Exclude service account closures
+        if (assigneeName === 'svc-prd-tse-intercom SVC') {
+          return;
+        }
+
+        totalClosedToday++;
+        
         // Calculate time to close in minutes
+        const createdTimestamp = toTimestamp(createdAt);
         const timeToCloseMinutes = closedTimestamp && createdTimestamp 
           ? Math.round((closedTimestamp - createdTimestamp) / 60000) 
           : null;
         
-        sameDayConversations.push({
+        closedConversations.push({
           id: conv.id,
           createdAt: createdTimestamp,
           closedAt: closedTimestamp,
@@ -4048,22 +3999,18 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     });
 
     // Sort by most recently closed
-    sameDayConversations.sort((a, b) => b.closedAt - a.closedAt);
+    closedConversations.sort((a, b) => b.closedAt - a.closedAt);
 
-    const pct = closedTotal === 0 ? 0 : Math.round((closedSameDay / closedTotal) * 1000) / 10;
+    // Calculate percentage: (closed / created today) × 100
+    const pct = totalCreatedToday === 0 ? 0 : Math.round((totalClosedToday / totalCreatedToday) * 1000) / 10;
     
     // Debug summary
-    console.log(`[Same-Day Close] Summary:`);
-    console.log(`  - Total closed in conversation list: ${totalClosedInList}`);
-    console.log(`  - Filtered out (no closed_at): ${filteredOutNoClosedAt}`);
-    console.log(`  - Filtered out (wrong date): ${filteredOutWrongDate}`);
-    console.log(`  - Filtered out (service account): ${filteredOutServiceAccount}`);
-    console.log(`  - Included in calculation: ${includedCount}`);
-    console.log(`  - Total closed (after filters): ${closedTotal}`);
-    console.log(`  - Same-day closed: ${closedSameDay}`);
-    console.log(`  - Percentage: ${pct}%`);
+    console.log(`[Close Rate] Summary:`);
+    console.log(`  - Total created today (PT): ${totalCreatedToday}`);
+    console.log(`  - Total closed today (PT): ${totalClosedToday}`);
+    console.log(`  - Close rate percentage: ${pct}%`);
     
-    return { pct, conversations: sameDayConversations, totalClosed: closedTotal };
+    return { pct, conversations: closedConversations, totalClosed: totalClosedToday, totalCreated: totalCreatedToday };
   }, [conversations]);
 
   // For backward compatibility
@@ -5236,9 +5183,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                         </ul>
                       </div>
                       <div style={{ marginBottom: '8px' }}>
-                        <strong>Same-Day Close % (Today):</strong> Percentage of closed conversations that were created and closed on the same day.
+                        <strong>Close Rate % (Today):</strong> Percentage of conversations created today that were closed.
                         <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                          <li>Calculated from conversations created today (2am-6pm PT)</li>
+                          <li>Calculated from all conversations created today (PT timezone)</li>
                           <li>Click to see list of same-day closures</li>
                         </ul>
                       </div>
@@ -5304,7 +5251,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 >
-                  <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Same-Day Close % (Today)</div>
+                  <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Close Rate % (Today)</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '20px', fontWeight: 600 }}>{sameDayClosePct}%</span>
                     {sameDayCloseTrend.change > 0 && (
@@ -5315,7 +5262,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     )}
                   </div>
                   <div style={{ fontSize: '10px', color: isDarkMode ? '#666' : '#999', marginTop: '4px' }}>
-                    {sameDayCloseData.conversations.length} of {sameDayCloseData.totalClosed} closed today
+                    {sameDayCloseData.totalClosed} of {sameDayCloseData.totalCreated} created today
                   </div>
                 </div>
               </div>
@@ -6281,27 +6228,27 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           <div className="modal-content wait-rate-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header wait-rate-modal-header">
               <div>
-                <h3>Same-Day Closures</h3>
-                <span className="modal-subtitle">Conversations created and closed today during business hours</span>
+                <h3>Today's Close Rate</h3>
+                <span className="modal-subtitle">Percentage of conversations created today that were closed</span>
               </div>
               <button className="modal-close-button" onClick={() => setIsSameDayCloseModalOpen(false)}>×</button>
             </div>
             <div className="modal-body wait-rate-modal-body">
               {sameDayCloseData.conversations.length === 0 ? (
-                <div className="modal-empty-state">No same-day closures available for today's business hours.</div>
+                <div className="modal-empty-state">No closed conversations available for conversations created today.</div>
               ) : (
                 <>
                   <div className="wait-rate-summary">
                     <div className="wait-rate-summary-item">
-                      <div className="summary-label">Same-Day Closures</div>
-                      <div className="summary-value">{sameDayCloseData.conversations.length}</div>
-                    </div>
-                    <div className="wait-rate-summary-item">
-                      <div className="summary-label">Total Closed Today</div>
+                      <div className="summary-label">Closed Today</div>
                       <div className="summary-value">{sameDayCloseData.totalClosed}</div>
                     </div>
                     <div className="wait-rate-summary-item">
-                      <div className="summary-label">Same-Day Close Rate</div>
+                      <div className="summary-label">Created Today</div>
+                      <div className="summary-value">{sameDayCloseData.totalCreated}</div>
+                    </div>
+                    <div className="wait-rate-summary-item">
+                      <div className="summary-label">Close Rate</div>
                       <div className="summary-value">{sameDayCloseData.pct}%</div>
                     </div>
                     <div className="wait-rate-summary-item">
@@ -6322,7 +6269,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
 
                   <div className="wait-rate-columns" style={{ gridTemplateColumns: '1fr' }}>
                     <div className="wait-rate-column">
-                      <h4>Same-Day Closed Conversations ({sameDayCloseData.conversations.length})</h4>
+                      <h4>Closed Conversations ({sameDayCloseData.conversations.length})</h4>
                       <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                         {sameDayCloseData.conversations.map(conv => (
                           <li key={conv.id} style={{
@@ -7827,9 +7774,9 @@ function HelpModal({ onClose }) {
                     <li>Shows median wait time for unassigned conversations</li>
                   </ul>
                 </li>
-                <li><strong>Same-Day Close %:</strong> Percentage of conversations closed on the same day they were created
+                <li><strong>Close Rate %:</strong> Percentage of conversations created today that were closed
                   <ul>
-                    <li>Calculated from conversations created today during business hours</li>
+                    <li>Calculated from all conversations created today (PT timezone)</li>
                     <li>Trend compares last 7 days vs previous 7 days</li>
                     <li>Shows trend indicator (↑ improving, ↓ declining)</li>
                   </ul>
