@@ -2073,6 +2073,45 @@ function Dashboard(props) {
             </div>
           )}
           
+          {/* My Team Only Toggle - Only for managers, available on all pages */}
+          {userRole === 'manager' && managerInfo && (
+            <label 
+              className="my-team-toggle-header"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                padding: '6px 12px',
+                backgroundColor: myTeamOnly 
+                  ? (isDarkMode ? 'rgba(103, 58, 183, 0.2)' : 'rgba(103, 58, 183, 0.1)')
+                  : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'),
+                borderRadius: '8px',
+                border: `1px solid ${myTeamOnly 
+                  ? (isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)')
+                  : (isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)')}`,
+                transition: 'all 0.2s ease',
+                marginRight: '12px'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={myTeamOnly}
+                onChange={() => setMyTeamOnly(!myTeamOnly)}
+                style={{ cursor: 'pointer' }}
+              />
+              <span style={{ 
+                fontSize: '12px',
+                fontWeight: '500',
+                color: myTeamOnly 
+                  ? (isDarkMode ? '#b39ddb' : '#673ab7')
+                  : (isDarkMode ? '#aaa' : '#666')
+              }}>
+                My Team Only ({managerInfo.team.length})
+              </span>
+            </label>
+          )}
+          
           {/* My Queue Status Indicator - shown for TSEs and matching users (not managers) */}
           {userRole !== 'manager' && currentTSEMetrics && (
             <div 
