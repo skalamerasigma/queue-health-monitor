@@ -1777,7 +1777,7 @@ function Dashboard(props) {
   }
 
   return (
-    <div className="dashboard-container">
+    <div className="dashboard-container" style={isStephenSkalamera ? { paddingBottom: '60px' } : {}}>
       {loading && conversations && conversations.length > 0 && (
         <div className="refreshing-indicator">
           <span>🔄 Refreshing data...</span>
@@ -1793,200 +1793,6 @@ function Dashboard(props) {
           )}
         </div>
         <div className="header-actions">
-          {/* Stephen Skalamera's TSE/Manager Mode Toggle */}
-          {isStephenSkalamera && (
-            <div 
-              className="view-mode-toggle"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
-                marginRight: '8px'
-              }}
-            >
-              <span style={{ 
-                fontSize: '11px', 
-                color: stephenViewMode === 'tse' 
-                  ? (isDarkMode ? '#81c784' : '#4caf50')
-                  : (isDarkMode ? '#888' : '#999'),
-                fontWeight: stephenViewMode === 'tse' ? '600' : '400'
-              }}>
-                TSE
-              </span>
-              <button
-                onClick={() => {
-                  const newMode = stephenViewMode === 'manager' ? 'tse' : 'manager';
-                  setStephenViewMode(newMode);
-                  // Switch to appropriate default view
-                  if (newMode === 'tse') {
-                    setActiveView('myqueue');
-                  } else {
-                    setActiveView('overview');
-                  }
-                }}
-                style={{
-                  position: 'relative',
-                  width: '40px',
-                  height: '20px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  backgroundColor: stephenViewMode === 'manager'
-                    ? (isDarkMode ? '#673ab7' : '#9575cd')
-                    : (isDarkMode ? '#4caf50' : '#81c784'),
-                  transition: 'all 0.2s ease',
-                  padding: 0
-                }}
-                title={`Switch to ${stephenViewMode === 'manager' ? 'TSE' : 'Manager'} mode`}
-              >
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: '2px',
-                    left: stephenViewMode === 'manager' ? '22px' : '2px',
-                    width: '16px',
-                    height: '16px',
-                    borderRadius: '50%',
-                    backgroundColor: '#fff',
-                    transition: 'left 0.2s ease',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-                  }}
-                />
-              </button>
-              <span style={{ 
-                fontSize: '11px', 
-                color: stephenViewMode === 'manager' 
-                  ? (isDarkMode ? '#b39ddb' : '#673ab7')
-                  : (isDarkMode ? '#888' : '#999'),
-                fontWeight: stephenViewMode === 'manager' ? '600' : '400'
-              }}>
-                Manager
-              </span>
-            </div>
-          )}
-          
-          {/* TSE Simulation Dropdown - only for Stephen in TSE mode */}
-          {isStephenSkalamera && stephenViewMode === 'tse' && teamMembers.length > 0 && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              marginRight: '12px'
-            }}>
-              <span style={{ 
-                fontSize: '11px', 
-                color: isDarkMode ? '#888' : '#666',
-                fontWeight: '500'
-              }}>
-                Simulate:
-              </span>
-              <select
-                value={simulatedTSEId || ''}
-                onChange={(e) => setSimulatedTSEId(e.target.value || null)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: '6px',
-                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
-                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
-                  color: isDarkMode ? '#fff' : '#333',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  minWidth: '160px'
-                }}
-              >
-                <option value="">-- Select TSE --</option>
-                {['UK', 'NY', 'SF', 'Other'].map(region => {
-                  const regionTSEs = teamMembers.filter(tse => getTSERegion(tse.name) === region);
-                  if (regionTSEs.length === 0) return null;
-                  return (
-                    <optgroup key={region} label={region === 'NY' ? 'New York' : region === 'SF' ? 'San Francisco' : region}>
-                      {regionTSEs.sort((a, b) => a.name.localeCompare(b.name)).map(tse => (
-                        <option key={tse.id} value={tse.id}>{tse.name}</option>
-                      ))}
-                    </optgroup>
-                  );
-                })}
-              </select>
-              {simulatedTSEId && (
-                <button
-                  onClick={() => setSimulatedTSEId(null)}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    border: 'none',
-                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
-                    color: isDarkMode ? '#fff' : '#333',
-                    fontSize: '11px',
-                    cursor: 'pointer'
-                  }}
-                  title="Clear simulation"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          )}
-          
-          {/* Manager Simulation Dropdown - only for Stephen in Manager mode */}
-          {isStephenSkalamera && stephenViewMode === 'manager' && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              marginRight: '12px'
-            }}>
-              <span style={{ 
-                fontSize: '11px', 
-                color: isDarkMode ? '#888' : '#666',
-                fontWeight: '500'
-              }}>
-                Simulate:
-              </span>
-              <select
-                value={simulatedManagerName || ''}
-                onChange={(e) => setSimulatedManagerName(e.target.value || null)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: '6px',
-                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
-                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
-                  color: isDarkMode ? '#fff' : '#333',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  minWidth: '160px'
-                }}
-              >
-                <option value="">-- Select Manager --</option>
-                {ALL_MANAGER_NAMES.filter(name => name !== 'Stephen Skalamera').map(name => (
-                  <option key={name} value={name}>
-                    {name} ({getManagerInfo(name)?.region})
-                  </option>
-                ))}
-              </select>
-              {simulatedManagerName && (
-                <button
-                  onClick={() => setSimulatedManagerName(null)}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    border: 'none',
-                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
-                    color: isDarkMode ? '#fff' : '#333',
-                    fontSize: '11px',
-                    cursor: 'pointer'
-                  }}
-                  title="Clear simulation"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          )}
-          
           {/* Manager Badge - shown only for managers */}
           {userRole === 'manager' && managerInfo && (
             <div 
@@ -8671,6 +8477,214 @@ function HelpModal({ onClose }) {
           </button>
         </div>
       </div>
+      
+      {/* Footer - Stephen Skalamera Controls */}
+      {isStephenSkalamera && (
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          padding: '12px 16px',
+          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '16px',
+          zIndex: 1000,
+          backdropFilter: 'blur(10px)'
+        }}>
+          {/* TSE/Manager Mode Toggle */}
+          <div 
+            className="view-mode-toggle"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              borderRadius: '8px',
+              backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+            }}
+          >
+            <span style={{ 
+              fontSize: '11px', 
+              color: stephenViewMode === 'tse' 
+                ? (isDarkMode ? '#81c784' : '#4caf50')
+                : (isDarkMode ? '#888' : '#999'),
+              fontWeight: stephenViewMode === 'tse' ? '600' : '400'
+            }}>
+              TSE
+            </span>
+            <button
+              onClick={() => {
+                const newMode = stephenViewMode === 'manager' ? 'tse' : 'manager';
+                setStephenViewMode(newMode);
+                // Switch to appropriate default view
+                if (newMode === 'tse') {
+                  setActiveView('myqueue');
+                } else {
+                  setActiveView('overview');
+                }
+              }}
+              style={{
+                position: 'relative',
+                width: '40px',
+                height: '20px',
+                borderRadius: '10px',
+                border: 'none',
+                cursor: 'pointer',
+                backgroundColor: stephenViewMode === 'manager'
+                  ? (isDarkMode ? '#673ab7' : '#9575cd')
+                  : (isDarkMode ? '#4caf50' : '#81c784'),
+                transition: 'all 0.2s ease',
+                padding: 0
+              }}
+              title={`Switch to ${stephenViewMode === 'manager' ? 'TSE' : 'Manager'} mode`}
+            >
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '2px',
+                  left: stephenViewMode === 'manager' ? '22px' : '2px',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  backgroundColor: '#fff',
+                  transition: 'left 0.2s ease',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                }}
+              />
+            </button>
+            <span style={{ 
+              fontSize: '11px', 
+              color: stephenViewMode === 'manager' 
+                ? (isDarkMode ? '#b39ddb' : '#673ab7')
+                : (isDarkMode ? '#888' : '#999'),
+              fontWeight: stephenViewMode === 'manager' ? '600' : '400'
+            }}>
+              Manager
+            </span>
+          </div>
+          
+          {/* TSE Simulation Dropdown - only for Stephen in TSE mode */}
+          {stephenViewMode === 'tse' && teamMembers.length > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span style={{ 
+                fontSize: '11px', 
+                color: isDarkMode ? '#888' : '#666',
+                fontWeight: '500'
+              }}>
+                Simulate:
+              </span>
+              <select
+                value={simulatedTSEId || ''}
+                onChange={(e) => setSimulatedTSEId(e.target.value || null)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+                  color: isDarkMode ? '#fff' : '#333',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  minWidth: '160px'
+                }}
+              >
+                <option value="">-- Select TSE --</option>
+                {['UK', 'NY', 'SF', 'Other'].map(region => {
+                  const regionTSEs = teamMembers.filter(tse => getTSERegion(tse.name) === region);
+                  if (regionTSEs.length === 0) return null;
+                  return (
+                    <optgroup key={region} label={region === 'NY' ? 'New York' : region === 'SF' ? 'San Francisco' : region}>
+                      {regionTSEs.sort((a, b) => a.name.localeCompare(b.name)).map(tse => (
+                        <option key={tse.id} value={tse.id}>{tse.name}</option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+              {simulatedTSEId && (
+                <button
+                  onClick={() => setSimulatedTSEId(null)}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
+                    color: isDarkMode ? '#fff' : '#333',
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
+                  title="Clear simulation"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+          
+          {/* Manager Simulation Dropdown - only for Stephen in Manager mode */}
+          {stephenViewMode === 'manager' && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span style={{ 
+                fontSize: '11px', 
+                color: isDarkMode ? '#888' : '#666',
+                fontWeight: '500'
+              }}>
+                Simulate:
+              </span>
+              <select
+                value={simulatedManagerName || ''}
+                onChange={(e) => setSimulatedManagerName(e.target.value || null)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+                  color: isDarkMode ? '#fff' : '#333',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  minWidth: '160px'
+                }}
+              >
+                <option value="">-- Select Manager --</option>
+                {ALL_MANAGER_NAMES.filter(name => name !== 'Stephen Skalamera').map(name => (
+                  <option key={name} value={name}>
+                    {name} ({getManagerInfo(name)?.region})
+                  </option>
+                ))}
+              </select>
+              {simulatedManagerName && (
+                <button
+                  onClick={() => setSimulatedManagerName(null)}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
+                    color: isDarkMode ? '#fff' : '#333',
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
+                  title="Clear simulation"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
