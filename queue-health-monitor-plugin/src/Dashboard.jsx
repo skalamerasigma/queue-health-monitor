@@ -3950,12 +3950,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       return timestamp > 1e12 ? timestamp : timestamp * 1000;
     };
 
-    const toUtcDate = (timestamp) => {
-      if (!timestamp) return null;
-      const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
-      return new Date(ms).toISOString().slice(0, 10);
-    };
-
     let closedTotal = 0;
     let closedSameDay = 0;
     const sameDayConversations = [];
