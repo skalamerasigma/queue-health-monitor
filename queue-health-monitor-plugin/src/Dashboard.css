@@ -218,20 +218,52 @@
   background: rgba(255, 235, 59, 0.15);
 }
 
+.dark-mode .help-icon-button {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dark-mode .help-icon-button:hover {
+  color: #ffffff;
+}
+
+.dark-mode .streaks-icon-button {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dark-mode .streaks-icon-button:hover:not(:disabled) {
+  color: #ffffff;
+}
+
+.dark-mode .alerts-icon-button {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dark-mode .alerts-icon-button:hover {
+  color: #ffffff;
+}
+
 .help-icon-button {
   background: transparent;
   border: none;
   cursor: pointer;
   padding: 8px;
-  border-radius: 6px;
-  transition: background 0.2s;
+  border-radius: 8px;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--text-secondary);
 }
 
 .help-icon-button:hover {
   background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.help-icon-button svg {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 
 .help-icon {
@@ -249,15 +281,23 @@
   border: none;
   cursor: pointer;
   padding: 8px;
-  border-radius: 6px;
-  transition: background 0.2s;
+  border-radius: 8px;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--text-secondary);
 }
 
 .alerts-icon-button:hover {
   background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.alerts-icon-button svg {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 
 .alerts-icon {
@@ -276,20 +316,28 @@
   border: none;
   cursor: pointer;
   padding: 8px;
-  border-radius: 6px;
-  transition: background 0.2s;
+  border-radius: 8px;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--text-secondary);
 }
 
 .streaks-icon-button:hover:not(:disabled) {
   background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .streaks-icon-button:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+.streaks-icon-button svg {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 
 .streaks-icon {
@@ -3306,6 +3354,13 @@
     gap: 2px;
   }
   
+  .help-icon-button svg,
+  .streaks-icon-button svg,
+  .alerts-icon-button svg {
+    width: 16px;
+    height: 16px;
+  }
+  
   .help-icon {
     width: 18px;
     height: 18px;
@@ -3371,6 +3426,13 @@
   .streaks-icon-button,
   .alerts-icon-button {
     padding: 4px;
+  }
+  
+  .help-icon-button svg,
+  .streaks-icon-button svg,
+  .alerts-icon-button svg {
+    width: 14px;
+    height: 14px;
   }
   
   .help-icon,
@@ -5114,18 +5176,4 @@
 
 .alert-item-clickable:active {
   transform: translateX(1px);
-}
-
-/* Spinner animation for Same-Day Close % loading state */
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.same-day-close-spinner {
-  display: inline-block;
 }
