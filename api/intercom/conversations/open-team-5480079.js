@@ -956,6 +956,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Log request URL and query parameters immediately
+  console.log(`[API] Request URL: ${req.url}`);
+  console.log(`[API] Query params:`, req.query);
+  
   try {
     // Get user's access token from cookie (preferred) or fall back to server token
     const userAccessToken = req.cookies?.intercom_access_token;
@@ -981,7 +985,8 @@ export default async function handler(req, res) {
     const skipClosed = req.query?.skipClosed === "true";
     const closedOnly = req.query?.closedOnly === "true";
     
-    console.log(`[API] Request parameters: skipClosed=${skipClosed}, closedOnly=${closedOnly}, debug=${debugMode}`);
+    console.log(`[API] Parsed parameters: skipClosed=${skipClosed} (type: ${typeof skipClosed}), closedOnly=${closedOnly}, debug=${debugMode}`);
+    console.log(`[API] Raw query.skipClosed value: "${req.query?.skipClosed}" (type: ${typeof req.query?.skipClosed})`);
     
     const [conversationsResult, teamMembers] = await Promise.all([
       fetchAllOpenTeamConversations(authHeader, { 
