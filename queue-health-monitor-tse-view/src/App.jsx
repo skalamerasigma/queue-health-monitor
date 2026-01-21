@@ -58,7 +58,7 @@ function AppContent(props) {
     console.log('App: Current user email:', email);
   }, [props]);
 
-  async function fetchData(showLoading = true) {
+  async function fetchData(showLoading = true, skipClosed = false) {
     if (showLoading) {
       setLoading(true);
     }
@@ -67,8 +67,13 @@ function AppContent(props) {
     try {
       // Since this is a separate deployment, always call the main Queue Health Monitor API
       // The API is hosted on the main project domain
-      const apiUrl = process.env.REACT_APP_API_URL || 
+      const apiBaseUrl = process.env.REACT_APP_API_URL || 
                      'https://queue-health-monitor.vercel.app/api/intercom/conversations/open-team-5480079';
+      
+      // Add query parameter to skip closed conversations if requested
+      const apiUrl = skipClosed 
+        ? `${apiBaseUrl}?skipClosed=true`
+        : apiBaseUrl;
       
       console.log('App: Fetching conversations from:', apiUrl);
       const res = await fetch(apiUrl);
@@ -98,6 +103,58 @@ function AppContent(props) {
       if (showLoading) {
         setLoading(false);
       }
+    }
+  }
+
+  // Fetch closed conversations separately in the background
+  async function fetchClosedConversations() {
+    try {
+      const apiBaseUrl = process.env.REACT_APP_API_URL || 
+                     'https://queue-health-monitor.vercel.app/api/intercom/conversations/open-team-5480079';
+      
+      const apiUrl = `${apiBaseUrl}?closedOnly=true`;
+      
+      console.log('App: Fetching closed conversations from:', apiUrl);
+      const res = await fetch(apiUrl);
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.warn('App: Error fetching closed conversations:', text || `HTTP ${res.status}`);
+        return;
+      }
+
+      const response = await res.json();
+      const closedConversations = Array.isArray(response) ? response : (response.conversations || []);
+      
+      console.log('App: Received', closedConversations.length, 'closed conversations');
+      
+      // Merge closed conversations into existing data
+      setData(prevData => {
+        const existingConversations = Array.isArray(prevData) ? prevData : (prevData.conversations || []);
+        const existingTeamMembers = prevData.teamMembers || [];
+        
+        // Create a map of existing conversation IDs to avoid duplicates
+        const existingIds = new Set(existingConversations.map(c => c.id || c.conversation_id));
+        
+        // Filter out any closed conversations that are already in the list
+        const newClosedConversations = closedConversations.filter(c => {
+          const id = c.id || c.conversation_id;
+          return !existingIds.has(id);
+        });
+        
+        // Combine existing conversations with new closed conversations
+        const allConversations = [...existingConversations, ...newClosedConversations];
+        
+        console.log('App: Merged closed conversations. Total conversations:', allConversations.length);
+        
+        return {
+          conversations: allConversations,
+          teamMembers: existingTeamMembers
+        };
+      });
+    } catch (e) {
+      console.warn('App: Error fetching closed conversations:', e.message);
+      // Silently fail - closed conversations are loaded in background
     }
   }
 
@@ -150,16 +207,26 @@ function AppContent(props) {
       }
     }
 
-    fetchData(true); // Initial load with loading state
+    // Initial load: fetch open/snoozed conversations (skip closed)
+    fetchData(true, true); // Initial load with loading state, skip closed conversations
     fetchHistoricalSnapshots(); // Fetch historical data for streaks
+    
+    // After initial load, fetch closed conversations in the background
+    // Use setTimeout to ensure the page has rendered first
+    const closedTimeout = setTimeout(() => {
+      fetchClosedConversations();
+    }, 100); // Small delay to ensure initial render completes
     
     // Set up auto-refresh every 2 minutes (120000 ms)
     const interval = setInterval(() => {
-      fetchData(false); // Background refresh without loading state
+      fetchData(false, false); // Background refresh without loading state, include closed conversations
       fetchHistoricalSnapshots(); // Refresh historical data too
     }, 120000);
     
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(closedTimeout);
+    };
   }, []);
 
   // Show login page if not authenticated
@@ -183,7 +250,7 @@ function AppContent(props) {
       loading={loading}
       error={error}
       onRefresh={async () => {
-        await fetchData(true);
+        await fetchData(true, false); // Manual refresh includes closed conversations
         // Fetch historical snapshots on refresh
         try {
           const getLast7Weekdays = () => {

@@ -3899,7 +3899,8 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   }, [responseTimeTrendData]);
 
 
-  // Calculate Same-Day Close % for conversations created today between 2am-6pm PT
+  // Calculate Same-Day Close % for conversations closed today (UTC timezone, matching API filtering)
+  // Counts all conversations closed today (UTC), regardless of when created
   const sameDayCloseData = useMemo(() => {
     const conversationList = conversations || [];
     if (conversationList.length === 0) return { pct: 0, conversations: [], totalClosed: 0 };
@@ -3959,6 +3960,27 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     let closedSameDay = 0;
     const sameDayConversations = [];
 
+    // Get today's date string in UTC timezone (matches API filtering)
+    // API filters conversations closed "today" using UTC (midnight UTC to midnight UTC)
+    const nowUTC = new Date();
+    const todayUTC = new Date(Date.UTC(
+      nowUTC.getUTCFullYear(),
+      nowUTC.getUTCMonth(),
+      nowUTC.getUTCDate()
+    ));
+    const todayUTCDateStr = todayUTC.toISOString().slice(0, 10); // YYYY-MM-DD format
+
+    // Debug: Count closed conversations
+    const totalClosedInList = conversationList.filter(c => (c.state || "").toLowerCase() === "closed").length;
+    console.log(`[Same-Day Close] Total closed conversations in list: ${totalClosedInList}`);
+    console.log(`[Same-Day Close] Today UTC date string: ${todayUTCDateStr}`);
+    console.log(`[Same-Day Close] Current UTC time: ${nowUTC.toISOString()}`);
+
+    let filteredOutNoClosedAt = 0;
+    let filteredOutWrongDate = 0;
+    let filteredOutServiceAccount = 0;
+    let includedCount = 0;
+
     conversationList.forEach(conv => {
       const state = (conv.state || "").toLowerCase();
       if (state !== "closed") return;
@@ -3968,24 +3990,44 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       const createdTimestamp = toTimestamp(createdAt);
       const closedTimestamp = toTimestamp(closedAt);
       
-      if (!createdTimestamp) return;
+      if (!closedTimestamp) {
+        filteredOutNoClosedAt++;
+        return;
+      }
       
-      // Only include conversations created today between 2am PT and 6pm PT
-      if (createdTimestamp < windowStart.getTime() || createdTimestamp >= windowEnd.getTime()) return;
+      // Get closed date in UTC (matches API filtering)
+      const closedDateStr = toUtcDate(closedAt);
+      
+      // Only include conversations closed today (in UTC, matching API)
+      // Note: API already filtered by UTC "today", but we double-check here for safety
+      if (!closedDateStr || closedDateStr !== todayUTCDateStr) {
+        if (closedDateStr) {
+          filteredOutWrongDate++;
+          // Log first few mismatches for debugging
+          if (filteredOutWrongDate <= 3) {
+            console.log(`[Same-Day Close] Filtered out - wrong date: closedDateStr=${closedDateStr}, todayUTCDateStr=${todayUTCDateStr}, closedAt=${closedAt}`);
+          }
+        }
+        return;
+      }
 
       // Get assignee info early to filter out service account
       const assignee = conv.admin_assignee || conv.adminAssignee || conv.assignee;
       const assigneeName = assignee?.name || 'Unassigned';
       
       // Exclude service account closures from all calculations
-      if (assigneeName === 'svc-prd-tse-intercom SVC') return;
+      if (assigneeName === 'svc-prd-tse-intercom SVC') {
+        filteredOutServiceAccount++;
+        return;
+      }
 
-      const createdDate = toUtcDate(createdAt);
-      const closedDate = toUtcDate(closedAt);
-      if (!createdDate || !closedDate) return;
+      // Get created date in UTC for same-day comparison
+      const createdDateStr = toUtcDate(createdAt);
 
       closedTotal++;
-      if (createdDate === closedDate) {
+      includedCount++;
+      // Check if created and closed on the same day (both in UTC)
+      if (createdDateStr && closedDateStr && createdDateStr === closedDateStr) {
         closedSameDay++;
         // Calculate time to close in minutes
         const timeToCloseMinutes = closedTimestamp && createdTimestamp 
@@ -4007,6 +4049,18 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     sameDayConversations.sort((a, b) => b.closedAt - a.closedAt);
 
     const pct = closedTotal === 0 ? 0 : Math.round((closedSameDay / closedTotal) * 1000) / 10;
+    
+    // Debug summary
+    console.log(`[Same-Day Close] Summary:`);
+    console.log(`  - Total closed in conversation list: ${totalClosedInList}`);
+    console.log(`  - Filtered out (no closed_at): ${filteredOutNoClosedAt}`);
+    console.log(`  - Filtered out (wrong date): ${filteredOutWrongDate}`);
+    console.log(`  - Filtered out (service account): ${filteredOutServiceAccount}`);
+    console.log(`  - Included in calculation: ${includedCount}`);
+    console.log(`  - Total closed (after filters): ${closedTotal}`);
+    console.log(`  - Same-day closed: ${closedSameDay}`);
+    console.log(`  - Percentage: ${pct}%`);
+    
     return { pct, conversations: sameDayConversations, totalClosed: closedTotal };
   }, [conversations]);
 

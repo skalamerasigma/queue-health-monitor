@@ -126,7 +126,7 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
     };
   }, []);
 
-  async function fetchData(showLoading = true) {
+  async function fetchData(showLoading = true, skipClosed = false) {
     if (showLoading) {
     setLoading(true);
     }
@@ -139,10 +139,16 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
     try {
       // In development, use production API URL since local dev server doesn't have API routes
       // In production, use /api route
-      const apiUrl = process.env.NODE_ENV === 'production' 
+      const apiBaseUrl = process.env.NODE_ENV === 'production' 
         ? `${window.location.origin}/api/intercom/conversations/open-team-5480079`
         : 'https://queue-health-monitor.vercel.app/api/intercom/conversations/open-team-5480079';
       
+      // Add query parameter to skip closed conversations if requested
+      const apiUrl = skipClosed 
+        ? `${apiBaseUrl}?skipClosed=true`
+        : apiBaseUrl;
+      
+      const fetchStartTime = performance.now();
       console.log('App: Fetching conversations from:', apiUrl);
       console.log('App: Fetch started at:', new Date().toISOString());
       
@@ -163,7 +169,10 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
       const res = await fetch(apiUrl, fetchOptions);
       if (timeoutId) clearTimeout(timeoutId);
       
+      const fetchEndTime = performance.now();
+      const fetchDuration = fetchEndTime - fetchStartTime;
       console.log('App: Response received at:', new Date().toISOString());
+      console.log(`App: API call took ${Math.round(fetchDuration)}ms (${Math.round(fetchDuration/1000)}s)`);
       console.log('App: Response status:', res.status, res.ok);
       console.log('App: Response headers:', Object.fromEntries(res.headers.entries()));
 
@@ -173,7 +182,9 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
         throw new Error(text || `HTTP ${res.status}`);
       }
 
+      const parseStartTime = performance.now();
       const response = await res.json();
+      const parseEndTime = performance.now();
       console.log('App: Received response:', { 
         isArray: Array.isArray(response),
         conversationsCount: Array.isArray(response) ? response.length : (response.conversations?.length || 0),
@@ -182,6 +193,8 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
         teamMembersSample: response.teamMembers?.slice(0, 2) || 'none',
         fullResponse: response
       });
+      console.log(`App: JSON parsing took ${Math.round(parseEndTime - parseStartTime)}ms`);
+      
       // Handle both old format (array) and new format (object with conversations and teamMembers)
       const conversations = Array.isArray(response) ? response : (response.conversations || []);
       const teamMembers = response.teamMembers || [];
@@ -192,8 +205,13 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
       } else {
         console.log('App: Team members loaded successfully:', teamMembers.map(m => ({ id: m.id, email: m.email, name: m.name })));
       }
+      
+      const dataSetStartTime = performance.now();
       setData({ conversations, teamMembers });
       setLastUpdated(new Date());
+      const totalTime = performance.now() - fetchStartTime;
+      console.log('App: Initial fetch completed. Setting loading to false. Conversations:', conversations.length);
+      console.log(`App: Total time breakdown - API call: ${Math.round(fetchDuration)}ms, Parse: ${Math.round(parseEndTime - parseStartTime)}ms, Total: ${Math.round(totalTime)}ms (${Math.round(totalTime/1000)}s)`);
     } catch (e) {
       // Clean up timeout if still active
       if (timeoutId) clearTimeout(timeoutId);
@@ -214,8 +232,73 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
       setError(e.message);
     } finally {
       if (showLoading) {
-      setLoading(false);
+        console.log('App: Setting loading to false (initial fetch finished)');
+        setLoading(false);
       }
+    }
+  }
+
+  // Fetch closed conversations separately in the background
+  async function fetchClosedConversations() {
+    const closedFetchStartTime = performance.now();
+    try {
+      const apiBaseUrl = process.env.NODE_ENV === 'production' 
+        ? `${window.location.origin}/api/intercom/conversations/open-team-5480079`
+        : 'https://queue-health-monitor.vercel.app/api/intercom/conversations/open-team-5480079';
+      
+      const apiUrl = `${apiBaseUrl}?closedOnly=true`;
+      
+      console.log('App: Fetching closed conversations from:', apiUrl);
+      console.log('App: Closed conversations fetch started at:', new Date().toISOString());
+      const res = await fetch(apiUrl);
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.warn('App: Error fetching closed conversations:', text || `HTTP ${res.status}`);
+        return;
+      }
+
+      const closedFetchEndTime = performance.now();
+      const closedFetchDuration = closedFetchEndTime - closedFetchStartTime;
+      console.log(`App: Closed conversations API call took ${Math.round(closedFetchDuration)}ms (${Math.round(closedFetchDuration/1000)}s)`);
+      
+      const response = await res.json();
+      const closedConversations = Array.isArray(response) ? response : (response.conversations || []);
+      
+      console.log('App: Received', closedConversations.length, 'closed conversations');
+      
+      // Merge closed conversations into existing data
+      const mergeStartTime = performance.now();
+      setData(prevData => {
+        const existingConversations = Array.isArray(prevData) ? prevData : (prevData.conversations || []);
+        const existingTeamMembers = prevData.teamMembers || [];
+        
+        // Create a map of existing conversation IDs to avoid duplicates
+        const existingIds = new Set(existingConversations.map(c => c.id || c.conversation_id));
+        
+        // Filter out any closed conversations that are already in the list
+        const newClosedConversations = closedConversations.filter(c => {
+          const id = c.id || c.conversation_id;
+          return !existingIds.has(id);
+        });
+        
+        // Combine existing conversations with new closed conversations
+        const allConversations = [...existingConversations, ...newClosedConversations];
+        
+        const mergeEndTime = performance.now();
+        const totalClosedTime = performance.now() - closedFetchStartTime;
+        console.log('App: Merged closed conversations. Total conversations:', allConversations.length);
+        console.log(`App: Closed conversations total time - API: ${Math.round(closedFetchDuration)}ms, Merge: ${Math.round(mergeEndTime - mergeStartTime)}ms, Total: ${Math.round(totalClosedTime)}ms (${Math.round(totalClosedTime/1000)}s)`);
+        
+        return {
+          conversations: allConversations,
+          teamMembers: existingTeamMembers
+        };
+      });
+    } catch (e) {
+      const errorTime = performance.now() - closedFetchStartTime;
+      console.warn(`App: Error fetching closed conversations after ${Math.round(errorTime)}ms:`, e.message);
+      // Silently fail - closed conversations are loaded in background
     }
   }
 
@@ -294,20 +377,49 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
   }, [location.pathname]);
 
   useEffect(() => {
-    fetchData(true); // Initial load with loading state
-    if (location.pathname === '/myqueue') {
-      fetchHistoricalData(); // Fetch historical data for MyQueue
-    }
+    let isMounted = true;
+    let closedTimeout = null;
+    
+    // Initial load: fetch open/snoozed conversations (skip closed)
+    const initialFetch = async () => {
+      await fetchData(true, true); // Initial load with loading state, skip closed conversations
+      
+      // Only proceed if component is still mounted
+      if (!isMounted) return;
+      
+      if (location.pathname === '/myqueue') {
+        fetchHistoricalData(); // Fetch historical data for MyQueue
+      }
+      
+      // After initial load completes, fetch closed conversations in the background
+      // Small delay to ensure initial render completes
+      closedTimeout = setTimeout(() => {
+        if (isMounted) {
+          console.log('App: Starting background fetch of closed conversations (initial fetch already completed)');
+          fetchClosedConversations();
+        }
+      }, 100);
+    };
+    
+    initialFetch();
     
     // Set up auto-refresh every 2 minutes (120000 ms)
     const interval = setInterval(() => {
-      fetchData(false); // Background refresh without loading state
-      if (location.pathname === '/myqueue') {
-        fetchHistoricalData(); // Refresh historical data too
+      if (isMounted) {
+        fetchData(false, false); // Background refresh without loading state, include closed conversations
+        if (location.pathname === '/myqueue') {
+          fetchHistoricalData(); // Refresh historical data too
+        }
       }
     }, 120000);
     
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      if (closedTimeout) {
+        clearTimeout(closedTimeout);
+      }
+    };
   }, [location.pathname, fetchHistoricalData]);
 
   // Show login page if not authenticated
@@ -329,7 +441,9 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
     teamMembers: data.teamMembers || [],
     loading,
     error,
-    onRefresh: () => fetchData(true),
+    onRefresh: () => {
+      fetchData(true, false); // Manual refresh includes closed conversations
+    },
     lastUpdated
   };
 

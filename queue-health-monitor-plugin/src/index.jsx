@@ -4,6 +4,18 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
+// Filter out browser extension errors that don't affect the app
+// This suppresses the common "message channel closed" error from browser extensions
+window.addEventListener('unhandledrejection', (event) => {
+  const errorMessage = event.reason?.message || event.reason?.toString() || '';
+  if (errorMessage.includes('message channel closed') || 
+      errorMessage.includes('asynchronous response')) {
+    event.preventDefault();
+    // Silently ignore - this is from browser extensions, not our code
+    return;
+  }
+});
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
