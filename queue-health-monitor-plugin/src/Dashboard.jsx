@@ -487,7 +487,6 @@ const THRESHOLDS = {
 
 function Dashboard(props) {
   const { conversations = [], teamMembers = [], loading, error, onRefresh, lastUpdated } = props;
-  const loadingClosedConversations = props.loadingClosedConversations || false;
   const { logout, user } = useAuth();
   const { isDarkMode, toggleDarkMode } = useTheme();
   
@@ -1611,16 +1610,18 @@ function Dashboard(props) {
       setShowCompletion(false);
       setLoadingPhraseIndex(0);
       setLoadingStartTime(Date.now());
-    } else if (wasLoading && conversations && conversations.length > 0 && !loading) {
-      // Loading just finished and we have conversations
-      // Skip completion animation to show dashboard immediately
-      // This is especially important when closed conversations are loading in background
-      setShowCompletion(false);
-      setWasLoading(false);
-      setLoadingPhraseIndex(0);
-      setLoadingStartTime(null);
+    } else if (wasLoading && conversations && conversations.length > 0) {
+      // Loading just finished, show completion GIF
+      setShowCompletion(true);
+      const timer = setTimeout(() => {
+        setShowCompletion(false);
+        setWasLoading(false);
+        setLoadingPhraseIndex(0);
+        setLoadingStartTime(null);
+      }, 3000); // Show completion GIF for 3 seconds
+      return () => clearTimeout(timer);
     }
-  }, [loading, conversations, wasLoading, loadingClosedConversations]);
+  }, [loading, conversations, wasLoading]);
 
   // Cycle through loading phrases
   useEffect(() => {
@@ -1723,12 +1724,8 @@ function Dashboard(props) {
   };
 
 
-  // Show loading screen only if:
-  // 1. We're loading AND have no conversations yet, OR
-  // 2. We're showing completion animation AND have no conversations (shouldn't happen with new logic)
-  // Skip completion animation if we have conversations - show dashboard immediately
-  if ((loading && (!conversations || (Array.isArray(conversations) && conversations.length === 0))) || 
-      (showCompletion && (!conversations || (Array.isArray(conversations) && conversations.length === 0)))) {
+  // Show loading screen on initial load or during completion animation
+  if ((loading && (!conversations || (Array.isArray(conversations) && conversations.length === 0))) || showCompletion) {
     return (
       <div className="loading-container">
         <div className="loading-content">
@@ -3953,6 +3950,12 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       return timestamp > 1e12 ? timestamp : timestamp * 1000;
     };
 
+    const toUtcDate = (timestamp) => {
+      if (!timestamp) return null;
+      const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
+      return new Date(ms).toISOString().slice(0, 10);
+    };
+
     let closedTotal = 0;
     let closedSameDay = 0;
     const sameDayConversations = [];
@@ -3966,7 +3969,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
     });
 
-    // Helper function to convert timestamp to PT date string
+    // Helper function to convert UTC timestamp to PT date string
     const toPTDateStr = (timestamp) => {
       if (!timestamp) return null;
       const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
@@ -3980,7 +3983,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     const totalClosedInList = conversationList.filter(c => (c.state || "").toLowerCase() === "closed").length;
     console.log(`[Same-Day Close] Total closed conversations in list: ${totalClosedInList}`);
     console.log(`[Same-Day Close] Today PT date string: ${todayPTDateStr}`);
-    console.log(`[Same-Day Close] Current PT time: ${ptDateFormatter.format(now)}`);
+    console.log(`[Same-Day Close] Current PT time: ${ptFormatter.format(now)}`);
 
     let filteredOutNoClosedAt = 0;
     let filteredOutWrongDate = 0;
@@ -4001,7 +4004,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         return;
       }
       
-      // Get closed date in PT timezone
+      // Get closed date in PT
       const closedDateStr = toPTDateStr(closedAt);
       
       // Only include conversations closed today (in PT)
@@ -5309,35 +5312,16 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                 >
                   <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Same-Day Close % (Today)</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* eslint-disable-next-line no-undef */}
-                    {loadingClosedConversations ? (
-                      <div className="same-day-close-spinner" style={{ 
-                        width: '20px', 
-                        height: '20px', 
-                        border: `2px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                        borderTop: `2px solid ${isDarkMode ? '#fff' : '#333'}`,
-                        borderRadius: '50%',
-                        animation: 'spin 0.8s linear infinite'
-                      }} />
-                    ) : (
-                      <>
-                        <span style={{ fontSize: '20px', fontWeight: 600 }}>{sameDayClosePct}%</span>
-                        {sameDayCloseTrend.change > 0 && (
-                          <span className={`kpi-trend ${sameDayCloseTrend.direction}`} style={{ fontSize: '12px' }}>
-                            {sameDayCloseTrend.direction === 'up' ? '↑' : sameDayCloseTrend.direction === 'down' ? '↓' : '→'}
-                            {sameDayCloseTrend.change > 0 && ` ${sameDayCloseTrend.change.toFixed(1)}%`}
-                          </span>
-                        )}
-                      </>
+                    <span style={{ fontSize: '20px', fontWeight: 600 }}>{sameDayClosePct}%</span>
+                    {sameDayCloseTrend.change > 0 && (
+                      <span className={`kpi-trend ${sameDayCloseTrend.direction}`} style={{ fontSize: '12px' }}>
+                        {sameDayCloseTrend.direction === 'up' ? '↑' : sameDayCloseTrend.direction === 'down' ? '↓' : '→'}
+                        {sameDayCloseTrend.change > 0 && ` ${sameDayCloseTrend.change.toFixed(1)}%`}
+                      </span>
                     )}
                   </div>
                   <div style={{ fontSize: '10px', color: isDarkMode ? '#666' : '#999', marginTop: '4px' }}>
-                    {/* eslint-disable-next-line no-undef */}
-                    {loadingClosedConversations ? (
-                      'Loading closed conversations...'
-                    ) : (
-                      `${sameDayCloseData.conversations.length} of ${sameDayCloseData.totalClosed} closed today`
-                    )}
+                    {sameDayCloseData.conversations.length} of {sameDayCloseData.totalClosed} closed today
                   </div>
                 </div>
               </div>
