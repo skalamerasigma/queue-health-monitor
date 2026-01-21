@@ -3960,21 +3960,30 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     let closedSameDay = 0;
     const sameDayConversations = [];
 
-    // Get today's date string in UTC timezone (matches API filtering)
-    // API filters conversations closed "today" using UTC (midnight UTC to midnight UTC)
-    const nowUTC = new Date();
-    const todayUTC = new Date(Date.UTC(
-      nowUTC.getUTCFullYear(),
-      nowUTC.getUTCMonth(),
-      nowUTC.getUTCDate()
-    ));
-    const todayUTCDateStr = todayUTC.toISOString().slice(0, 10); // YYYY-MM-DD format
+    // Get today's date string in PT timezone
+    const ptDateFormatter = new Intl.DateTimeFormat('en-US', { 
+      timeZone: 'America/Los_Angeles', 
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    const todayPTDateStr = ptDateFormatter.format(now).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    });
+
+    // Helper function to convert timestamp to PT date string
+    const toPTDateStr = (timestamp) => {
+      if (!timestamp) return null;
+      const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
+      const date = new Date(ms);
+      return ptDateFormatter.format(date).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      });
+    };
 
     // Debug: Count closed conversations
     const totalClosedInList = conversationList.filter(c => (c.state || "").toLowerCase() === "closed").length;
     console.log(`[Same-Day Close] Total closed conversations in list: ${totalClosedInList}`);
-    console.log(`[Same-Day Close] Today UTC date string: ${todayUTCDateStr}`);
-    console.log(`[Same-Day Close] Current UTC time: ${nowUTC.toISOString()}`);
+    console.log(`[Same-Day Close] Today PT date string: ${todayPTDateStr}`);
+    console.log(`[Same-Day Close] Current PT time: ${ptDateFormatter.format(now)}`);
 
     let filteredOutNoClosedAt = 0;
     let filteredOutWrongDate = 0;
@@ -3995,17 +4004,16 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         return;
       }
       
-      // Get closed date in UTC (matches API filtering)
-      const closedDateStr = toUtcDate(closedAt);
+      // Get closed date in PT timezone
+      const closedDateStr = toPTDateStr(closedAt);
       
-      // Only include conversations closed today (in UTC, matching API)
-      // Note: API already filtered by UTC "today", but we double-check here for safety
-      if (!closedDateStr || closedDateStr !== todayUTCDateStr) {
+      // Only include conversations closed today (in PT)
+      if (!closedDateStr || closedDateStr !== todayPTDateStr) {
         if (closedDateStr) {
           filteredOutWrongDate++;
           // Log first few mismatches for debugging
           if (filteredOutWrongDate <= 3) {
-            console.log(`[Same-Day Close] Filtered out - wrong date: closedDateStr=${closedDateStr}, todayUTCDateStr=${todayUTCDateStr}, closedAt=${closedAt}`);
+            console.log(`[Same-Day Close] Filtered out - wrong date: closedDateStr=${closedDateStr}, todayPTDateStr=${todayPTDateStr}, closedAt=${closedAt}`);
           }
         }
         return;
@@ -4021,12 +4029,12 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         return;
       }
 
-      // Get created date in UTC for same-day comparison
-      const createdDateStr = toUtcDate(createdAt);
+      // Get created date in PT for same-day comparison
+      const createdDateStr = toPTDateStr(createdAt);
 
       closedTotal++;
       includedCount++;
-      // Check if created and closed on the same day (both in UTC)
+      // Check if created and closed on the same day (both in PT)
       if (createdDateStr && closedDateStr && createdDateStr === closedDateStr) {
         closedSameDay++;
         // Calculate time to close in minutes
