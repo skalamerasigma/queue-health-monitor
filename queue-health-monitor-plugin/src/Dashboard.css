@@ -38,6 +38,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: nowrap;
 }
 
 .header-icon-group {
@@ -47,6 +48,7 @@
   background: var(--bg-active);
   border-radius: 6px;
   transition: background-color 0.3s ease;
+  flex-shrink: 0;
 }
 
 .button-group {
@@ -109,6 +111,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .dark-mode-toggle-button:hover {
@@ -119,6 +122,100 @@
   width: 36px;
   height: 36px;
   display: block;
+}
+
+/* Header utility icons - sleek, modern icon buttons */
+.header-utility-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-primary);
+}
+
+.header-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.header-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.header-icon-btn:active {
+  transform: scale(0.95);
+}
+
+.header-icon-btn svg {
+  display: block;
+}
+
+/* Refresh icon specific styling */
+.refresh-icon-btn {
+  color: var(--text-secondary);
+}
+
+.refresh-icon-btn:hover {
+  color: #35a1b4;
+  background: rgba(53, 161, 180, 0.1);
+}
+
+/* Logout icon specific styling */
+.logout-icon-btn {
+  color: var(--text-secondary);
+}
+
+.logout-icon-btn:hover {
+  color: #ef5350;
+  background: rgba(239, 83, 80, 0.1);
+}
+
+/* Dark mode icon specific styling */
+.dark-mode-icon-btn {
+  color: var(--text-secondary);
+}
+
+.dark-mode-icon-btn:hover {
+  color: #ffc107;
+  background: rgba(255, 193, 7, 0.1);
+}
+
+/* Dark mode adjustments for header icons */
+.dark-mode .header-utility-icons {
+  border-left-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark-mode .header-icon-btn {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dark-mode .header-icon-btn:hover {
+  color: #ffffff;
+}
+
+.dark-mode .refresh-icon-btn:hover {
+  color: #4dd0e1;
+  background: rgba(77, 208, 225, 0.15);
+}
+
+.dark-mode .logout-icon-btn:hover {
+  color: #ff8a80;
+  background: rgba(255, 138, 128, 0.15);
+}
+
+.dark-mode .dark-mode-icon-btn:hover {
+  color: #ffeb3b;
+  background: rgba(255, 235, 59, 0.15);
 }
 
 .help-icon-button {
@@ -209,7 +306,7 @@
 .alerts-dropdown {
   position: absolute;
   top: calc(100% + 8px);
-  left: 0;
+  right: 0;
   width: 400px;
   max-height: 600px;
   background: var(--bg-dropdown);
@@ -521,6 +618,7 @@
   padding: 6px;
   border-radius: 6px;
   transition: background-color 0.3s ease;
+  flex-shrink: 0;
 }
 
 .view-tabs button {
@@ -3156,6 +3254,179 @@
 @media (max-width: 768px) {
   .kpi-section-cards {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Responsive Header */
+@media (max-width: 1200px) {
+  .dashboard-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  
+  .header-left {
+    flex: 1 1 auto;
+    min-width: 200px;
+  }
+  
+  .header-actions {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    order: 3;
+  }
+  
+  .header-utility-icons {
+    order: 2;
+    margin-left: auto;
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .dashboard-header h2 {
+    font-size: 16px;
+  }
+  
+  .last-updated {
+    font-size: 10px;
+  }
+  
+  .view-tabs {
+    padding: 4px;
+    gap: 2px;
+  }
+  
+  .view-tabs button {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+  
+  .header-icon-group {
+    gap: 2px;
+  }
+  
+  .help-icon {
+    width: 18px;
+    height: 18px;
+  }
+  
+  .streaks-icon {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-header {
+    padding: 12px;
+    gap: 10px;
+  }
+  
+  .dashboard-header h2 {
+    font-size: 14px;
+  }
+  
+  .header-left {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  
+  .last-updated {
+    font-size: 9px;
+    white-space: nowrap;
+  }
+  
+  .header-actions {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  
+  .view-tabs {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    margin-right: 0;
+  }
+  
+  .view-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .view-tabs button {
+    white-space: nowrap;
+    padding: 4px 6px;
+    font-size: 10px;
+  }
+  
+  .header-icon-group {
+    padding: 4px;
+  }
+  
+  .help-icon-button,
+  .streaks-icon-button,
+  .alerts-icon-button {
+    padding: 4px;
+  }
+  
+  .help-icon,
+  .streaks-icon,
+  .alerts-icon {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .header-utility-icons {
+    gap: 2px;
+  }
+  
+  .header-icon-btn {
+    padding: 6px;
+  }
+  
+  .header-icon-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+  
+  /* Hide view mode toggle on mobile - too complex */
+  .view-mode-toggle {
+    display: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-header {
+    padding: 10px;
+  }
+  
+  .dashboard-header h2 {
+    font-size: 13px;
+  }
+  
+  .last-updated {
+    display: none;
+  }
+  
+  .header-actions {
+    justify-content: flex-start;
+  }
+  
+  .view-tabs {
+    flex: 1 1 100%;
+    order: 10;
+  }
+  
+  .header-icon-group {
+    order: 1;
+  }
+  
+  .header-utility-icons {
+    order: 2;
   }
 }
 

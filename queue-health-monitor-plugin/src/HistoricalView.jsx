@@ -326,7 +326,7 @@ const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
   );
 };
 
-function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
+function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = null, isManager = false, managerTeam = null, myTeamOnly = false, onToggleMyTeamOnly = null }) {
   const { isDarkMode } = useTheme();
   const [snapshots, setSnapshots] = useState([]);
   const [responseTimeMetrics, setResponseTimeMetrics] = useState([]);
@@ -518,7 +518,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     // Create a map of date -> on-track data
     const onTrackByDate = {};
     snapshots.forEach(snapshot => {
-      const tseData = snapshot.tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      let tseData = snapshot.tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      // Apply manager team filter if set
+      if (managerTeamFilter) {
+        tseData = tseData.filter(tse => managerTeamFilter.includes(tse.name));
+      }
       if (tseData.length === 0) return;
 
       let onTrackCount = 0;
@@ -700,6 +704,10 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       snapshot.tseData?.forEach(tse => {
         // Skip excluded TSEs
         if (!EXCLUDED_TSE_NAMES.includes(tse.name)) {
+          // If manager filter is active, only include their team members
+          if (managerTeamFilter && !managerTeamFilter.includes(tse.name)) {
+            return;
+          }
           // Use name as key to handle cases where ID might differ but name is same
           if (!tseMap.has(tse.name)) {
             tseMap.set(tse.name, { id: tse.id, name: tse.name });
@@ -709,7 +717,9 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     });
     
     // Also ensure all TSEs from TSE_REGIONS are included, even if not in snapshots
-    Object.values(TSE_REGIONS).flat().forEach(tseName => {
+    // But filter by manager team if applicable
+    const allTSENames = managerTeamFilter || Object.values(TSE_REGIONS).flat();
+    allTSENames.forEach(tseName => {
       if (!EXCLUDED_TSE_NAMES.includes(tseName) && !tseMap.has(tseName)) {
         // Create a placeholder entry with name as ID if no snapshot data exists
         tseMap.set(tseName, { id: tseName.toLowerCase().replace(/\s+/g, '-'), name: tseName });
@@ -718,7 +728,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     
     const newAvailableTSEs = Array.from(tseMap.values());
     setAvailableTSEs(newAvailableTSEs);
-  }, [snapshots]);
+  }, [snapshots, managerTeamFilter]);
 
   // Select all TSEs by default when they first become available (only if not manually cleared)
   // Use a ref to track if we've already done the initial selection
@@ -972,6 +982,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       
       // Filter out excluded TSEs
       tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      
+      // Apply manager team filter if set
+      if (managerTeamFilter) {
+        tseData = tseData.filter(tse => managerTeamFilter.includes(tse.name));
+      }
 
       tseData.forEach(tse => {
         dataByDate[date].totalTSEs++;
@@ -995,7 +1010,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
         overallOnTrack: d.totalTSEs > 0 ? Math.round((d.onTrackBoth / d.totalTSEs) * 100) : 0
       }))
       .sort((a, b) => new Date(a.date) - new Date(b.date));
-  }, [snapshots, selectedTSEs, startDate, endDate]);
+  }, [snapshots, selectedTSEs, startDate, endDate, managerTeamFilter]);
 
   // Day-of-week analysis
   const dayOfWeekAnalysis = useMemo(() => {
@@ -1081,6 +1096,10 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
       let tseData = snapshot.tseData.filter(tse => selectedTSEs.includes(String(tse.id)));
       tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      // Apply manager team filter if set
+      if (managerTeamFilter) {
+        tseData = tseData.filter(tse => managerTeamFilter.includes(tse.name));
+      }
       
       const regionOnTrack = { 'UK': { total: 0, onTrack: 0 }, 'NY': { total: 0, onTrack: 0 }, 'SF': { total: 0, onTrack: 0 }, 'Other': { total: 0, onTrack: 0 } };
       
@@ -1109,7 +1128,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       const avg = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
       return { region, average: avg, count: values.length };
     }).filter(r => r !== null && r.region !== 'Other');
-  }, [snapshots, selectedTSEs, startDate, endDate]);
+  }, [snapshots, selectedTSEs, startDate, endDate, managerTeamFilter]);
 
   // Trend analysis with moving averages
   const trendAnalysis = useMemo(() => {
@@ -1371,6 +1390,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       
       // Filter out excluded TSEs
       tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      
+      // Apply manager team filter if set
+      if (managerTeamFilter) {
+        tseData = tseData.filter(tse => managerTeamFilter.includes(tse.name));
+      }
 
       tseData.forEach(tse => {
         if (!tseStats[tse.id]) {
@@ -1412,7 +1436,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
           : 0
       }))
       .sort((a, b) => b.overallOnTrack - a.overallOnTrack); // Sort by overall on-track descending
-  }, [snapshots]);
+  }, [snapshots, managerTeamFilter]);
 
   // Filter TSEs based on selected ranges and regions
   const filteredTseAverageOnTrack = useMemo(() => {
@@ -1454,6 +1478,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
       
       // Filter out excluded TSEs
       tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      
+      // Apply manager team filter if set
+      if (managerTeamFilter) {
+        tseData = tseData.filter(tse => managerTeamFilter.includes(tse.name));
+      }
 
       if (!groupedByDate[snapshot.date]) {
         groupedByDate[snapshot.date] = {
@@ -1541,7 +1570,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
     
     // Limit to last N days
     return sorted.slice(0, onTrackDaysToShow);
-  }, [snapshots, selectedTSEs, onTrackSortConfig, onTrackDaysToShow]);
+  }, [snapshots, selectedTSEs, onTrackSortConfig, onTrackDaysToShow, managerTeamFilter]);
   
   // Calculate total available days for On Track data
   const onTrackTotalDays = useMemo(() => {
@@ -2307,6 +2336,44 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger }) {
 
         {(activeTab === 'on-track' || activeTab === 'response-time') && (
           <div className="filter-group tse-selector">
+            {/* My Team Only Toggle - Only for managers */}
+            {isManager && managerTeam && onToggleMyTeamOnly && (
+              <div style={{ marginBottom: '12px' }}>
+                <label 
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    padding: '8px 12px',
+                    backgroundColor: myTeamOnly 
+                      ? (isDarkMode ? 'rgba(103, 58, 183, 0.2)' : 'rgba(103, 58, 183, 0.1)')
+                      : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'),
+                    borderRadius: '8px',
+                    border: `1px solid ${myTeamOnly 
+                      ? (isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)')
+                      : (isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)')}`,
+                    transition: 'all 0.2s ease',
+                    width: 'fit-content'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={myTeamOnly}
+                    onChange={onToggleMyTeamOnly}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ 
+                    fontWeight: '500',
+                    color: myTeamOnly 
+                      ? (isDarkMode ? '#b39ddb' : '#673ab7')
+                      : (isDarkMode ? '#aaa' : '#666')
+                  }}>
+                    My Team Only ({managerTeam.length} members)
+                  </span>
+                </label>
+              </div>
+            )}
             <label>Filter by TSE:</label>
             <div className="tse-checkboxes">
               <button onClick={selectAllTSEs} className="select-all-button">Select All</button>

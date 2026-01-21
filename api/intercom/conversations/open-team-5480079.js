@@ -94,8 +94,8 @@ async function fetchAllOpenTeamConversations(authHeader, options = {}) {
   const todayStartSeconds = Math.floor(todayStart.getTime() / 1000);
   const todayEndSeconds = Math.floor(todayEnd.getTime() / 1000);
   
-  // Calculate 24 hours ago timestamp (for created_at filter)
-  // This matches the Postman pre-request script logic
+  // Calculate 24 hours ago timestamp (for updated_at filter on closed conversations)
+  // This ensures we catch conversations closed today even if created earlier
   const yesterday = new Date(now - (24 * 60 * 60 * 1000));
   const last24HoursTimestamp = Math.floor(yesterday.getTime() / 1000);
   
@@ -356,14 +356,14 @@ async function fetchAllOpenTeamConversations(authHeader, options = {}) {
   let closedPageCount = 0;
   
   while (closedPageCount < MAX_PAGES) {
-    // Search for closed conversations created in last 24 hours (we'll filter by closed_at client-side)
-    // Match the working query structure from user's Postman test
+    // Search for closed conversations updated in last 24 hours (we'll filter by closed_at client-side)
+    // Using updated_at ensures we catch conversations that were created earlier but closed today
     const closedBody = {
       query: {
         operator: "AND",
         value: [
           {
-            field: "created_at",
+            field: "updated_at",
             operator: ">",
             value: last24HoursTimestamp
           },
@@ -380,7 +380,7 @@ async function fetchAllOpenTeamConversations(authHeader, options = {}) {
       }
     };
     
-    console.log(`[API] Searching for closed conversations with created_at > ${last24HoursTimestamp} (last 24 hours: ${new Date(last24HoursTimestamp * 1000).toISOString()}), state=closed`);
+    console.log(`[API] Searching for closed conversations with updated_at > ${last24HoursTimestamp} (last 24 hours: ${new Date(last24HoursTimestamp * 1000).toISOString()}), state=closed`);
 
     const closedResp = await fetch(
       `${INTERCOM_BASE_URL}/conversations/search`,

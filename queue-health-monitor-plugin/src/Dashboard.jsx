@@ -12,7 +12,79 @@ import "./Dashboard.css";
 const TSE_REGIONS = {
   'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson', 'Somachi Ngoka'],
   'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker', 'Stephen Skalamera', 'David Zingher'],
-  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre', 'Priyanshi Singh']
+  'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre', 'Priyanshi Singh', 'Prerit Deshwal']
+};
+
+// Manager configuration with their teams
+// Note: Manager names should match exactly how they appear in teamMembers from API
+const MANAGER_CONFIG = {
+  'Stephen Skalamera': {
+    title: 'Manager',
+    region: 'NY',
+    team: [
+      'Rashi Madnani',
+      'Ankita Dalvi',
+      'Nick Clancey',
+      'Nikhil Krishnappa',
+      'Ryan Jaipersaud',
+      'Siddhi Jadhav',
+      'Xyla Fang'
+    ]
+  },
+  'Zen Junior': {
+    title: 'Manager',
+    region: 'NY',
+    team: [
+      'Erez Yagil',
+      'Lyle Pierson Stachecki',
+      'Julia Lusala',
+      'Swapnil Deshpande',
+      'Betty Liu',
+      'David Zingher',
+      'Krish Pawooskar',
+      'Arley Schenker'
+    ]
+  },
+  'Holly Coxon': {
+    title: 'Manager',
+    region: 'UK',
+    team: ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson', 'Somachi Ngoka']
+  },
+  'Chetena Shinde': {
+    title: 'Manager',
+    region: 'SF',
+    team: ['Sanyam Khurana', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Soheli Das', 'Roshini Padmanabha', 'Ratna Shivakumar', 'Sahibeer Singh']
+  },
+  'Leticia Esparza': {
+    title: 'Manager',
+    region: 'SF',
+    team: ['Hem Kamdar', 'Hayden Greif-Neill', 'Abhijeet Lal', 'Prerit Deshwal', 'Bhavana Prasad Kote', 'Grania M', 'Priyanshi Singh']
+  }
+};
+
+// Get all TSE names (non-managers) for role detection
+const ALL_TSE_NAMES = Object.values(TSE_REGIONS).flat();
+const ALL_MANAGER_NAMES = Object.keys(MANAGER_CONFIG);
+
+// Helper function to determine user role: 'manager', 'tse', or 'other'
+const getUserRole = (userName) => {
+  if (!userName) return 'other';
+  // Check if user is a manager
+  if (ALL_MANAGER_NAMES.includes(userName)) return 'manager';
+  // Check if user is a TSE
+  if (ALL_TSE_NAMES.includes(userName)) return 'tse';
+  return 'other';
+};
+
+// Helper function to get manager info for a user
+const getManagerInfo = (userName) => {
+  return MANAGER_CONFIG[userName] || null;
+};
+
+// Helper function to get manager's team member names
+const getManagerTeam = (userName) => {
+  const managerInfo = MANAGER_CONFIG[userName];
+  return managerInfo ? managerInfo.team : [];
 };
 
 // Region icons (SVG URLs)
@@ -113,7 +185,12 @@ const TSE_AVATARS = {
   'Kabilan': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232387/16_hgphrw.svg',
   'Salman': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232386/20_ukjqlc.svg',
   'Erin': 'https://res.cloudinary.com/doznvxtja/image/upload/v1765232386/19_q54uo5.svg',
-  'Somachi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767886159/Untitled_design_17_zhhc3u.svg'
+  'Somachi': 'https://res.cloudinary.com/doznvxtja/image/upload/v1767886159/Untitled_design_17_zhhc3u.svg',
+  // Managers
+  'Zen': 'https://static.intercomassets.com/avatars/8893370/square_128/photo_squared-1758117953.jpeg',
+  'Holly': 'https://static.intercomassets.com/avatars/7254229/square_128/IMG_5367-1740050085.jpg',
+  'Chetena': 'https://static.intercomassets.com/avatars/7274393/square_128/intercom_1712708295666-1712708358.jpeg',
+  'Leticia': 'https://res.cloudinary.com/doznvxtja/image/upload/v1768860295/Untitled_design_26_ntzcqf.svg'
 };
 
 // Helper function to get avatar URL for a TSE name
@@ -443,7 +520,72 @@ function Dashboard(props) {
     
     return null;
   }, [user, teamMembers]);
-  const [activeView, setActiveView] = useState("overview");
+  
+  // Check if user is Stephen Skalamera (can toggle between TSE and Manager modes)
+  const isStephenSkalamera = user?.name === 'Stephen Skalamera';
+  
+  // Toggle for Stephen to switch between TSE and Manager modes (defaults to Manager mode)
+  const [stephenViewMode, setStephenViewMode] = useState('manager'); // 'manager' or 'tse'
+  
+  // TSE simulation for Stephen - allows viewing as any TSE
+  const [simulatedTSEId, setSimulatedTSEId] = useState(null);
+  
+  // Manager simulation for Stephen - allows viewing as any manager
+  const [simulatedManagerName, setSimulatedManagerName] = useState(null);
+  
+  // Get the effective TSE (simulated or actual) - used for MyQueue display
+  const effectiveTSE = useMemo(() => {
+    // Only allow simulation when Stephen is in TSE mode
+    if (isStephenSkalamera && stephenViewMode === 'tse' && simulatedTSEId && teamMembers.length > 0) {
+      const simulated = teamMembers.find(tse => String(tse.id) === String(simulatedTSEId));
+      if (simulated) return simulated;
+    }
+    return currentTSE;
+  }, [isStephenSkalamera, stephenViewMode, simulatedTSEId, teamMembers, currentTSE]);
+  
+  // Determine user role based on their name (with Stephen's toggle override)
+  const userRole = useMemo(() => {
+    if (!user?.name) return 'other';
+    // Special case: Stephen can toggle between TSE and Manager modes
+    if (isStephenSkalamera) {
+      return stephenViewMode === 'manager' ? 'manager' : 'tse';
+    }
+    return getUserRole(user.name);
+  }, [user?.name, isStephenSkalamera, stephenViewMode]);
+  
+  // Get manager info if user is a manager (uses simulated manager for Stephen if selected)
+  const managerInfo = useMemo(() => {
+    if (userRole !== 'manager') return null;
+    // If Stephen is simulating another manager, use that manager's info
+    if (isStephenSkalamera && simulatedManagerName) {
+      return getManagerInfo(simulatedManagerName);
+    }
+    if (!user?.name) return null;
+    return getManagerInfo(user.name);
+  }, [userRole, user?.name, isStephenSkalamera, simulatedManagerName]);
+  
+  // Get manager's team members (filtered from teamMembers)
+  const managerTeamMembers = useMemo(() => {
+    if (userRole !== 'manager' || !teamMembers) return [];
+    // If Stephen is simulating another manager, use that manager's team
+    const managerName = isStephenSkalamera && simulatedManagerName ? simulatedManagerName : user?.name;
+    if (!managerName) return [];
+    const teamNames = getManagerTeam(managerName);
+    return teamMembers.filter(member => teamNames.includes(member.name));
+  }, [userRole, user?.name, teamMembers, isStephenSkalamera, simulatedManagerName]);
+  
+  // Set default view based on role - TSE users start on MyQueue
+  const [activeView, setActiveView] = useState(() => {
+    // Initial state will be updated after user role is determined
+    return "overview";
+  });
+  
+  // Update active view when user role is determined
+  useEffect(() => {
+    if (userRole === 'tse' && currentTSE) {
+      setActiveView("myqueue");
+    }
+  }, [userRole, currentTSE]);
   const [filterTag, setFilterTag] = useState(["all"]);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const filterDropdownRef = useRef(null);
@@ -621,7 +763,9 @@ function Dashboard(props) {
             name: admin.name || admin.email?.split("@")[0] || `TSE ${tseId}`,
             open: 0,
             waitingOnTSE: 0,
-            waitingOnCustomer: 0,
+            waitingOnCustomerResolved: 0,
+            waitingOnCustomerUnresolved: 0,
+            waitingOnCustomer: 0, // Keep for backward compatibility
             totalSnoozed: 0
           };
         }
@@ -650,17 +794,25 @@ function Dashboard(props) {
           (t.name && t.name.toLowerCase() === "snooze.waiting-on-tse") || 
           (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-tse")
         );
-        const hasWaitingOnCustomerTag = tags.some(t => 
-          (t.name && (t.name.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved")) || 
-          (typeof t === "string" && (t.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.toLowerCase() === "snooze.waiting-on-customer-unresolved"))
+        const hasWaitingOnCustomerResolvedTag = tags.some(t => 
+          (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
+          (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
+        );
+        const hasWaitingOnCustomerUnresolvedTag = tags.some(t => 
+          (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
+          (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
         );
 
         if (isSnoozed) {
           byTSE[tseId].totalSnoozed = (byTSE[tseId].totalSnoozed || 0) + 1;
           if (hasWaitingOnTSETag) {
             byTSE[tseId].waitingOnTSE++;
-          } else if (hasWaitingOnCustomerTag) {
-            byTSE[tseId].waitingOnCustomer++;
+          } else if (hasWaitingOnCustomerResolvedTag) {
+            byTSE[tseId].waitingOnCustomerResolved++;
+            byTSE[tseId].waitingOnCustomer++; // Keep total for backward compatibility
+          } else if (hasWaitingOnCustomerUnresolvedTag) {
+            byTSE[tseId].waitingOnCustomerUnresolved++;
+            byTSE[tseId].waitingOnCustomer++; // Keep total for backward compatibility
           }
         }
 
@@ -677,7 +829,9 @@ function Dashboard(props) {
           name: tse.name,
           open: tse.open,
           waitingOnTSE: tse.waitingOnTSE,
-          waitingOnCustomer: tse.waitingOnCustomer,
+          waitingOnCustomerResolved: tse.waitingOnCustomerResolved,
+          waitingOnCustomerUnresolved: tse.waitingOnCustomerUnresolved,
+          waitingOnCustomer: tse.waitingOnCustomer, // Keep for backward compatibility
           totalSnoozed: tse.totalSnoozed || 0
         }))
       };
@@ -1067,10 +1221,12 @@ function Dashboard(props) {
 
   // Get current user's TSE metrics from the calculated data
   const currentTSEMetrics = useMemo(() => {
-    if (!currentTSE || !metrics.byTSE || metrics.byTSE.length === 0) return null;
+    // Use effectiveTSE (which includes simulated TSE for Stephen)
+    const tseToUse = effectiveTSE || currentTSE;
+    if (!tseToUse || !metrics.byTSE || metrics.byTSE.length === 0) return null;
     
     const tseData = metrics.byTSE.find(tse => 
-      String(tse.id) === String(currentTSE.id)
+      String(tse.id) === String(tseToUse.id)
     );
     
     if (!tseData) return null;
@@ -1087,7 +1243,7 @@ function Dashboard(props) {
       meetsOpen,
       meetsWaitingOnTSE
     };
-  }, [currentTSE, metrics.byTSE]);
+  }, [effectiveTSE, currentTSE, metrics.byTSE]);
 
   // Calculate performance streaks for each TSE
   const performanceStreaks = useMemo(() => {
@@ -1345,15 +1501,26 @@ function Dashboard(props) {
     return (metrics.byTSE || []).map(tse => ({ id: tse.id, name: tse.name }));
   }, [metrics.byTSE]);
 
+  // "My Team Only" filter for managers - defaults to true
+  const [myTeamOnly, setMyTeamOnly] = useState(true);
+  
   // Group TSEs by region (memoized at component level - must be before early returns)
+  // For managers with "My Team Only" enabled, filter to only show their team members
   const tseByRegion = useMemo(() => {
     const grouped = { 'UK': [], 'NY': [], 'SF': [], 'Other': [] };
-    (metrics.byTSE || []).forEach(tse => {
+    let tsesToGroup = metrics.byTSE || [];
+    
+    // If user is a manager with "My Team Only" enabled, filter to only their team members
+    if (userRole === 'manager' && managerInfo && myTeamOnly) {
+      tsesToGroup = tsesToGroup.filter(tse => managerInfo.team.includes(tse.name));
+    }
+    
+    tsesToGroup.forEach(tse => {
       const region = getTSERegion(tse.name);
       grouped[region].push(tse);
     });
     return grouped;
-  }, [metrics.byTSE]);
+  }, [metrics.byTSE, userRole, managerInfo, myTeamOnly]);
 
   // Get conversations for a specific TSE by category
   const getTSEConversations = (tseId) => {
@@ -1619,26 +1786,295 @@ function Dashboard(props) {
       <div className="dashboard-header">
         <div className="header-left">
           <h2>Support Ops: Queue Health Monitor</h2>
-          <div className="button-group">
-            <button
-              className="logout-button"
-              onClick={logout}
-              aria-label="Logout"
-              title="Sign out"
-            >
-              Sign Out
-            </button>
-            <button onClick={onRefresh} className="refresh-button">Refresh</button>
-            {lastUpdated && (
-              <span className="last-updated">
-                Last updated: {lastUpdated.toLocaleTimeString()}
-              </span>
-            )}
-          </div>
+          {lastUpdated && (
+            <span className="last-updated">
+              Last updated: {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
         </div>
         <div className="header-actions">
-          {/* My Queue Status Indicator */}
-          {currentTSEMetrics && (
+          {/* Stephen Skalamera's TSE/Manager Mode Toggle */}
+          {isStephenSkalamera && (
+            <div 
+              className="view-mode-toggle"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+                marginRight: '8px'
+              }}
+            >
+              <span style={{ 
+                fontSize: '11px', 
+                color: stephenViewMode === 'tse' 
+                  ? (isDarkMode ? '#81c784' : '#4caf50')
+                  : (isDarkMode ? '#888' : '#999'),
+                fontWeight: stephenViewMode === 'tse' ? '600' : '400'
+              }}>
+                TSE
+              </span>
+              <button
+                onClick={() => {
+                  const newMode = stephenViewMode === 'manager' ? 'tse' : 'manager';
+                  setStephenViewMode(newMode);
+                  // Switch to appropriate default view
+                  if (newMode === 'tse') {
+                    setActiveView('myqueue');
+                  } else {
+                    setActiveView('overview');
+                  }
+                }}
+                style={{
+                  position: 'relative',
+                  width: '40px',
+                  height: '20px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  backgroundColor: stephenViewMode === 'manager'
+                    ? (isDarkMode ? '#673ab7' : '#9575cd')
+                    : (isDarkMode ? '#4caf50' : '#81c784'),
+                  transition: 'all 0.2s ease',
+                  padding: 0
+                }}
+                title={`Switch to ${stephenViewMode === 'manager' ? 'TSE' : 'Manager'} mode`}
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '2px',
+                    left: stephenViewMode === 'manager' ? '22px' : '2px',
+                    width: '16px',
+                    height: '16px',
+                    borderRadius: '50%',
+                    backgroundColor: '#fff',
+                    transition: 'left 0.2s ease',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                  }}
+                />
+              </button>
+              <span style={{ 
+                fontSize: '11px', 
+                color: stephenViewMode === 'manager' 
+                  ? (isDarkMode ? '#b39ddb' : '#673ab7')
+                  : (isDarkMode ? '#888' : '#999'),
+                fontWeight: stephenViewMode === 'manager' ? '600' : '400'
+              }}>
+                Manager
+              </span>
+            </div>
+          )}
+          
+          {/* TSE Simulation Dropdown - only for Stephen in TSE mode */}
+          {isStephenSkalamera && stephenViewMode === 'tse' && teamMembers.length > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginRight: '12px'
+            }}>
+              <span style={{ 
+                fontSize: '11px', 
+                color: isDarkMode ? '#888' : '#666',
+                fontWeight: '500'
+              }}>
+                Simulate:
+              </span>
+              <select
+                value={simulatedTSEId || ''}
+                onChange={(e) => setSimulatedTSEId(e.target.value || null)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+                  color: isDarkMode ? '#fff' : '#333',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  minWidth: '160px'
+                }}
+              >
+                <option value="">-- Select TSE --</option>
+                {['UK', 'NY', 'SF', 'Other'].map(region => {
+                  const regionTSEs = teamMembers.filter(tse => getTSERegion(tse.name) === region);
+                  if (regionTSEs.length === 0) return null;
+                  return (
+                    <optgroup key={region} label={region === 'NY' ? 'New York' : region === 'SF' ? 'San Francisco' : region}>
+                      {regionTSEs.sort((a, b) => a.name.localeCompare(b.name)).map(tse => (
+                        <option key={tse.id} value={tse.id}>{tse.name}</option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+              {simulatedTSEId && (
+                <button
+                  onClick={() => setSimulatedTSEId(null)}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
+                    color: isDarkMode ? '#fff' : '#333',
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
+                  title="Clear simulation"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+          
+          {/* Manager Simulation Dropdown - only for Stephen in Manager mode */}
+          {isStephenSkalamera && stephenViewMode === 'manager' && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginRight: '12px'
+            }}>
+              <span style={{ 
+                fontSize: '11px', 
+                color: isDarkMode ? '#888' : '#666',
+                fontWeight: '500'
+              }}>
+                Simulate:
+              </span>
+              <select
+                value={simulatedManagerName || ''}
+                onChange={(e) => setSimulatedManagerName(e.target.value || null)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+                  color: isDarkMode ? '#fff' : '#333',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  minWidth: '160px'
+                }}
+              >
+                <option value="">-- Select Manager --</option>
+                {ALL_MANAGER_NAMES.filter(name => name !== 'Stephen Skalamera').map(name => (
+                  <option key={name} value={name}>
+                    {name} ({getManagerInfo(name)?.region})
+                  </option>
+                ))}
+              </select>
+              {simulatedManagerName && (
+                <button
+                  onClick={() => setSimulatedManagerName(null)}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
+                    color: isDarkMode ? '#fff' : '#333',
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
+                  title="Clear simulation"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+          
+          {/* Manager Badge - shown only for managers */}
+          {userRole === 'manager' && managerInfo && (
+            <div 
+              className="manager-badge-indicator"
+              onClick={() => setActiveView("tse")}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                backgroundColor: isDarkMode ? 'rgba(103, 58, 183, 0.15)' : 'rgba(103, 58, 183, 0.1)',
+                border: `1px solid ${isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)'}`,
+                transition: 'all 0.2s ease',
+                marginRight: '12px'
+              }}
+              title="Click to view your team"
+            >
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                overflow: 'hidden',
+                border: `2px solid ${isDarkMode ? '#9575cd' : '#673ab7'}`,
+                flexShrink: 0
+              }}>
+                {getTSEAvatar(simulatedManagerName || user?.name) ? (
+                  <img 
+                    src={getTSEAvatar(simulatedManagerName || user?.name)} 
+                    alt={simulatedManagerName || user?.name}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <div style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: isDarkMode ? '#4a148c' : '#ede7f6',
+                    color: isDarkMode ? '#fff' : '#673ab7',
+                    fontSize: '14px',
+                    fontWeight: '600'
+                  }}>
+                    {(simulatedManagerName || user?.name)?.charAt(0) || '?'}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ 
+                  fontSize: '11px', 
+                  color: isDarkMode ? '#aaa' : '#666',
+                  fontWeight: '500'
+                }}>
+                  {managerInfo.title} - {managerInfo.region}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: isDarkMode ? '#b39ddb' : '#673ab7'
+                  }}>
+                    {simulatedManagerName || user?.name}
+                    {simulatedManagerName && (
+                      <span style={{ 
+                        fontSize: '10px', 
+                        color: isDarkMode ? '#888' : '#999',
+                        fontWeight: '400',
+                        marginLeft: '4px'
+                      }}>
+                        (simulated)
+                      </span>
+                    )}
+                  </span>
+                  <span style={{
+                    fontSize: '11px',
+                    color: isDarkMode ? '#888' : '#999'
+                  }}>
+                    ({managerTeamMembers.length} team members)
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* My Queue Status Indicator - shown for TSEs and matching users (not managers) */}
+          {userRole !== 'manager' && currentTSEMetrics && (
             <div 
               className={`my-queue-indicator ${currentTSEMetrics.isOnTrack ? 'on-track' : 'needs-attention'}`}
               onClick={() => setActiveView("myqueue")}
@@ -1719,40 +2155,67 @@ function Dashboard(props) {
             </div>
           )}
           <div className="header-icon-group">
-            <button
-              className="help-icon-button"
-              onClick={() => setIsHelpModalOpen(true)}
-              aria-label="Help"
-              title="Help"
-            >
-              <img 
-                src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513679/3_150_x_150_px_12_zhkdig.svg" 
-                alt="Help" 
-                className="help-icon"
-              />
-            </button>
-            <button
-              className="streaks-icon-button"
-              onClick={() => setIsStreaksModalOpen(true)}
-              aria-label="Outstanding Performance Streaks"
-              title="Outstanding Performance Streaks"
-              disabled={!performanceStreaks.streak3 || performanceStreaks.streak3.length === 0}
-            >
-              <img 
-                src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513305/3_150_x_150_px_11_a6potb.svg" 
-                alt="Outstanding Performance Streaks" 
-                className="streaks-icon"
-              />
-            </button>
+            {/* Help icon - hidden for TSE users */}
+            {userRole !== 'tse' && (
+              <button
+                className="help-icon-button"
+                onClick={() => setIsHelpModalOpen(true)}
+                aria-label="Help"
+                title="Help"
+              >
+                <img 
+                  src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513679/3_150_x_150_px_12_zhkdig.svg" 
+                  alt="Help" 
+                  className="help-icon"
+                />
+              </button>
+            )}
+            {/* Streaks icon - hidden for TSE users */}
+            {userRole !== 'tse' && (
+              <button
+                className="streaks-icon-button"
+                onClick={() => setIsStreaksModalOpen(true)}
+                aria-label="Outstanding Performance Streaks"
+                title="Outstanding Performance Streaks"
+                disabled={!performanceStreaks.streak3 || performanceStreaks.streak3.length === 0}
+              >
+                <img 
+                  src="https://res.cloudinary.com/doznvxtja/image/upload/v1768513305/3_150_x_150_px_11_a6potb.svg" 
+                  alt="Outstanding Performance Streaks" 
+                  className="streaks-icon"
+                />
+              </button>
+            )}
             <AlertsDropdown 
-              alerts={metrics.alerts || []}
+              alerts={
+                // Filter alerts based on user role
+                userRole === 'tse' && currentTSE
+                  ? (metrics.alerts || []).filter(alert => 
+                      String(alert.tseId) === String(currentTSE.id) || alert.tseName === currentTSE.name
+                    )
+                  : userRole === 'manager' && managerInfo && myTeamOnly
+                    ? (metrics.alerts || []).filter(alert => 
+                        managerInfo.team.includes(alert.tseName)
+                      )
+                    : (metrics.alerts || [])
+              }
               isOpen={alertsDropdownOpen}
               onToggle={() => setAlertsDropdownOpen(!alertsDropdownOpen)}
               onClose={() => setAlertsDropdownOpen(false)}
               isAlertRead={alertsDismissed.isDismissed}
               onMarkAsRead={alertsDismissed.dismissItem}
               onMarkAllAsRead={() => {
-                (metrics.alerts || []).forEach(alert => {
+                // Get the filtered alerts for the current user
+                const filteredAlerts = userRole === 'tse' && currentTSE
+                  ? (metrics.alerts || []).filter(alert => 
+                      String(alert.tseId) === String(currentTSE.id) || alert.tseName === currentTSE.name
+                    )
+                  : userRole === 'manager' && managerInfo && myTeamOnly
+                    ? (metrics.alerts || []).filter(alert => 
+                        managerInfo.team.includes(alert.tseName)
+                      )
+                    : (metrics.alerts || []);
+                filteredAlerts.forEach(alert => {
                   if (!alertsDismissed.isDismissed(alert.id)) {
                     alertsDismissed.dismissItem(alert.id);
                   }
@@ -1788,7 +2251,8 @@ function Dashboard(props) {
             />
           </div>
           <div className="view-tabs">
-            {currentTSE && (
+            {/* My Queue tab - shown for TSEs, hidden for managers */}
+            {userRole !== 'manager' && currentTSE && (
               <button 
                 type="button"
                 className={activeView === "myqueue" ? "active" : ""}
@@ -1797,20 +2261,27 @@ function Dashboard(props) {
                 My Queue
               </button>
             )}
-            <button 
-              type="button"
-              className={activeView === "overview" ? "active" : ""}
-              onClick={() => setActiveView("overview")}
-            >
-              Overview
-            </button>
-            <button 
-              type="button"
-              className={activeView === "tse" ? "active" : ""}
-              onClick={() => setActiveView("tse")}
-            >
-              TSE View
-            </button>
+            {/* Overview tab - hidden for TSE users */}
+            {userRole !== 'tse' && (
+              <button 
+                type="button"
+                className={activeView === "overview" ? "active" : ""}
+                onClick={() => setActiveView("overview")}
+              >
+                Overview
+              </button>
+            )}
+            {/* TSE View tab - hidden for TSE users */}
+            {userRole !== 'tse' && (
+              <button 
+                type="button"
+                className={activeView === "tse" ? "active" : ""}
+                onClick={() => setActiveView("tse")}
+              >
+                TSE View
+              </button>
+            )}
+            {/* Conversations tab - visible for all */}
             <button 
               type="button"
               className={activeView === "conversations" ? "active" : ""}
@@ -1818,29 +2289,67 @@ function Dashboard(props) {
             >
               Conversations
             </button>
-            <button 
-              type="button"
-              className={activeView === "historical" ? "active" : ""}
-              onClick={() => setActiveView("historical")}
+            {/* Analytics tab - hidden for TSE users */}
+            {userRole !== 'tse' && (
+              <button 
+                type="button"
+                className={activeView === "historical" ? "active" : ""}
+                onClick={() => setActiveView("historical")}
+              >
+                Analytics
+              </button>
+            )}
+          </div>
+          <div className="header-utility-icons">
+            <button
+              className="header-icon-btn refresh-icon-btn"
+              onClick={onRefresh}
+              aria-label="Refresh data"
+              title="Refresh data"
             >
-              Analytics
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 4v6h-6" />
+                <path d="M1 20v-6h6" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+            </button>
+            <button
+              className="header-icon-btn logout-icon-btn"
+              onClick={logout}
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+            <button
+              className="header-icon-btn dark-mode-icon-btn"
+              onClick={toggleDarkMode}
+              aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+              title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {isDarkMode ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5" />
+                  <line x1="12" y1="1" x2="12" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="23" />
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                  <line x1="1" y1="12" x2="3" y2="12" />
+                  <line x1="21" y1="12" x2="23" y2="12" />
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              )}
             </button>
           </div>
-          <button
-            className="dark-mode-toggle-button"
-            onClick={toggleDarkMode}
-            aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
-            title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            <img 
-              src={isDarkMode 
-                ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768686539/3_150_x_150_px_14_acgkkq.svg"
-                : "https://res.cloudinary.com/doznvxtja/image/upload/v1768686539/3_150_x_150_px_15_ytqu5j.svg"
-              }
-              alt={isDarkMode ? "Light mode" : "Dark mode"} 
-              className="dark-mode-icon"
-            />
-          </button>
         </div>
       </div>
 
@@ -2004,11 +2513,12 @@ function Dashboard(props) {
 
 
       {/* My Queue - Show only in myqueue view */}
-      {activeView === "myqueue" && currentTSE && (
+      {activeView === "myqueue" && effectiveTSE && (
         <MyQueue
           conversations={conversations}
           teamMembers={teamMembers}
-          currentUserEmail={user?.email}
+          currentUserEmail={effectiveTSE?.email || user?.email}
+          simulatedTSE={isStephenSkalamera && stephenViewMode === 'tse' && simulatedTSEId ? effectiveTSE : null}
           loading={loading}
           error={error}
           onRefresh={onRefresh}
@@ -2058,6 +2568,45 @@ function Dashboard(props) {
           {/* Filters Container */}
           <div className="tse-filters-container">
             <h4 className="filters-title">Filters</h4>
+            
+            {/* My Team Only Toggle - Only for managers */}
+            {userRole === 'manager' && managerInfo && (
+              <div className="my-team-filter-section" style={{ marginBottom: '16px' }}>
+                <label 
+                  className="my-team-toggle"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    padding: '8px 12px',
+                    backgroundColor: myTeamOnly 
+                      ? (isDarkMode ? 'rgba(103, 58, 183, 0.2)' : 'rgba(103, 58, 183, 0.1)')
+                      : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'),
+                    borderRadius: '8px',
+                    border: `1px solid ${myTeamOnly 
+                      ? (isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)')
+                      : (isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)')}`,
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={myTeamOnly}
+                    onChange={() => setMyTeamOnly(!myTeamOnly)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ 
+                    fontWeight: '500',
+                    color: myTeamOnly 
+                      ? (isDarkMode ? '#b39ddb' : '#673ab7')
+                      : (isDarkMode ? '#aaa' : '#666')
+                  }}>
+                    My Team Only ({managerInfo.team.length} members)
+                  </span>
+                </label>
+              </div>
+            )}
             
             {/* Color Filters */}
             <div className="tse-color-filters-section">
@@ -2417,6 +2966,11 @@ function Dashboard(props) {
         <HistoricalView 
           onSaveSnapshot={handleSaveSnapshot} 
           refreshTrigger={lastUpdated}
+          managerTeamFilter={userRole === 'manager' && managerInfo && myTeamOnly ? managerInfo.team : null}
+          isManager={userRole === 'manager'}
+          managerTeam={userRole === 'manager' && managerInfo ? managerInfo.team : null}
+          myTeamOnly={myTeamOnly}
+          onToggleMyTeamOnly={() => setMyTeamOnly(!myTeamOnly)}
         />
       )}
 
@@ -3011,6 +3565,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   const [isWaitRateIconHovered, setIsWaitRateIconHovered] = useState(false);
   const [isSnoozedIconHovered, setIsSnoozedIconHovered] = useState(false);
   const [isAlertSummaryIconHovered, setIsAlertSummaryIconHovered] = useState(false);
+  const [isSameDayCloseModalOpen, setIsSameDayCloseModalOpen] = useState(false);
   
   // Prepare on-track trend data with breakdown (Overall, Open, Snoozed)
   const onTrackChartData = useMemo(() => {
@@ -3167,10 +3722,57 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       .slice(-7); // Last 7 days
   }, [responseTimeMetrics]);
 
-  // Calculate real-time wait rate percentages from current conversations
+  // Calculate real-time wait rate percentages from conversations created today between 2am PT and 6pm PT
   const realtimeWaitRate = useMemo(() => {
     const conversationList = conversations || [];
-    if (conversationList.length === 0) return { pct5Plus: 0, pct5to10: 0, pct10Plus: 0 };
+    if (conversationList.length === 0) return { pct5Plus: 0, pct5to10: 0, pct10Plus: 0, totalCount: 0 };
+
+    // Calculate today's window: 2am PT to 6pm PT
+    // PT is UTC-8 (PST) or UTC-7 (PDT)
+    const now = new Date();
+    
+    // Get current PT offset (handles daylight saving automatically)
+    const ptFormatter = new Intl.DateTimeFormat('en-US', { 
+      timeZone: 'America/Los_Angeles', 
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false 
+    });
+    const ptParts = ptFormatter.formatToParts(now);
+    const ptYear = parseInt(ptParts.find(p => p.type === 'year').value);
+    const ptMonth = parseInt(ptParts.find(p => p.type === 'month').value) - 1;
+    const ptDay = parseInt(ptParts.find(p => p.type === 'day').value);
+    
+    // Create 2am PT and 6pm PT for today in UTC
+    // Using a fixed PT offset calculation
+    const todayPT = new Date(Date.UTC(ptYear, ptMonth, ptDay));
+    
+    // Determine PT offset (PST = -8, PDT = -7)
+    const jan = new Date(ptYear, 0, 1);
+    const jul = new Date(ptYear, 6, 1);
+    const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+    const isDST = now.getTimezoneOffset() < stdOffset;
+    const ptOffsetHours = isDST ? 7 : 8; // PDT = UTC-7, PST = UTC-8
+    
+    // 2am PT = 2 + ptOffsetHours in UTC
+    const startHourUTC = 2 + ptOffsetHours; // 9 or 10 UTC
+    // 6pm PT = 18 + ptOffsetHours in UTC  
+    const endHourUTC = 18 + ptOffsetHours; // 25 or 26 UTC (wraps to next day)
+    
+    const windowStart = new Date(todayPT);
+    windowStart.setUTCHours(startHourUTC, 0, 0, 0);
+    
+    const windowEnd = new Date(todayPT);
+    if (endHourUTC >= 24) {
+      windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
+      windowEnd.setUTCHours(endHourUTC - 24, 0, 0, 0);
+    } else {
+      windowEnd.setUTCHours(endHourUTC, 0, 0, 0);
+    }
+
+    const toTimestamp = (timestamp) => {
+      if (!timestamp) return null;
+      return timestamp > 1e12 ? timestamp : timestamp * 1000;
+    };
 
     let totalWithResponse = 0;
     let count5Plus = 0;
@@ -3178,16 +3780,22 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     let count10Plus = 0;
 
     conversationList.forEach(conv => {
+      const createdAt = toTimestamp(conv.created_at || conv.createdAt || conv.first_opened_at);
+      if (!createdAt) return;
+
+      // Only include conversations created today between 2am PT and 6pm PT
+      if (createdAt < windowStart.getTime() || createdAt >= windowEnd.getTime()) return;
+
       const timeToReply = conv.statistics?.time_to_admin_reply;
       const firstAdminReplyAt = conv.statistics?.first_admin_reply_at;
-      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
 
       let waitTimeSeconds = null;
       if (timeToReply !== null && timeToReply !== undefined) {
         waitTimeSeconds = timeToReply;
       } else if (firstAdminReplyAt && createdAt) {
-        // Both timestamps are in seconds
-        waitTimeSeconds = firstAdminReplyAt - createdAt;
+        // firstAdminReplyAt is in seconds, createdAt is now in ms
+        const createdAtSeconds = createdAt / 1000;
+        waitTimeSeconds = firstAdminReplyAt - createdAtSeconds;
       }
 
       if (waitTimeSeconds !== null && waitTimeSeconds >= 0) {
@@ -3212,11 +3820,13 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     return {
       pct5Plus: Math.round(pct5Plus * 10) / 10,
       pct5to10: Math.round(pct5to10 * 10) / 10,
-      pct10Plus: Math.round(pct10Plus * 10) / 10
+      pct10Plus: Math.round(pct10Plus * 10) / 10,
+      totalCount: totalWithResponse
     };
   }, [conversations]);
 
   // Calculate yesterday's wait rate from conversations created yesterday
+  // eslint-disable-next-line no-unused-vars
   const yesterdayWaitRate = useMemo(() => {
     const conversationList = conversations || [];
     if (conversationList.length === 0) return { pct5Plus: 0, pct5to10: 0, pct10Plus: 0 };
@@ -3289,12 +3899,55 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   }, [responseTimeTrendData]);
 
 
-  const sameDayClosePct = useMemo(() => {
+  // Calculate Same-Day Close % for conversations created today between 2am-6pm PT
+  const sameDayCloseData = useMemo(() => {
     const conversationList = conversations || [];
-    if (conversationList.length === 0) return 0;
+    if (conversationList.length === 0) return { pct: 0, conversations: [], totalClosed: 0 };
 
-    let closedTotal = 0;
-    let closedSameDay = 0;
+    // Calculate today's window: 2am PT to 6pm PT (same as Wait Rate)
+    const now = new Date();
+    
+    // Get current PT offset (handles daylight saving automatically)
+    const ptFormatter = new Intl.DateTimeFormat('en-US', { 
+      timeZone: 'America/Los_Angeles', 
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false 
+    });
+    const ptParts = ptFormatter.formatToParts(now);
+    const ptYear = parseInt(ptParts.find(p => p.type === 'year').value);
+    const ptMonth = parseInt(ptParts.find(p => p.type === 'month').value) - 1;
+    const ptDay = parseInt(ptParts.find(p => p.type === 'day').value);
+    
+    // Create 2am PT and 6pm PT for today in UTC
+    const todayPT = new Date(Date.UTC(ptYear, ptMonth, ptDay));
+    
+    // Determine PT offset (PST = -8, PDT = -7)
+    const jan = new Date(ptYear, 0, 1);
+    const jul = new Date(ptYear, 6, 1);
+    const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+    const isDST = now.getTimezoneOffset() < stdOffset;
+    const ptOffsetHours = isDST ? 7 : 8; // PDT = UTC-7, PST = UTC-8
+    
+    // 2am PT = 2 + ptOffsetHours in UTC
+    const startHourUTC = 2 + ptOffsetHours;
+    // 6pm PT = 18 + ptOffsetHours in UTC  
+    const endHourUTC = 18 + ptOffsetHours;
+    
+    const windowStart = new Date(todayPT);
+    windowStart.setUTCHours(startHourUTC, 0, 0, 0);
+    
+    const windowEnd = new Date(todayPT);
+    if (endHourUTC >= 24) {
+      windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
+      windowEnd.setUTCHours(endHourUTC - 24, 0, 0, 0);
+    } else {
+      windowEnd.setUTCHours(endHourUTC, 0, 0, 0);
+    }
+
+    const toTimestamp = (timestamp) => {
+      if (!timestamp) return null;
+      return timestamp > 1e12 ? timestamp : timestamp * 1000;
+    };
 
     const toUtcDate = (timestamp) => {
       if (!timestamp) return null;
@@ -3302,42 +3955,135 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       return new Date(ms).toISOString().slice(0, 10);
     };
 
+    let closedTotal = 0;
+    let closedSameDay = 0;
+    const sameDayConversations = [];
+
     conversationList.forEach(conv => {
       const state = (conv.state || "").toLowerCase();
       if (state !== "closed") return;
 
       const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
       const closedAt = conv.closed_at || conv.closedAt;
+      const createdTimestamp = toTimestamp(createdAt);
+      const closedTimestamp = toTimestamp(closedAt);
+      
+      if (!createdTimestamp) return;
+      
+      // Only include conversations created today between 2am PT and 6pm PT
+      if (createdTimestamp < windowStart.getTime() || createdTimestamp >= windowEnd.getTime()) return;
+
+      // Get assignee info early to filter out service account
+      const assignee = conv.admin_assignee || conv.adminAssignee || conv.assignee;
+      const assigneeName = assignee?.name || 'Unassigned';
+      
+      // Exclude service account closures from all calculations
+      if (assigneeName === 'svc-prd-tse-intercom SVC') return;
 
       const createdDate = toUtcDate(createdAt);
       const closedDate = toUtcDate(closedAt);
       if (!createdDate || !closedDate) return;
 
       closedTotal++;
-      if (createdDate === closedDate) closedSameDay++;
+      if (createdDate === closedDate) {
+        closedSameDay++;
+        // Calculate time to close in minutes
+        const timeToCloseMinutes = closedTimestamp && createdTimestamp 
+          ? Math.round((closedTimestamp - createdTimestamp) / 60000) 
+          : null;
+        
+        sameDayConversations.push({
+          id: conv.id,
+          createdAt: createdTimestamp,
+          closedAt: closedTimestamp,
+          timeToCloseMinutes,
+          assigneeName,
+          title: conv.source?.subject || conv.title || `Conversation ${conv.id}`
+        });
+      }
     });
 
-    if (closedTotal === 0) return 0;
-    return Math.round((closedSameDay / closedTotal) * 1000) / 10;
+    // Sort by most recently closed
+    sameDayConversations.sort((a, b) => b.closedAt - a.closedAt);
+
+    const pct = closedTotal === 0 ? 0 : Math.round((closedSameDay / closedTotal) * 1000) / 10;
+    return { pct, conversations: sameDayConversations, totalClosed: closedTotal };
   }, [conversations]);
 
+  // For backward compatibility
+  const sameDayClosePct = sameDayCloseData.pct;
+
+  // Calculate Avg Initial Response for conversations created today between 2am-6pm PT
   const avgInitialResponseMinutes = useMemo(() => {
     const conversationList = conversations || [];
     if (conversationList.length === 0) return 0;
+
+    // Calculate today's window: 2am PT to 6pm PT (same as Wait Rate and Same-Day Close %)
+    const now = new Date();
+    
+    // Get current PT offset (handles daylight saving automatically)
+    const ptFormatter = new Intl.DateTimeFormat('en-US', { 
+      timeZone: 'America/Los_Angeles', 
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false 
+    });
+    const ptParts = ptFormatter.formatToParts(now);
+    const ptYear = parseInt(ptParts.find(p => p.type === 'year').value);
+    const ptMonth = parseInt(ptParts.find(p => p.type === 'month').value) - 1;
+    const ptDay = parseInt(ptParts.find(p => p.type === 'day').value);
+    
+    // Create 2am PT and 6pm PT for today in UTC
+    const todayPT = new Date(Date.UTC(ptYear, ptMonth, ptDay));
+    
+    // Determine PT offset (PST = -8, PDT = -7)
+    const jan = new Date(ptYear, 0, 1);
+    const jul = new Date(ptYear, 6, 1);
+    const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+    const isDST = now.getTimezoneOffset() < stdOffset;
+    const ptOffsetHours = isDST ? 7 : 8; // PDT = UTC-7, PST = UTC-8
+    
+    // 2am PT = 2 + ptOffsetHours in UTC
+    const startHourUTC = 2 + ptOffsetHours;
+    // 6pm PT = 18 + ptOffsetHours in UTC  
+    const endHourUTC = 18 + ptOffsetHours;
+    
+    const windowStart = new Date(todayPT);
+    windowStart.setUTCHours(startHourUTC, 0, 0, 0);
+    
+    const windowEnd = new Date(todayPT);
+    if (endHourUTC >= 24) {
+      windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
+      windowEnd.setUTCHours(endHourUTC - 24, 0, 0, 0);
+    } else {
+      windowEnd.setUTCHours(endHourUTC, 0, 0, 0);
+    }
+
+    const toTimestamp = (timestamp) => {
+      if (!timestamp) return null;
+      return timestamp > 1e12 ? timestamp : timestamp * 1000;
+    };
 
     let totalSeconds = 0;
     let count = 0;
 
     conversationList.forEach(conv => {
+      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
+      const createdTimestamp = toTimestamp(createdAt);
+      
+      if (!createdTimestamp) return;
+      
+      // Only include conversations created today between 2am PT and 6pm PT
+      if (createdTimestamp < windowStart.getTime() || createdTimestamp >= windowEnd.getTime()) return;
+
       const timeToReply = conv.statistics?.time_to_admin_reply;
       const firstAdminReplyAt = conv.statistics?.first_admin_reply_at;
-      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
 
       let responseSeconds = null;
       if (timeToReply !== null && timeToReply !== undefined) {
         responseSeconds = timeToReply;
       } else if (firstAdminReplyAt && createdAt) {
-        responseSeconds = firstAdminReplyAt - createdAt;
+        const createdAtSeconds = createdTimestamp / 1000;
+        responseSeconds = firstAdminReplyAt - createdAtSeconds;
       }
 
       if (responseSeconds !== null && responseSeconds >= 0) {
@@ -3557,15 +4303,20 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   }, [onTrackTrendData]);
 
   // Real-time wait rate trend (for Performance Metrics vs Yesterday card)
+  // Uses snapshot data for yesterday to be consistent with Historical Response Time Metrics table
   const realtimeWaitRateTrend = useMemo(() => {
     const today = realtimeWaitRate.pct5Plus;
-    const yesterday = yesterdayWaitRate.pct5Plus;
+    // Use the most recent snapshot data for yesterday (consistent with Historical table)
+    const yesterday = responseTimeTrendData.length > 0 
+      ? responseTimeTrendData[responseTimeTrendData.length - 1].percentage5Plus 
+      : 0;
     const change = today - yesterday;
     return {
       direction: change < 0 ? 'up' : change > 0 ? 'down' : 'stable', // Lower is better for response time
-      change: Math.abs(change)
+      change: Math.abs(change),
+      yesterdayValue: yesterday
     };
-  }, [realtimeWaitRate, yesterdayWaitRate]);
+  }, [realtimeWaitRate, responseTimeTrendData]);
 
   const responseTimeTrend = useMemo(() => {
     if (responseTimeTrendData.length < 2) return { direction: 'stable', change: 0 };
@@ -4023,7 +4774,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   // Calculate SNOOZED trends (compare to yesterday if available)
   const snoozedTrends = useMemo(() => {
     if (!historicalSnapshots || historicalSnapshots.length < 2) {
-      return { waitingOnTSE: null, waitingOnCustomer: null, total: null };
+      return { waitingOnTSE: null, waitingOnCustomerResolved: null, waitingOnCustomerUnresolved: null, total: null };
     }
     
     const sorted = [...historicalSnapshots].sort((a, b) => a.date.localeCompare(b.date));
@@ -4033,18 +4784,19 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     const calculateSnoozedCounts = (snapshot) => {
       const tseData = snapshot.tse_data || snapshot.tseData || [];
       let waitingOnTSE = 0;
-      let waitingOnCustomer = 0;
+      let waitingOnCustomerResolved = 0;
+      let waitingOnCustomerUnresolved = 0;
       let total = 0;
       
       tseData.forEach(tse => {
         waitingOnTSE += tse.waitingOnTSE || tse.actionableSnoozed || 0;
-        // Note: waitingOnCustomer is not directly stored in snapshot, would need to calculate from conversations
-        // For now, we'll use 0 as a placeholder - this could be enhanced if needed
-        waitingOnCustomer += 0;
+        // Get resolved and unresolved counts if available in snapshot
+        waitingOnCustomerResolved += tse.waitingOnCustomerResolved || 0;
+        waitingOnCustomerUnresolved += tse.waitingOnCustomerUnresolved || 0;
         total += tse.snoozed || 0;
       });
       
-      return { waitingOnTSE, waitingOnCustomer, total };
+      return { waitingOnTSE, waitingOnCustomerResolved, waitingOnCustomerUnresolved, total };
     };
     
     const todayCounts = calculateSnoozedCounts(today);
@@ -4057,11 +4809,17 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         change: todayCounts.waitingOnTSE - yesterdayCounts.waitingOnTSE,
         direction: todayCounts.waitingOnTSE > yesterdayCounts.waitingOnTSE ? 'up' : todayCounts.waitingOnTSE < yesterdayCounts.waitingOnTSE ? 'down' : 'stable'
       },
-      waitingOnCustomer: {
-        today: todayCounts.waitingOnCustomer,
-        yesterday: yesterdayCounts.waitingOnCustomer,
-        change: todayCounts.waitingOnCustomer - yesterdayCounts.waitingOnCustomer,
-        direction: todayCounts.waitingOnCustomer > yesterdayCounts.waitingOnCustomer ? 'up' : todayCounts.waitingOnCustomer < yesterdayCounts.waitingOnCustomer ? 'down' : 'stable'
+      waitingOnCustomerResolved: {
+        today: todayCounts.waitingOnCustomerResolved,
+        yesterday: yesterdayCounts.waitingOnCustomerResolved,
+        change: todayCounts.waitingOnCustomerResolved - yesterdayCounts.waitingOnCustomerResolved,
+        direction: todayCounts.waitingOnCustomerResolved > yesterdayCounts.waitingOnCustomerResolved ? 'up' : todayCounts.waitingOnCustomerResolved < yesterdayCounts.waitingOnCustomerResolved ? 'down' : 'stable'
+      },
+      waitingOnCustomerUnresolved: {
+        today: todayCounts.waitingOnCustomerUnresolved,
+        yesterday: yesterdayCounts.waitingOnCustomerUnresolved,
+        change: todayCounts.waitingOnCustomerUnresolved - yesterdayCounts.waitingOnCustomerUnresolved,
+        direction: todayCounts.waitingOnCustomerUnresolved > yesterdayCounts.waitingOnCustomerUnresolved ? 'up' : todayCounts.waitingOnCustomerUnresolved < yesterdayCounts.waitingOnCustomerUnresolved ? 'down' : 'stable'
       },
       total: {
         today: todayCounts.total,
@@ -4244,10 +5002,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     <div style={{ textAlign: 'left' }}>
                       <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Performance Metrics vs Yesterday</div>
                       <div style={{ marginBottom: '8px' }}>
-                        <strong>Wait Rate:</strong> Percentage of conversations with 5+ minute wait time before first admin reply (calculated from real-time conversation data).
+                        <strong>Wait Rate (Today):</strong> Percentage of conversations with 5+ minute wait time before first admin reply.
                         <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li>Calculated from conversations created today during business hours</li>
                           <li>Shows breakdown: 5+ min (total), 5-10 min, and 10+ min</li>
-                          <li>Trend compares today (realtime) vs yesterday (calculated from conversations created yesterday)</li>
+                          <li>Trend compares today vs yesterday's snapshot data</li>
                         </ul>
                       </div>
                       <div style={{ marginBottom: '8px' }}>
@@ -4263,14 +5022,14 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     </div>
                   }
                   isDarkMode={isDarkMode}
-                  position="left"
+                  position="right"
                 />
               </div>
               <div className="kpi-content-with-viz">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                     <span style={{ fontSize: '24px', fontWeight: 700 }}>{realtimeWaitRate.pct5Plus}%</span>
-                    <span style={{ fontSize: '14px', color: isDarkMode ? '#999' : '#666' }}>Wait Rate</span>
+                    <span style={{ fontSize: '14px', color: isDarkMode ? '#999' : '#666' }}>Wait Rate (Today)</span>
                   </div>
                   <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
                     <span>5-10 min: {realtimeWaitRate.pct5to10}%</span>
@@ -4318,14 +5077,14 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   );
                 })()}
               </div>
-              {yesterdayWaitRate.pct5Plus > 0 && (
+              {responseTimeTrendData.length > 0 && (
                 <div>
                   <div className={`kpi-trend ${realtimeWaitRateTrend.direction}`}>
                     {realtimeWaitRateTrend.direction === 'up' ? '↓' : realtimeWaitRateTrend.direction === 'down' ? '↑' : '→'}
                     {realtimeWaitRateTrend.change > 0 && ` ${realtimeWaitRateTrend.change.toFixed(1)}%`}
                   </div>
                   <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
-                    vs yesterday
+                    vs yesterday ({realtimeWaitRateTrend.yesterdayValue}%)
                   </div>
                 </div>
               )}
@@ -4386,7 +5145,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                       {onTrackTrend.change > 0 && ` ${onTrackTrend.change.toFixed(1)}%`}
                     </div>
                     <div style={{ fontSize: '11px', color: isDarkMode ? '#999' : '#666', marginTop: '4px' }}>
-                      vs yesterday
+                      vs yesterday ({onTrackTrendData[onTrackTrendData.length - 2]?.onTrack || 0}%)
                     </div>
                   </div>
                 )}
@@ -4397,15 +5156,46 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               <div className="kpi-label">
                 Real-time Intercom Metrics
                 <InfoIcon 
-                  content="Key real-time metrics from Intercom: Average initial response time, total open conversations, unassigned conversations count, and same-day close percentage."
+                  content={
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Real-time Intercom Metrics (Today)</div>
+                      <div style={{ marginBottom: '8px' }}>
+                        <strong>Avg Initial Response:</strong> Average time to first admin reply.
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li>Calculated from conversations created today (2am-6pm PT)</li>
+                          <li>Trend compares last 7 days vs previous 7 days</li>
+                        </ul>
+                      </div>
+                      <div style={{ marginBottom: '8px' }}>
+                        <strong>Open Chats:</strong> Total count of active, non-snoozed conversations.
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li>Shows age breakdown: 0-2h, 2-4h, 4-8h, 8h+</li>
+                        </ul>
+                      </div>
+                      <div style={{ marginBottom: '8px' }}>
+                        <strong>Unassigned Conversations:</strong> Conversations without an assigned TSE.
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li>Color-coded: Green (≤5), Yellow (6-10), Red (11+)</li>
+                          <li>Shows median wait time for unassigned</li>
+                        </ul>
+                      </div>
+                      <div style={{ marginBottom: '8px' }}>
+                        <strong>Same-Day Close % (Today):</strong> Percentage of closed conversations that were created and closed on the same day.
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                          <li>Calculated from conversations created today (2am-6pm PT)</li>
+                          <li>Click to see list of same-day closures</li>
+                        </ul>
+                      </div>
+                    </div>
+                  }
                   isDarkMode={isDarkMode}
-                  position="left"
+                  position="right"
                 />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
                 {/* Avg Initial Response */}
                 <div>
-                  <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Avg Initial Response</div>
+                  <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Avg Initial Response (Today)</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '20px', fontWeight: 600 }}>{avgInitialResponseMinutes} min</span>
                     {avgInitialResponseTrend.change > 0 && (
@@ -4452,8 +5242,13 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                 )}
 
                 {/* Same-Day Close %} */}
-                <div>
-                  <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Same-Day Close %</div>
+                <div 
+                  onClick={() => setIsSameDayCloseModalOpen(true)}
+                  style={{ cursor: 'pointer', padding: '8px', margin: '-8px', borderRadius: '8px', transition: 'background 0.2s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Same-Day Close % (Today)</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '20px', fontWeight: 600 }}>{sameDayClosePct}%</span>
                     {sameDayCloseTrend.change > 0 && (
@@ -4462,6 +5257,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                         {sameDayCloseTrend.change > 0 && ` ${sameDayCloseTrend.change.toFixed(1)}%`}
                       </span>
                     )}
+                  </div>
+                  <div style={{ fontSize: '10px', color: isDarkMode ? '#666' : '#999', marginTop: '4px' }}>
+                    {sameDayCloseData.conversations.length} of {sameDayCloseData.totalClosed} closed today
                   </div>
                 </div>
               </div>
@@ -4489,7 +5287,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                 onMouseEnter={() => setIsSnoozedIconHovered(true)}
                 onMouseLeave={() => setIsSnoozedIconHovered(false)}
               />
-              <div className="kpi-label">
+              <div className="kpi-label" style={{ marginBottom: '8px' }}>
                 SNOOZED
                 <InfoIcon 
                   content="Breakdown of snoozed conversations: Waiting on TSE (actionable), Waiting on Customer - Resolved, and Waiting on Customer - Unresolved. Shows trends vs yesterday."
@@ -4540,9 +5338,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                       <div className="tse-metric">
                         <span className="metric-label">Waiting On Customer - Resolved:</span>
                         <span className="metric-value">{waitingOnCustomerResolved}</span>
-                        {snoozedTrends.waitingOnCustomer && snoozedTrends.waitingOnCustomer.change !== 0 && (
-                          <span className={`kpi-trend ${snoozedTrends.waitingOnCustomer.direction}`} style={{ fontSize: '11px', marginLeft: '6px' }}>
-                            {snoozedTrends.waitingOnCustomer.direction === 'up' ? '↑' : '↓'} {Math.abs(snoozedTrends.waitingOnCustomer.change)}
+                        {snoozedTrends.waitingOnCustomerResolved && snoozedTrends.waitingOnCustomerResolved.change !== 0 && (
+                          <span className={`kpi-trend ${snoozedTrends.waitingOnCustomerResolved.direction}`} style={{ fontSize: '11px', marginLeft: '6px' }}>
+                            {snoozedTrends.waitingOnCustomerResolved.direction === 'up' ? '↑' : '↓'} {Math.abs(snoozedTrends.waitingOnCustomerResolved.change)}
                           </span>
                         )}
                       </div>
@@ -4560,6 +5358,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                       <div className="tse-metric">
                         <span className="metric-label">Waiting On Customer - Unresolved:</span>
                         <span className="metric-value">{waitingOnCustomerUnresolved}</span>
+                        {snoozedTrends.waitingOnCustomerUnresolved && snoozedTrends.waitingOnCustomerUnresolved.change !== 0 && (
+                          <span className={`kpi-trend ${snoozedTrends.waitingOnCustomerUnresolved.direction}`} style={{ fontSize: '11px', marginLeft: '6px' }}>
+                            {snoozedTrends.waitingOnCustomerUnresolved.direction === 'up' ? '↑' : '↓'} {Math.abs(snoozedTrends.waitingOnCustomerUnresolved.change)}
+                          </span>
+                        )}
                       </div>
                       <div className="kpi-mini-bar">
                         <div 
@@ -5411,6 +6214,111 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   </>
                 );
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Same-Day Close Modal */}
+      {isSameDayCloseModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsSameDayCloseModalOpen(false)}>
+          <div className="modal-content wait-rate-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header wait-rate-modal-header">
+              <div>
+                <h3>Same-Day Closures</h3>
+                <span className="modal-subtitle">Conversations created and closed today during business hours</span>
+              </div>
+              <button className="modal-close-button" onClick={() => setIsSameDayCloseModalOpen(false)}>×</button>
+            </div>
+            <div className="modal-body wait-rate-modal-body">
+              {sameDayCloseData.conversations.length === 0 ? (
+                <div className="modal-empty-state">No same-day closures available for today's business hours.</div>
+              ) : (
+                <>
+                  <div className="wait-rate-summary">
+                    <div className="wait-rate-summary-item">
+                      <div className="summary-label">Same-Day Closures</div>
+                      <div className="summary-value">{sameDayCloseData.conversations.length}</div>
+                    </div>
+                    <div className="wait-rate-summary-item">
+                      <div className="summary-label">Total Closed Today</div>
+                      <div className="summary-value">{sameDayCloseData.totalClosed}</div>
+                    </div>
+                    <div className="wait-rate-summary-item">
+                      <div className="summary-label">Same-Day Close Rate</div>
+                      <div className="summary-value">{sameDayCloseData.pct}%</div>
+                    </div>
+                    <div className="wait-rate-summary-item">
+                      <div className="summary-label">Avg Time to Close</div>
+                      <div className="summary-value">
+                        {sameDayCloseData.conversations.length > 0 
+                          ? (() => {
+                              const avgMinutes = sameDayCloseData.conversations.reduce((sum, c) => sum + (c.timeToCloseMinutes || 0), 0) / sameDayCloseData.conversations.length;
+                              if (avgMinutes < 60) return `${Math.round(avgMinutes)} min`;
+                              const hours = Math.floor(avgMinutes / 60);
+                              const mins = Math.round(avgMinutes % 60);
+                              return `${hours}h ${mins}m`;
+                            })()
+                          : '—'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="wait-rate-columns" style={{ gridTemplateColumns: '1fr' }}>
+                    <div className="wait-rate-column">
+                      <h4>Same-Day Closed Conversations ({sameDayCloseData.conversations.length})</h4>
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sameDayCloseData.conversations.map(conv => (
+                          <li key={conv.id} style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '10px 12px',
+                            borderRadius: '6px',
+                            background: isDarkMode ? 'var(--bg-card)' : '#f9f9f9',
+                            border: `1px solid ${isDarkMode ? 'var(--border-primary)' : '#e0e0e0'}`,
+                            fontSize: '13px',
+                            color: isDarkMode ? '#ffffff' : '#292929',
+                            marginBottom: '8px'
+                          }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <a 
+                                href={`${INTERCOM_BASE_URL}${conv.id}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                style={{
+                                  color: '#35a1b4',
+                                  textDecoration: 'none',
+                                  fontWeight: 600
+                                }}
+                                onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                                onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                              >
+                                {conv.id}
+                              </a>
+                              <span style={{ fontSize: '11px', color: isDarkMode ? '#888' : '#666' }}>
+                                Closed by: {conv.assigneeName}
+                              </span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontWeight: 600 }}>
+                                {conv.timeToCloseMinutes !== null 
+                                  ? conv.timeToCloseMinutes < 60 
+                                    ? `${conv.timeToCloseMinutes} min`
+                                    : `${Math.floor(conv.timeToCloseMinutes / 60)}h ${conv.timeToCloseMinutes % 60}m`
+                                  : '—'}
+                              </div>
+                              <div style={{ fontSize: '10px', color: isDarkMode ? '#888' : '#666' }}>
+                                time to close
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -6845,7 +7753,12 @@ function HelpModal({ onClose }) {
               <p><strong>Location:</strong> "Today / Realtime Metrics" section</p>
               <p><strong>What It Shows:</strong> A combined card displaying four key real-time metrics from Intercom:</p>
               <ul>
-                <li><strong>Avg Initial Response:</strong> Average time to first admin reply across all conversations (in minutes)</li>
+                <li><strong>Avg Initial Response:</strong> Average time to first admin reply (in minutes)
+                  <ul>
+                    <li>Calculated from conversations created today during business hours</li>
+                    <li>Trend compares last 7 days vs previous 7 days</li>
+                  </ul>
+                </li>
                 <li><strong>Open Chats:</strong> Total count of active, non-snoozed conversations
                   <ul>
                     <li>Shows age breakdown: &lt;1h, 1-4h, 4-8h, 8h+</li>
@@ -6860,7 +7773,8 @@ function HelpModal({ onClose }) {
                 </li>
                 <li><strong>Same-Day Close %:</strong> Percentage of conversations closed on the same day they were created
                   <ul>
-                    <li>Compares last 7 days vs previous 7 days</li>
+                    <li>Calculated from conversations created today during business hours</li>
+                    <li>Trend compares last 7 days vs previous 7 days</li>
                     <li>Shows trend indicator (↑ improving, ↓ declining)</li>
                   </ul>
                 </li>

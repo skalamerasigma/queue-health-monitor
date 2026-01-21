@@ -1,0 +1,711 @@
+General
+📏
+Status Thresholds & On-Track Targets
+The application uses standardized thresholds to determine TSE queue health status. Understanding these thresholds is essential for interpreting all metrics throughout the application.
+
+🎯
+On-Track Target: 80%+
+Team Goal: The target is for 80% or more of TSEs to be "on track" at any given time. This ensures optimal queue health and customer experience.
+
+Why 80%: This target accounts for normal variations in workload, temporary spikes, and allows for some TSEs to be temporarily over limits while maintaining overall team performance.
+
+✅
+On-Track Calculation
+Definition: A TSE is considered "on track" if they meet BOTH of the following thresholds simultaneously:
+
+Open Conversations: ≤ 5 active, non-snoozed conversations
+Waiting on TSE: ≤ 5 conversations snoozed with the "snooze.waiting-on-tse" tag
+Important Notes:
+
+Both conditions must be met - if either threshold is exceeded, the TSE is not on track
+"Waiting on TSE" specifically refers to conversations with the "snooze.waiting-on-tse" tag, not all snoozed conversations
+Conversations waiting on customer (with "snooze.waiting-on-customer" tags) do not count toward the waiting-on-TSE threshold
+Calculation Formula: For any group of TSEs, On-Track % = (Number of TSEs meeting both thresholds / Total TSEs) × 100
+
+⭐
+Status Levels
+Four distinct status levels:
+
+⭐️
+Outstanding
+0 open AND 0 waiting on TSE
+
+Perfect performance - no active workload. TSE has completed all assigned work and has no pending items.
+
+On Track
+≤5 open AND ≤5 waiting
+
+Within acceptable limits. TSE is managing their queue effectively and meeting performance standards.
+
+Over Limit - Needs Attention
+>5 open OR >5 waiting
+
+Exceeds thresholds and requires attention. May need workload redistribution or support.
+
+🚨
+Alert Thresholds vs. Soft Limits
+Two-Tier System: The application uses two sets of thresholds for different purposes:
+
+Soft Limits (On-Track Thresholds):
+Open Chats: ≤ 5
+Waiting on TSE: ≤ 5
+Used to determine "On Track" status. TSEs meeting these limits are considered compliant.
+
+Alert Thresholds:
+Open Chats Alert: 6+ conversations
+Waiting on TSE Alert: 7+ conversations
+Trigger notifications when exceeded. These are higher thresholds that indicate a TSE needs immediate attention.
+
+Why Different: Soft limits define acceptable performance, while alert thresholds identify situations requiring immediate intervention. This two-tier system prevents alert fatigue while maintaining clear performance standards.
+
+📊
+Threshold Values
+Metric	Soft Limit (On-Track)	Alert Threshold
+Open Conversations	≤ 5	≥ 6
+Waiting on TSE	≤ 5	≥ 7
+🔔
+Alerts System
+The alerts system proactively identifies TSEs who need immediate attention, helping managers quickly address queue health issues before they impact customer experience.
+
+🔔
+Alert Dropdown
+Access: Click the bell icon (🔔) in the top navigation header. The icon displays a badge with the total count of active alerts.
+
+What It Shows: A dropdown menu listing all TSEs currently exceeding alert thresholds, organized by alert type.
+
+Features:
+
+Total alert count displayed as a badge on the bell icon
+Alerts grouped by type (Open Chats vs. Waiting on TSE)
+Each alert shows TSE name, alert type, and severity
+Click any TSE name to navigate directly to their TSE card
+"View All" button filters the TSE View to show only TSEs with alerts
+"View Chats" button navigates to Conversations View filtered to that TSE's conversations
+⚠️
+Alert Types & Severity
+Two Alert Types:
+
+Open Chat Alerts: Triggered when a TSE has 6 or more open conversations
+Waiting On TSE Alerts: Triggered when a TSE has 7 or more conversations waiting on them (tagged "snooze.waiting-on-tse")
+Severity Levels: Alerts are automatically assigned severity based on how far over the threshold:
+
+High Severity (🔴): TSE exceeds threshold by 3+ conversations
+Open Chats: 9+ conversations
+Waiting on TSE: 10+ conversations
+Medium Severity (🟡): TSE exceeds threshold but by less than 3 conversations
+Open Chats: 6 to 8 conversations
+Waiting on TSE: 7 to 9 conversations
+Real-Time Updates: Alerts update automatically as conversation counts change, ensuring you always have current information.
+
+Dashboard
+📊
+Overview Dashboard
+The Overview Dashboard provides a comprehensive real-time snapshot of queue health, performance metrics, and key insights. It combines current status with historical trends to give you a complete picture of team performance.
+
+💡
+Key Insights Section
+Location: Top of the Overview Dashboard
+
+What It Shows: Dynamically generated insights highlighting important performance indicators, trends, and areas needing attention.
+
+Insight Types:
+
+On-Track Performance: Current percentage of TSEs meeting targets, with status indicators (Strong ≥80%, Needs Attention <60%)
+Response Time Status: Current percentage of conversations with 10+ minute wait times, compared to target (≤10%)
+Trend Indicators: Shows improving or declining trends for both on-track and wait rate metrics
+Impact Insights: Correlation analysis and improvement potential from the Impact tab
+Color Coding: Green borders indicate positive insights, red/orange borders indicate areas needing attention.
+
+Why It Matters: Provides immediate context about what's important right now, helping prioritize attention and actions.
+
+📈
+Performance Metrics vs Yesterday
+Location: Primary KPI card in "Today / Realtime Metrics" section
+
+What It Shows: A comprehensive comparison card displaying both Wait Rate and On-Track metrics with day-over-day trends.
+
+Wait Rate Section:
+
+Current Value: Most recent day's percentage of conversations with 5+ minute wait times
+Breakdown: Shows three categories:
+5+ Min Wait %: Total percentage of conversations waiting 5+ minutes
+5-10 Min Wait %: Percentage waiting 5-10 minutes (subset of 5+)
+10+ Min Wait %: Percentage waiting 10+ minutes (subset of 5+)
+Sparkline: Mini line graph showing the last 7 days of wait rate percentages
+Trend Indicator: Shows change vs yesterday (↑ improving, ↓ worsening, → stable) with percentage change
+On-Track Section:
+
+Current Value: Real-time on-track percentage (calculated from current conversation data)
+Breakdown: Shows three metrics:
+Overall: Percentage meeting both thresholds
+Open: Percentage meeting open chats threshold only
+Snoozed: Percentage meeting waiting-on-TSE threshold only
+Sparkline: Mini line graph showing the last 7 days of overall on-track percentages
+Trend Indicator: Shows change vs yesterday with percentage change
+Interaction: Click the card to open a detailed modal showing historical wait rate breakdowns and trends.
+
+Calculation: Wait Rate uses the most recent response time metric (collected nightly). On-Track uses real-time conversation data.
+
+⚡
+Real-time Intercom Metrics
+Location: "Today / Realtime Metrics" section
+
+What It Shows: A combined card displaying four key real-time metrics from Intercom:
+
+Avg Initial Response: Average time to first admin reply across all conversations (in minutes)
+Open Chats: Total count of active, non-snoozed conversations
+Shows age breakdown: <1h, 1-4h, 4-8h, 8h+
+Includes hourly line graph showing conversations received per hour over the last 24 hours
+Unassigned Conversations: Count of conversations without an assigned TSE
+Color-coded: Green (≤5), Yellow (6-10), Red (11+)
+Shows median wait time for unassigned conversations
+Same-Day Close %: Percentage of conversations closed on the same day they were created
+Compares last 7 days vs previous 7 days
+Shows trend indicator (↑ improving, ↓ declining)
+Data Source: All metrics calculated from real-time Intercom conversation data
+
+Why It Matters: Provides immediate visibility into current operational status and customer experience metrics.
+
+👥
+Clickable Navigation Cards
+SNOOZED Card:
+
+What: Shows total snoozed conversations with breakdown by type
+Breakdown:
+Waiting on TSE: Conversations with "snooze.waiting-on-tse" tag
+Waiting On Customer - Resolved: Resolved conversations with "snooze.waiting-on-customer-resolved" tag
+Waiting On Customer - Unresolved: Unresolved conversations with "snooze.waiting-on-customer-unresolved" tag
+Click Action: Navigates to Conversations View with all snoozed filters selected
+Visual Indicator: Hover icon shows it's clickable
+🌍
+Region Performance Summary
+Location: Secondary metrics section
+
+What It Shows: On-track percentages by region (UK, NY, SF) with region-specific icons and color coding.
+
+Calculation: For each region, calculates:
+
+Counts TSEs meeting both thresholds: ≤5 open chats AND ≤5 waiting on TSE
+On Track % = (On Track TSEs / Total TSEs in Region) × 100
+Uses the most recent historical snapshot data
+Color Coding:
+
+Green (≥80%): Region meeting target performance
+Yellow (60-79%): Region below target but acceptable
+Red (<60%): Region needs attention
+Why It Matters: Identifies regional performance patterns and helps allocate resources or support where needed.
+
+📊
+Secondary Metrics Section
+Additional Cards: The Overview Dashboard includes several secondary metric cards:
+
+Conversation Aging: Breakdown of open conversations by age buckets (<1h, 1-4h, 4-8h, 8h+)
+Response Time Distribution: Mini chart showing distribution of response times
+Improvement Potential: Shows potential wait time reduction if team maintains high (80-100%) on-track performance
+📈
+Trend Charts
+Layout: Two main trend charts displayed side-by-side, each taking 50% of the width.
+
+Team Daily On Track Percentage Trends:
+
+What: Multi-line chart showing three on-track metrics over the last 7 days
+Lines:
+Overall On Track: Green line with solid stroke - percentage meeting both thresholds
+Open On Track: Blue line with solid stroke - percentage meeting open chats threshold
+Snoozed On Track: Orange line with solid stroke - percentage meeting waiting-on-TSE threshold
+Moving Averages: Dashed lines for each metric showing 3-day moving average
+Target Line: Horizontal dashed line at 80% indicating the team target
+Holiday Indicators: Icons mark holidays that may affect metrics
+Data Source: Historical snapshots from the last 7 days
+Percentage of Conversations with Wait Time:
+
+What: Multi-line chart showing wait time percentages over the last 7 days
+Lines:
+5+ Min Wait %: Amber/orange line - total percentage waiting 5+ minutes
+5-10 Min Wait %: Orange line - percentage waiting 5-10 minutes
+10+ Min Wait %: Red/pink line - percentage waiting 10+ minutes
+Target Line: Horizontal dashed line at 10% indicating the target for 10+ Min Waits (≤10%)
+Y-Axis: Scales dynamically up to 20% to ensure readability
+Data Source: Response time metrics collected nightly
+Why Both Charts: The side-by-side layout allows you to compare queue health (on-track) with customer experience (wait times) simultaneously, helping identify correlations.
+
+ℹ️
+Info Icons & Tooltips
+What: Most KPI cards include an info icon (ℹ️) that provides detailed explanations when hovered or clicked.
+
+Content: Tooltips explain what the metric measures, how it's calculated, and why it matters.
+
+Positioning: Tooltips automatically position themselves to avoid being cut off (left, right, or top as needed).
+
+Why: Helps users understand metrics without needing to reference documentation.
+
+TSE Queue Health
+👥
+TSE View
+Monitor individual TSE performance with detailed metrics and filtering options.
+
+⭐
+TSE Status Indicators
+Status Levels:
+
+⭐️Outstanding - 0 open chats AND 0 waiting on TSE. Purple badge with gold star icon.
+On Track - ≤5 open chats AND ≤5 waiting on TSE. Green badge with checkmark.
+Over Limit - Needs Attention - >5 open chats OR >5 waiting on TSE. Red badge with X icon.
+Tooltips: Hover or click status icons to see detailed counts and thresholds.
+
+🎴
+TSE Cards
+What: Individual cards for each TSE showing their current status and metrics.
+
+Contains:
+
+TSE name with status icon
+Avatar (if available)
+Away mode indicator (🌙) if enabled
+Open chats count
+Waiting on TSE count
+Waiting on Customer count
+Total snoozed count
+Interaction: Click any TSE card to open detailed modal with conversation breakdown.
+
+🔍
+Filters
+Region Filters: Checkboxes to filter byUKUK,NYNY,SFSF, or Other. Click region icons to select/deselect.
+
+Status Filters: Color-coded buttons to filter by status (Outstanding, On Track, Over Limit).
+
+How: Filters combine - selected regions AND selected statuses.
+
+🔥
+Outstanding Performance Streaks
+What: TSEs with 3+ consecutive days of Outstanding status (0 open, 0 waiting on TSE).
+
+How: Analyzes historical snapshots to find consecutive Outstanding days. Streaks are calculated backwards from the most recent date. Tiebreakers: (1) Longer streaks, (2) Total outstanding days in history.
+
+Why: Recognizes consistent excellence and motivates continued performance. Click any TSE avatar to view their details.
+
+Filtering: Use region buttons (All Regions, UK, NY, SF) to filter by location.
+
+🔍
+TSE Details Modal & Performance Scorecard
+A comprehensive performance scorecard providing detailed insights into a TSE's current status, historical trends, and conversation breakdown. Accessed by clicking on any TSE card in the TSE View.
+
+👤
+Header Information
+Contains:
+
+TSE name with status icon (Outstanding ⭐, On Track ✓, Over Limit ✗)
+Region indicator with region-specific icon (UK, NY, SF)
+Status badge showing current status level
+Away mode indicator (🌙) if enabled
+TSE avatar/profile picture
+Status Tooltip: Click the status icon to see a detailed breakdown showing:
+
+Current counts (open, waiting on TSE)
+Thresholds (target values)
+Whether each threshold is being met
+📊
+Performance Scorecard
+Location: Top section of the modal, before conversation breakdown
+
+What It Shows: Comprehensive performance metrics calculated from historical snapshots:
+
+On-Track %: Percentage of tracked days the TSE met both thresholds
+Color-coded: Green (≥80%), Yellow (60-79%), Red (<60%)
+Shows total days tracked
+Avg Open Chats: Average number of open conversations over tracked period
+Color-coded: Green (≤5), Red (>5)
+Shows target threshold
+Avg Waiting on TSE: Average number of conversations waiting on TSE over tracked period
+Color-coded: Green (≤5), Red (>5)
+Shows target threshold
+Trend: Performance trend indicator
+Shows improving (↑), worsening (↓), or stable (→)
+Displays percentage change
+Compares last 7 days vs previous 7 days (if 14+ days of data), or recent half vs earlier half
+Performance Over Time Chart:
+
+Line chart showing daily open chats and waiting-on-TSE counts
+Two data series: "Open Chats" (blue) and "Waiting on TSE" (red)
+Reference lines show target thresholds (dashed yellow lines)
+Legend includes both data lines and target lines
+Tooltips show exact values for each day
+X-axis shows dates, Y-axis shows counts
+Key Insights: Automatically generated insights highlighting:
+
+Performance status (excellent, needs attention)
+Threshold violations (if averages exceed targets)
+Trend direction (improving or declining)
+Best/Worst Days: Highlights the day with lowest combined workload (best) and highest combined workload (worst), showing exact counts.
+
+Data Source: Calculated from all available historical snapshots containing this TSE. Requires at least one historical snapshot to display.
+
+💬
+Conversation Breakdown
+Location: Bottom section of the modal
+
+Sections: Four separate sections showing different conversation categories:
+
+Open Conversations: Active, non-snoozed conversations assigned to this TSE
+Shows conversation ID (clickable to open in Intercom)
+Shows author email
+Shows creation date/time
+Snoozed - Waiting On TSE: Conversations snoozed with "snooze.waiting-on-tse" tag
+These count toward the waiting-on-TSE threshold
+Indicates conversations where the TSE needs to take action
+Snoozed - Waiting On Customer: Conversations snoozed with "snooze.waiting-on-customer" tags
+Includes both resolved and unresolved customer-wait conversations
+These do NOT count toward the waiting-on-TSE threshold
+Total Snoozed: All snoozed conversations regardless of tag
+Includes conversations that may not have proper tags
+Useful for identifying tagging issues
+Interaction: Click any conversation ID to open it directly in Intercom in a new tab.
+
+Empty States: If a category has no conversations, displays "No conversations" message.
+
+Intercom Data
+💬
+Conversations View
+Browse, search, and filter all Intercom conversations with advanced filtering options. This view provides direct access to conversation details and enables quick navigation to specific conversations in Intercom.
+
+🔽
+Snooze Type Filter
+Purpose: Filter conversations by their snooze status and tags, helping you focus on specific workflow states.
+
+Filter Options:
+
+All Conversations: Shows all open and snoozed conversations (default view)
+All Snoozed: All snoozed conversations regardless of tag - useful for identifying untagged snoozed conversations
+Snoozed - Waiting On TSE: Conversations with "snooze.waiting-on-tse" tag - these count toward the waiting-on-TSE threshold
+Snoozed - Waiting On Customer: All conversations with any "snooze.waiting-on-customer" tag (includes both resolved and unresolved)
+Waiting On Customer - Resolved: Resolved conversations with "snooze.waiting-on-customer-resolved" tag
+Waiting On Customer - Unresolved: Unresolved conversations with "snooze.waiting-on-customer-unresolved" tag
+Tag Importance: Proper tagging is critical for accurate metrics. Conversations without proper tags won't be counted correctly in threshold calculations.
+
+👤
+TSE Filter
+Purpose: Filter conversations by assigned TSE or show unassigned conversations.
+
+Filter Options:
+
+All TSEs: Shows conversations assigned to any TSE (default)
+Unassigned: Shows only conversations without an assigned TSE - critical for identifying workload distribution issues
+Specific TSE: Filter by individual TSE, organized by region (UK, NY, SF, Other)
+Expandable checkboxes grouped by region
+Select multiple TSEs to see combined conversations
+Use Cases:
+
+Review a specific TSE's workload
+Identify unassigned conversations needing assignment
+Compare conversations across multiple TSEs
+🔎
+Search by Conversation ID
+What: Text input field to search for specific conversation IDs
+
+How: Enter a conversation ID (partial or full) to filter the table to matching conversations
+
+Use Case: Quickly locate a specific conversation when you have the ID from another source
+
+📋
+Conversation Table
+Columns:
+
+Conversation ID: Unique identifier, clickable to open in Intercom
+Assignee: TSE name assigned to the conversation, or "Unassigned"
+State: Conversation state (open, snoozed, closed)
+Tags: All tags applied to the conversation, including snooze tags
+Last Updated: Timestamp of last activity
+Created: Timestamp when conversation was created
+Author: Customer email who initiated the conversation
+Interactions:
+
+Click Conversation ID: Opens the conversation directly in Intercom in a new tab
+Sorting: Click column headers to sort ascending/descending
+Resizable Columns: Drag column borders to adjust widths
+Empty State: If no conversations match filters, displays "No conversations found" message
+
+⚡
+Quick Filter Buttons
+Purpose: One-click shortcuts to common filter combinations
+
+Buttons:
+
+Show Unassigned: Instantly filters to show only unassigned conversations
+Show Snoozed: Filters to show all snoozed conversations
+Show Open: Filters to show only open (non-snoozed) conversations
+Clear: Resets all filters to default (All Conversations, All TSEs)
+Filter Combination: Quick filter buttons work with other filters - they set the snooze/TSE filter but don't clear other selections
+
+🔄
+Navigation from Other Views
+From Overview Dashboard:
+
+Click "OPEN CHATS" card → Navigates to Conversations View filtered to open conversations
+Click "SNOOZED" card → Navigates to Conversations View filtered to all snoozed conversations
+From TSE View:
+
+Click any TSE card → Opens TSE Details Modal (not Conversations View)
+Use TSE filter in Conversations View to see a specific TSE's conversations
+TRENDS & INSIGHTS
+📈
+ANALYTICS
+Analyze trends, patterns, and correlations over time with three specialized tabs.
+
+📊
+Daily On Track Trends Tab
+Purpose: Comprehensive analysis of on-track performance trends over time, helping identify patterns, trends, and areas for improvement.
+
+Date Range Selector: Choose from preset ranges or select a custom date range:
+
+Yesterday: Most recent completed day
+Last 7 Weekdays: Last 7 business days (excludes weekends)
+Last 30 Days: Last 30 calendar days
+Last 90 Days: Last 90 calendar days
+Custom Range: Select any start and end date
+Note: Date range affects all charts, tables, and calculations on this tab.
+
+TSE Filter: Select specific TSEs to analyze:
+
+Expandable checkboxes organized by region (UK, NY, SF, Other)
+"Select All" and "Unselect All" buttons for quick selection
+Filters apply to all visualizations and calculations
+If no TSEs selected, shows data for all TSEs (excluding admins)
+Summary Cards: Three KPI cards at the top showing averages over the selected period:
+
+Overall On Track: Average percentage of TSEs meeting both thresholds
+Open On Track: Average percentage of TSEs meeting the open chats threshold (≤5)
+Snoozed On Track: Average percentage of TSEs meeting the waiting-on-TSE threshold (≤5)
+Calculation: Each card shows the average of daily percentages across all days in the selected range.
+
+Team Daily On Track Percentage Trends Chart:
+
+Type: Multi-line chart with moving averages
+Lines:
+Overall On Track: Green solid line - percentage meeting both thresholds
+Moving Avg (Overall): Green dashed line - 3-day moving average
+Open On Track: Blue solid line - percentage meeting open threshold
+Moving Avg (Open): Blue dashed line - 3-day moving average
+Snoozed On Track: Orange solid line - percentage meeting waiting-on-TSE threshold
+Moving Avg (Snoozed): Orange dashed line - 3-day moving average
+Target Line: Horizontal dashed line at 80% indicating team target
+Y-Axis: 0-100% scale
+Holiday Indicators: Icons mark holidays that may affect metrics
+Tooltips: Show exact percentages for each metric on each day
+On-Track Calculation Details:
+
+For Each Day:
+Counts TSEs meeting both thresholds: ≤5 open AND ≤5 waiting on TSE
+Overall On Track % = (TSEs meeting both / Total TSEs) × 100
+Open On Track % = (TSEs meeting open threshold / Total TSEs) × 100
+Snoozed On Track % = (TSEs meeting waiting-on-TSE threshold / Total TSEs) × 100
+Moving Average: Calculated as the average of the current day and the two previous days (3-day window)
+Exclusions: Admin TSEs (Prerit Sachdeva, Stephen Skalamera) are excluded from calculations
+Insights Section:
+
+Trend Analysis Card:
+Compares first half vs second half of selected period
+Shows trend indicator: Improving (↑), Declining (↓), or Stable (→)
+Displays percentage change between halves
+Shows volatility metric (standard deviation) indicating consistency
+Color-coded: Green for improving, Red for declining
+Best/Worst Days Card:
+Highlights the day with highest overall on-track percentage (best)
+Highlights the day with lowest overall on-track percentage (worst)
+Shows breakdown by Open On Track and Snoozed On Track for each day
+Displays exact percentages and counts
+Day-of-Week Analysis:
+
+Type: Bar chart showing average on-track percentages by weekday
+Days: Monday through Friday (weekends excluded)
+Metrics: Shows Overall, Open, and Snoozed on-track averages for each weekday
+Purpose: Identifies if certain days of the week consistently perform better or worse
+Region Comparison:
+
+Type: Bar chart comparing average on-track across regions
+Regions: UK, NY, SF (with region-specific icons)
+Metrics: Shows Overall, Open, and Snoozed on-track averages per region
+Purpose: Identifies regional performance differences
+TSE Average On Track:
+
+Type: Horizontal bar chart
+What: Shows individual TSE average on-track percentage over the selected period
+Sorting: Sorted by performance (highest to lowest)
+Color Coding: Green bars for high performers, red for low performers
+Purpose: Identifies top and bottom performers for targeted coaching
+Detailed Table:
+
+Columns: Date, Overall On Track %, Open On Track %, Snoozed On Track %, Total TSEs, Avg Open, Avg Waiting on TSE
+Sorting: Click column headers to sort ascending/descending
+Expandable Rows: Click any row to expand and see:
+Individual TSE performance for that day
+Each TSE's open count, waiting-on-TSE count, and on-track status
+Holiday Indicators: Icons mark holidays in the date column
+Why This Tab Matters: Provides deep insights into performance patterns, helping identify trends, day-of-week effects, regional differences, and individual TSE performance. Essential for data-driven decision making and performance improvement.
+
+⏱️
+Response Time Metrics Tab
+Purpose: Comprehensive analysis of first response times, focusing on customer experience quality by tracking conversations with extended wait times before the first admin reply.
+
+Target: The goal is to keep the percentage of conversations with 10+ minute wait times at or below 10%.
+
+Date Range & TSE Filter: Same as Daily On Track Trends tab - select date range and TSEs to analyze. Filters apply to all visualizations.
+
+Data Collection:
+
+When: Metrics are automatically collected nightly after all shifts have completed (via scheduled cron jobs)
+What: Analyzes conversations from the most recently completed business day
+Data Source: Intercom conversation data, specifically first admin reply timestamps
+Banner: Information banner at the top explains the data collection process
+Wait Time Categories:
+
+5+ Min Wait: Conversations with first response time ≥5 minutes (total)
+5-10 Min Wait: Conversations waiting 5-10 minutes (subset of 5+)
+10+ Min Wait: Conversations waiting ≥10 minutes (subset of 5+)
+Note: 5-10 Min and 10+ Min are mutually exclusive categories that together equal 5+ Min.
+
+Summary KPI Cards: Four cards showing key metrics:
+
+TOTAL CONVERSATIONS: Sum of all conversations across selected date range
+TOTAL WAITS: Total count of conversations with 5+ minute wait times
+RECENT TREND: Shows change vs yesterday with trend indicator (improving ↓, worsening ↑)
+WORST DAY (HIGHEST %): The day with highest percentage of slow responses, showing exact percentage and counts
+Percentage of Conversations with Wait Time Chart:
+
+Type: Multi-line chart showing three wait time categories
+Lines:
+5+ Min Wait %: Amber/orange line - total percentage waiting 5+ minutes
+5-10 Min Wait %: Orange line - percentage waiting 5-10 minutes
+10+ Min Wait %: Red/pink line - percentage waiting 10+ minutes
+Target Line: Horizontal dashed line at 10% indicating the target for 10+ Min Waits (≤10%)
+Y-Axis: Scales dynamically up to 20% (or higher if needed) to ensure readability
+Legend: Ordered to show 5+ Min first, then 5-10 Min, then 10+ Min
+Holiday Indicators: Icons mark holidays
+Tooltips: Show exact percentages and counts for each category
+Calculation Formula:
+
+For each day: Wait Time % = (Conversations with wait time ≥5 min / Total conversations with responses) × 100
+Only conversations with a first admin reply are included in calculations
+Wait time = Time between conversation creation and first admin reply
+Insights Section:
+
+Trend Analysis:
+Compares first half vs second half of selected period
+Shows trend indicator: Improving (↓), Declining (↑), or Stable (→)
+Displays percentage change between halves
+Shows volatility metric (standard deviation)
+Includes 7-day moving average for smoothing
+Period Comparison:
+Compares Previous 7 Days vs Current 7 Days
+Shows all-time average for context
+Indicates if current period is above or below all-time average
+Best/Worst Days:
+Best Day: Lowest percentage of slow responses
+Worst Day: Highest percentage of slow responses
+Shows breakdown: slow count vs total conversations for each day
+Day-of-Week Analysis:
+
+Type: Dual-axis bar chart
+Left Y-Axis: Average percentage of slow conversations
+Right Y-Axis: Average count of slow conversations
+Days: Monday through Friday
+Purpose: Identifies if certain weekdays consistently have better or worse response times
+Volume vs Performance Correlation:
+
+Type: Scatter plot
+X-Axis: Total conversation volume (count)
+Y-Axis: Slow response percentage
+Each Point: Represents one day's data
+Correlation Coefficient: Shows strength (Weak <0.3, Moderate 0.3-0.7, Strong >0.7) and direction (Positive/Negative)
+Interpretation: Helps understand if higher volume correlates with slower response times
+Detailed Table:
+
+Columns: Date, Total Conversations, 5+ Min Waits (count), 5+ Min %, 5-10 Min Waits (count), 5-10 Min %, 10+ Min Waits (count), 10+ Min %
+Sorting: Click column headers to sort
+Expandable Rows: Click any row to see:
+Individual conversation IDs with 5+ minute wait times
+Exact wait time for each conversation (in minutes)
+Conversation creation and first reply timestamps
+Assigned TSE information
+Why This Tab Matters: Response time directly impacts customer satisfaction. This tab helps identify patterns, volume impacts, and trends in response time performance, enabling data-driven improvements to customer experience.
+
+🔗
+Impact Tab
+Purpose: Analyzes the correlation between queue health (on-track status) and customer experience (response times), answering the critical question: "Does maintaining on-track status improve or worsen response times?"
+
+Key Question: Is there a relationship between how well TSEs manage their queues (on-track %) and how quickly customers receive responses?
+
+Date Range & TSE Filter: Shared with other Analytics tabs. Select date range and TSEs to analyze.
+
+Correlation KPI Cards: Four cards showing correlation metrics:
+
+5+ Min Wait Correlation: Correlation between on-track % and 5+ minute wait rate
+Shows correlation coefficient (-1 to +1)
+Strength: Weak (<0.3), Moderate (0.3-0.7), Strong (>0.7)
+Direction: Positive or Negative
+Color-coded: Green for negative correlation (desired), Red for positive correlation (concerning)
+5-10 Min Wait Correlation: Same analysis for 5-10 minute wait category
+10+ Min Wait Correlation: Same analysis for 10+ minute wait category
+Improvement Potential: Shows potential wait time reduction if team maintains high (80-100%) on-track performance
+Displays potential reduction for 5-10 min and 10+ min categories
+Color-coded: Green for reductions (positive), Red for increases (negative/concerning)
+Based on comparing current averages vs high-performance-day averages
+Correlation Interpretation:
+
+Negative Correlation (Desired): Higher on-track % → Lower wait times
+Indicates that better queue management leads to faster customer responses
+Validates that on-track efforts improve customer experience
+Shown in green
+Positive Correlation (Concerning): Higher on-track % → Higher wait times
+Would suggest that on-track efforts might be slowing down responses
+Would indicate a need to review processes
+Shown in red
+Weak Correlation: Little to no relationship between metrics
+Scatter Plot:
+
+Type: Scatter plot visualization
+X-Axis: On-track percentage (0-100%)
+Y-Axis: Slow response rate percentage (5+ minute waits)
+Each Point: Represents one day's data
+Purpose: Visual identification of patterns, trends, and outliers
+Trend Line: Shows the overall relationship direction
+Performance by On-Track Range:
+
+What: Three cards grouping days by on-track performance level
+Ranges:
+High (80-100%): Days when 80%+ of TSEs were on-track
+Medium (60-79%): Days when 60-79% of TSEs were on-track
+Low (0-59%): Days when less than 60% of TSEs were on-track
+Each Card Shows:
+Number of days in that range
+Average on-track percentage for those days
+Average slow response rate percentage
+Total slow responses and total conversations
+Color Coding: Green border (High), Yellow border (Medium), Red border (Low)
+Purpose: Compare response time performance across different on-track performance levels
+Trend Over Time Chart:
+
+Type: Dual-axis line chart
+Left Y-Axis: On-track percentage (green line)
+Right Y-Axis: Slow response rate percentage (red line)
+Purpose: Visualize how both metrics change together over time
+Interpretation: When lines move in opposite directions (green up, red down), it indicates negative correlation - desired outcome
+Correlation Calculation:
+
+Method: Pearson correlation coefficient
+Formula: Measures linear relationship between two variables
+Data Points: Requires at least 3 days of matching data (on-track snapshot + response time metric for same date)
+Result Range: -1 (perfect negative correlation) to +1 (perfect positive correlation)
+Zero: No correlation
+Improvement Potential Calculation:
+
+Method: Compares current average wait rates vs wait rates on high-performance days (80-100% on-track)
+Formula: Improvement = Current Average - High-Performance Average
+Positive Value: Indicates potential reduction (green) - maintaining high on-track could reduce wait times
+Negative Value: Indicates potential increase (red) - concerning, suggests high on-track days had worse wait times
+Requires: At least one day with 80%+ on-track performance in the selected range
+What If Scenario:
+
+Visualization: Chart showing potential impact of maintaining high on-track performance
+Shows: Current vs projected wait time percentages
+Purpose: Quantifies the potential customer experience improvement from better queue management
+Why This Tab Matters: Validates whether queue management efforts (maintaining on-track status) actually improve customer experience. A negative correlation proves that better queue health leads to faster responses, justifying the focus on on-track metrics. This data-driven approach helps prioritize initiatives and measure impact.

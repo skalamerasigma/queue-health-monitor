@@ -1,7 +1,7 @@
 .my-queue-container {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 0 20px 20px 20px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
@@ -761,6 +761,64 @@
 .dark-mode .status-badge-small.closed {
   background-color: rgba(23, 162, 184, 0.2);
   color: #17a2b8;
+}
+
+/* Workflow Badge Styles */
+.workflow-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+.workflow-badge.workflow-tse {
+  background-color: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.dark-mode .workflow-badge.workflow-tse {
+  background-color: rgba(220, 38, 38, 0.15);
+  color: #f87171;
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+.workflow-badge.workflow-resolved {
+  background-color: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.dark-mode .workflow-badge.workflow-resolved {
+  background-color: rgba(5, 150, 105, 0.15);
+  color: #34d399;
+  border-color: rgba(5, 150, 105, 0.3);
+}
+
+.workflow-badge.workflow-unresolved {
+  background-color: #faf5ff;
+  color: #9333ea;
+  border: 1px solid #e9d5ff;
+}
+
+.dark-mode .workflow-badge.workflow-unresolved {
+  background-color: rgba(147, 51, 234, 0.15);
+  color: #c084fc;
+  border-color: rgba(147, 51, 234, 0.3);
+}
+
+.workflow-badge.workflow-auto-closed {
+  background-color: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+}
+
+.dark-mode .workflow-badge.workflow-auto-closed {
+  background-color: rgba(107, 114, 128, 0.15);
+  color: #9ca3af;
+  border-color: rgba(107, 114, 128, 0.3);
 }
 
 .tags-list {

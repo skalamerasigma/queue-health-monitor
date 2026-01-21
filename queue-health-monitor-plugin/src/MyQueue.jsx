@@ -12,7 +12,7 @@ const THRESHOLDS = {
 
 const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
 
-function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loading, error, onRefresh, lastUpdated, historicalSnapshots = [], responseTimeMetrics = [] }) {
+function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simulatedTSE = null, loading, error, onRefresh, lastUpdated, historicalSnapshots = [], responseTimeMetrics = [] }) {
   const { isDarkMode } = useTheme();
   const [filterTags, setFilterTags] = useState(["all"]);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
@@ -20,7 +20,11 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
   const [searchId, setSearchId] = useState("");
 
   // Find current user's TSE info from teamMembers
+  // If simulatedTSE is provided (Stephen simulating another TSE), use that instead
   const currentTSE = useMemo(() => {
+    // Use simulated TSE if provided
+    if (simulatedTSE) return simulatedTSE;
+    
     if (!currentUserEmail || !teamMembers.length) return null;
     
     // Try to match by email (case-insensitive)
@@ -29,7 +33,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
     );
     
     return matched || null;
-  }, [currentUserEmail, teamMembers]);
+  }, [currentUserEmail, teamMembers, simulatedTSE]);
 
   // Filter conversations for current user only
   const myConversations = useMemo(() => {
@@ -496,7 +500,15 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
       });
     }
 
-    return { insights };
+    return { 
+      insights,
+      totalDays: tseHistory.length,
+      onTrackPercentage: Math.round(onTrackPercentage),
+      avgOpen: Math.round(avgOpen * 10) / 10,
+      avgWaitingOnTSE: Math.round(avgWaitingOnTSE * 10) / 10,
+      trend,
+      history: tseHistory
+    };
   }, [currentTSE, historicalSnapshots]);
 
   // Show loading state while team members are being fetched
@@ -558,15 +570,6 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
 
   return (
     <div className="my-queue-container">
-      <div className="my-queue-header">
-        <div className="header-content">
-          <h1>My Queue</h1>
-        </div>
-        <div className="tse-info">
-          <h2>{currentTSE.name}</h2>
-        </div>
-      </div>
-
       {error && (
         <div className="my-queue-error">
           <p>Error: {error}</p>
@@ -574,8 +577,9 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
       )}
 
       {/* Key Insights */}
-      {tseMetrics.insights.length > 0 && (
+      {tseMetrics.insights && tseMetrics.insights.length > 0 && (
         <div className="key-insights-section" style={{
+          marginTop: 0,
           marginBottom: '25px',
           padding: '16px',
           backgroundColor: isDarkMode ? '#1a1a1a' : '#f5f5f5',
@@ -613,18 +617,197 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
         </div>
       )}
 
-      {/* Key Metrics */}
-      <div className="metrics-grid">
-        <div className={`metric-card metric-card-status ${metrics.status === "on-track" ? "status-on-track" : "status-over-limit"}`}>
-          <div className="metric-label">On Track Status</div>
-          <div className="metric-value" style={{ fontSize: '24px', fontWeight: 600 }}>
-            {metrics.status === "on-track" ? "✓ On Track" : "⚠ Over Limit"}
-          </div>
-          <div className="metric-target">
-            {metrics.isOnTrack ? "Meeting all targets" : "Exceeding limits"}
+      {/* Performance Scorecard */}
+      {tseMetrics.totalDays && tseMetrics.totalDays > 0 && (
+        <div className="performance-scorecard-section" style={{
+          marginBottom: '25px'
+        }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: '16px'
+          }}>
+            {/* On-Track % */}
+            <div style={{
+              padding: '20px',
+              backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+              borderRadius: '12px',
+              border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+              boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0,0,0,0.05)'
+            }}>
+              <div style={{
+                fontSize: '12px',
+                fontWeight: 500,
+                color: isDarkMode ? '#888' : '#666',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                marginBottom: '8px'
+              }}>
+                On-Track %
+              </div>
+              <div style={{
+                fontSize: '36px',
+                fontWeight: 600,
+                color: tseMetrics.onTrackPercentage >= 80 
+                  ? '#4cec8c' 
+                  : tseMetrics.onTrackPercentage < 60 
+                    ? '#fd8789' 
+                    : '#ffc107',
+                lineHeight: 1.2
+              }}>
+                {tseMetrics.onTrackPercentage}%
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: isDarkMode ? '#666' : '#999',
+                marginTop: '4px'
+              }}>
+                {tseMetrics.totalDays} days tracked
+              </div>
+            </div>
+
+            {/* Avg Open Chats */}
+            <div style={{
+              padding: '20px',
+              backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+              borderRadius: '12px',
+              border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+              boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0,0,0,0.05)'
+            }}>
+              <div style={{
+                fontSize: '12px',
+                fontWeight: 500,
+                color: isDarkMode ? '#888' : '#666',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                marginBottom: '8px'
+              }}>
+                Avg Open Chats
+              </div>
+              <div style={{
+                fontSize: '36px',
+                fontWeight: 600,
+                color: tseMetrics.avgOpen <= THRESHOLDS.MAX_OPEN_SOFT ? '#4cec8c' : '#fd8789',
+                lineHeight: 1.2
+              }}>
+                {tseMetrics.avgOpen.toFixed(1)}
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: isDarkMode ? '#666' : '#999',
+                marginTop: '4px'
+              }}>
+                Target: ≤{THRESHOLDS.MAX_OPEN_SOFT}
+              </div>
+            </div>
+
+            {/* Avg Waiting on TSE */}
+            <div style={{
+              padding: '20px',
+              backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+              borderRadius: '12px',
+              border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+              boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0,0,0,0.05)'
+            }}>
+              <div style={{
+                fontSize: '12px',
+                fontWeight: 500,
+                color: isDarkMode ? '#888' : '#666',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                marginBottom: '8px'
+              }}>
+                Avg Waiting on TSE
+              </div>
+              <div style={{
+                fontSize: '36px',
+                fontWeight: 600,
+                color: tseMetrics.avgWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT ? '#4cec8c' : '#fd8789',
+                lineHeight: 1.2
+              }}>
+                {tseMetrics.avgWaitingOnTSE.toFixed(1)}
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: isDarkMode ? '#666' : '#999',
+                marginTop: '4px'
+              }}>
+                Target: ≤{THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}
+              </div>
+            </div>
+
+            {/* Trend with Mini Sparkline */}
+            <div style={{
+              padding: '20px',
+              backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+              borderRadius: '12px',
+              border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`,
+              boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0,0,0,0.05)'
+            }}>
+              <div style={{
+                fontSize: '12px',
+                fontWeight: 500,
+                color: isDarkMode ? '#888' : '#666',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                marginBottom: '8px'
+              }}>
+                Trend
+              </div>
+              <div style={{
+                fontSize: '36px',
+                fontWeight: 600,
+                color: tseMetrics.trend.direction === 'improving' 
+                  ? '#4cec8c' 
+                  : tseMetrics.trend.direction === 'worsening' 
+                    ? '#fd8789' 
+                    : (isDarkMode ? '#666' : '#999'),
+                lineHeight: 1.2
+              }}>
+                {tseMetrics.trend.direction === 'improving' ? '↗' : tseMetrics.trend.direction === 'worsening' ? '↘' : '→'}
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: isDarkMode ? '#666' : '#999',
+                marginTop: '4px'
+              }}>
+                {tseMetrics.trend.period === 'Insufficient data' ? 'Insufficient data' : 'Recent vs earlier period'}
+              </div>
+              
+              {/* Mini Sparkline Visualization */}
+              {tseMetrics.history && tseMetrics.history.length > 1 && (
+                <div style={{
+                  marginTop: '12px',
+                  height: '30px',
+                  display: 'flex',
+                  alignItems: 'flex-end',
+                  gap: '2px'
+                }}>
+                  {tseMetrics.history.slice(-14).map((day, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        flex: 1,
+                        height: day.isOnTrack ? '100%' : '40%',
+                        backgroundColor: day.isOnTrack 
+                          ? (isDarkMode ? '#4cec8c' : '#4caf50')
+                          : (isDarkMode ? '#fd8789' : '#f44336'),
+                        borderRadius: '2px',
+                        opacity: 0.7 + (idx / tseMetrics.history.slice(-14).length) * 0.3,
+                        transition: 'all 0.2s ease'
+                      }}
+                      title={`${day.date}: ${day.isOnTrack ? 'On Track' : 'Over Limit'}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      )}
 
+      {/* Key Metrics */}
+      <div className="metrics-grid">
         <div className={`metric-card metric-card-open ${metrics.open > THRESHOLDS.MAX_OPEN_SOFT ? "over-limit" : ""}`}>
           <div className="metric-label">Open Chats</div>
           <div className="metric-value">{metrics.open}</div>
@@ -653,11 +836,6 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
           <div className="metric-label">Waiting on Customer - Unresolved</div>
           <div className="metric-value">{metrics.waitingOnCustomerUnresolved}</div>
           <div className="metric-target">No limit</div>
-        </div>
-
-        <div className="metric-card metric-card-snoozed">
-          <div className="metric-label">Total Snoozed</div>
-          <div className="metric-value">{metrics.totalSnoozed}</div>
         </div>
 
         <div className="metric-card metric-card-taken">
@@ -813,6 +991,16 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
                     }
                   }
                   
+                  // Get workflow badge class based on workflow type
+                  const getWorkflowBadgeClass = (workflow) => {
+                    if (!workflow) return '';
+                    if (workflow === 'Waiting On TSE - Deep Dive') return 'workflow-badge workflow-tse';
+                    if (workflow === 'Waiting On Customer - Resolved') return 'workflow-badge workflow-resolved';
+                    if (workflow === 'Waiting On Customer - Unresolved') return 'workflow-badge workflow-unresolved';
+                    if (workflow === 'Auto-Closed') return 'workflow-badge workflow-auto-closed';
+                    return '';
+                  };
+                  
                   return (
                     <tr key={conv.id || conv.conversation_id}>
                       <td className="conv-id">{conv.id || conv.conversation_id}</td>
@@ -821,7 +1009,15 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
                           {isClosed ? "Closed" : isSnoozed ? "Snoozed" : "Open"}
                         </span>
                       </td>
-                      <td>{displayWorkflow}</td>
+                      <td>
+                        {displayWorkflow ? (
+                          <span className={getWorkflowBadgeClass(displayWorkflow)}>
+                            {displayWorkflow}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-tertiary, #999)' }}>—</span>
+                        )}
+                      </td>
                       <td>{formatDate(conv.created_at || conv.createdAt)}</td>
                       <td>
                         <a 
