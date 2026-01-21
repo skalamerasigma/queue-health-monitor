@@ -123,9 +123,25 @@ async function fetchAllOpenTeamConversations(authHeader, options = {}) {
   };
 
   // Calculate today's start and end in seconds (UTC) for closed conversations
-  // Start at 12:00 AM UTC (midnight), end at 11:59:59 PM UTC (end of day)
+  // Adjust based on UTC time to align with PT timezone:
+  // - If UTC time is 12:00am - 7:59am: use previous day (still previous day in PT)
+  // - If UTC time is 8:00am - 11:59pm: use current day (current day in PT)
   const now = Date.now();
-  const todayStart = new Date(now);
+  const nowDate = new Date(now);
+  const utcHour = nowDate.getUTCHours();
+  
+  // Determine which day to use based on UTC hour
+  let targetDate = new Date(nowDate);
+  if (utcHour >= 0 && utcHour < 8) {
+    // UTC 12:00am - 7:59am: use previous day (still previous day in PT)
+    targetDate.setUTCDate(targetDate.getUTCDate() - 1);
+    console.log(`[API] UTC time is ${utcHour}:00 (12:00am-7:59am UTC), using previous day for PT alignment`);
+  } else {
+    // UTC 8:00am - 11:59pm: use current day (current day in PT)
+    console.log(`[API] UTC time is ${utcHour}:00 (8:00am-11:59pm UTC), using current day for PT alignment`);
+  }
+  
+  const todayStart = new Date(targetDate);
   todayStart.setUTCHours(0, 0, 0, 0);
   const todayEnd = new Date(todayStart);
   todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
