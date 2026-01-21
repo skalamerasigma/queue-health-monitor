@@ -1612,18 +1612,16 @@ function Dashboard(props) {
       setShowCompletion(false);
       setLoadingPhraseIndex(0);
       setLoadingStartTime(Date.now());
-    } else if (wasLoading && conversations && conversations.length > 0) {
-      // Loading just finished, show completion GIF
-      setShowCompletion(true);
-      const timer = setTimeout(() => {
-        setShowCompletion(false);
-        setWasLoading(false);
-        setLoadingPhraseIndex(0);
-        setLoadingStartTime(null);
-      }, 3000); // Show completion GIF for 3 seconds
-      return () => clearTimeout(timer);
+    } else if (wasLoading && conversations && conversations.length > 0 && !loading) {
+      // Loading just finished and we have conversations
+      // Skip completion animation to show dashboard immediately
+      // This is especially important when closed conversations are loading in background
+      setShowCompletion(false);
+      setWasLoading(false);
+      setLoadingPhraseIndex(0);
+      setLoadingStartTime(null);
     }
-  }, [loading, conversations, wasLoading]);
+  }, [loading, conversations, wasLoading, loadingClosedConversations]);
 
   // Cycle through loading phrases
   useEffect(() => {
@@ -1726,8 +1724,12 @@ function Dashboard(props) {
   };
 
 
-  // Show loading screen on initial load or during completion animation
-  if ((loading && (!conversations || (Array.isArray(conversations) && conversations.length === 0))) || showCompletion) {
+  // Show loading screen only if:
+  // 1. We're loading AND have no conversations yet, OR
+  // 2. We're showing completion animation AND have no conversations (shouldn't happen with new logic)
+  // Skip completion animation if we have conversations - show dashboard immediately
+  if ((loading && (!conversations || (Array.isArray(conversations) && conversations.length === 0))) || 
+      (showCompletion && (!conversations || (Array.isArray(conversations) && conversations.length === 0)))) {
     return (
       <div className="loading-container">
         <div className="loading-content">
