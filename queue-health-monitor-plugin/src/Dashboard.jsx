@@ -486,9 +486,7 @@ const THRESHOLDS = {
 };
 
 function Dashboard(props) {
-  const { conversations = [], teamMembers = [], loading, error, onRefresh, lastUpdated } = props;
-  // eslint-disable-next-line no-unused-vars
-  const loadingClosedConversations = props.loadingClosedConversations || false;
+  const { conversations = [], teamMembers = [], loading, loadingClosedConversations = false, error, onRefresh, lastUpdated } = props;
   const { logout, user } = useAuth();
   const { isDarkMode, toggleDarkMode } = useTheme();
   
@@ -5310,7 +5308,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                 >
                   <div style={{ fontSize: '12px', color: isDarkMode ? '#999' : '#666', marginBottom: '4px' }}>Same-Day Close % (Today)</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* eslint-disable-next-line no-undef */}
                     {loadingClosedConversations ? (
                       <div className="same-day-close-spinner" style={{ 
                         width: '20px', 
@@ -5333,7 +5330,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     )}
                   </div>
                   <div style={{ fontSize: '10px', color: isDarkMode ? '#666' : '#999', marginTop: '4px' }}>
-                    {/* eslint-disable-next-line no-undef */}
                     {loadingClosedConversations ? (
                       'Loading closed conversations...'
                     ) : (
