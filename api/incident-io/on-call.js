@@ -50,8 +50,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Step 1: Fetch all schedules to get their IDs
-    const schedulesResponse = await fetch(`${INCIDENT_IO_BASE_URL}/v2/schedules`, {
+    // Step 1: Fetch all schedules to get their IDs (with large page size)
+    const schedulesResponse = await fetch(`${INCIDENT_IO_BASE_URL}/v2/schedules?page_size=100`, {
       headers: {
         'Authorization': `Bearer ${INCIDENT_IO_API_KEY}`,
         'Content-Type': 'application/json'
