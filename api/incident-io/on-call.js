@@ -6,14 +6,11 @@ export const dynamic = 'force-dynamic';
 const INCIDENT_IO_API_KEY = process.env.INCIDENT_IO_API_KEY;
 const INCIDENT_IO_BASE_URL = 'https://api.incident.io';
 
-// Schedule names to fetch
+// Schedule names to fetch (exact names from Incident.io)
 const SCHEDULE_NAMES = [
   'TSE Manager - Escalations',
   'TSE Manager - Incidents'
 ];
-
-// Also try partial matches
-const SCHEDULE_KEYWORDS = ['escalation', 'incident', 'tse manager'];
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -72,17 +69,13 @@ export default async function handler(req, res) {
     
     console.log('[On-Call API] Found schedules:', schedules.map(s => ({ id: s.id, name: s.name })));
 
-    // Filter to our target schedules (exact match or keyword match)
-    const targetSchedules = schedules.filter(s => {
-      const nameLower = s.name.toLowerCase();
-      // Check exact match first
-      const exactMatch = SCHEDULE_NAMES.some(name => nameLower === name.toLowerCase());
-      // Check keyword match
-      const keywordMatch = SCHEDULE_KEYWORDS.some(keyword => nameLower.includes(keyword));
-      return exactMatch || keywordMatch;
-    });
+    // Filter to our target schedules (exact name match)
+    const targetSchedules = schedules.filter(s => 
+      SCHEDULE_NAMES.some(name => s.name === name)
+    );
     
     console.log('[On-Call API] Target schedules:', targetSchedules.map(s => s.name));
+    console.log('[On-Call API] All available schedules:', schedules.map(s => s.name));
 
     if (targetSchedules.length === 0) {
       console.log('[On-Call API] No matching schedules found. Available:', schedules.map(s => s.name));
