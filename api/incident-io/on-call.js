@@ -41,6 +41,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Debug mode - return all schedules
+  const debugMode = req.query.debug === 'true';
+
   if (!INCIDENT_IO_API_KEY) {
     console.error('[On-Call API] INCIDENT_IO_API_KEY not configured');
     return res.status(500).json({ error: "Incident.io API key not configured" });
@@ -76,6 +79,15 @@ export default async function handler(req, res) {
     
     console.log('[On-Call API] Target schedules:', targetSchedules.map(s => s.name));
     console.log('[On-Call API] All available schedules:', schedules.map(s => s.name));
+    
+    // Debug mode - return all schedules info
+    if (debugMode) {
+      return res.status(200).json({
+        allSchedules: schedules.map(s => ({ id: s.id, name: s.name })),
+        targetSchedules: targetSchedules.map(s => ({ id: s.id, name: s.name })),
+        configuredNames: SCHEDULE_NAMES
+      });
+    }
 
     if (targetSchedules.length === 0) {
       console.log('[On-Call API] No matching schedules found. Available:', schedules.map(s => s.name));
