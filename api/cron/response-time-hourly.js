@@ -157,6 +157,11 @@ export default async function handler(req, res) {
     // Fetch only conversations created today (optimized query)
     const conversationsToday = await fetchTeamConversationsCreatedToday(authHeaderValue, todayStartSeconds, todayEndSeconds);
 
+    // Fetch conversations closed during the day (for Total Closed metric)
+    const closedConversationsCount = await fetchClosedConversationsCount(authHeaderValue, todayStartSeconds, todayEndSeconds);
+
+    console.log(`[Response Time Hourly] Found ${closedConversationsCount} conversations closed during ${dateStr}`);
+
     // Calculate metrics: count conversations with 5+ and 10+ minute wait times
     // Also store conversation IDs for those with 5+ and 10+ minute wait times
     const FIVE_MINUTES_SECONDS = 300;
@@ -247,6 +252,7 @@ export default async function handler(req, res) {
       count5to10Min,
       count10PlusMin,
       totalConversations: conversationsToday.length, // Only count conversations created today
+      totalClosed: closedConversationsCount, // Count of conversations closed during the day
       totalWithResponse,
       percentage5PlusMin: Math.round(percentage5PlusMin * 100) / 100,
       percentage5to10Min: Math.round(percentage5to10Min * 100) / 100,
@@ -267,6 +273,7 @@ export default async function handler(req, res) {
         count_5_to_10_min INTEGER NOT NULL DEFAULT 0,
         count_10_plus_min INTEGER NOT NULL,
         total_conversations INTEGER NOT NULL,
+        total_closed INTEGER NOT NULL DEFAULT 0,
         percentage_5_plus_min DECIMAL(5,2) NOT NULL DEFAULT 0,
         percentage_5_to_10_min DECIMAL(5,2) NOT NULL DEFAULT 0,
         percentage_10_plus_min DECIMAL(5,2) NOT NULL,
@@ -362,6 +369,19 @@ export default async function handler(req, res) {
       console.log(`[Migration] Updated ${updateResult.rowCount} records with percentage_5_to_10_min`);
     } catch (migrationError) {
       console.error('[Migration] Error adding percentage_5_to_10_min column:', migrationError);
+      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
+    }
+
+    // Add total_closed column if it doesn't exist (for existing tables)
+    try {
+      console.log('[Migration] Adding total_closed column if it doesn\'t exist...');
+      await db.query(`
+        ALTER TABLE response_time_metrics 
+        ADD COLUMN IF NOT EXISTS total_closed INTEGER DEFAULT 0;
+      `);
+      console.log('[Migration] total_closed column addition completed');
+    } catch (migrationError) {
+      console.error('[Migration] Error adding total_closed column:', migrationError);
       console.warn('Migration warning (may be safe to ignore):', migrationError.message);
     }
 
@@ -508,6 +528,7 @@ export default async function handler(req, res) {
       count5to10Min: metric.count5to10Min,
       count10PlusMin: metric.count10PlusMin,
       totalConversations: metric.totalConversations,
+      totalClosed: metric.totalClosed,
       percentage5PlusMin: metric.percentage5PlusMin,
       percentage5to10Min: metric.percentage5to10Min,
       percentage10PlusMin: metric.percentage10PlusMin,
@@ -516,8 +537,8 @@ export default async function handler(req, res) {
     });
 
     const insertResult = await db.query(`
-      INSERT INTO response_time_metrics (timestamp, date, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      INSERT INTO response_time_metrics (timestamp, date, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, total_closed, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (date) 
       DO UPDATE SET 
         timestamp = EXCLUDED.timestamp,
@@ -525,6 +546,7 @@ export default async function handler(req, res) {
         count_5_to_10_min = EXCLUDED.count_5_to_10_min,
         count_10_plus_min = EXCLUDED.count_10_plus_min,
         total_conversations = EXCLUDED.total_conversations,
+        total_closed = EXCLUDED.total_closed,
         percentage_5_plus_min = EXCLUDED.percentage_5_plus_min,
         percentage_5_to_10_min = EXCLUDED.percentage_5_to_10_min,
         percentage_10_plus_min = EXCLUDED.percentage_10_plus_min,
@@ -539,6 +561,7 @@ export default async function handler(req, res) {
       metric.count5to10Min,
       metric.count10PlusMin,
       metric.totalConversations,
+      metric.totalClosed,
       metric.percentage5PlusMin,
       metric.percentage5to10Min,
       metric.percentage10PlusMin,
@@ -550,7 +573,7 @@ export default async function handler(req, res) {
 
     // Verify the data was actually saved
     const verifyResult = await db.query(`
-      SELECT id, date, timestamp, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
+      SELECT id, date, timestamp, count_5_plus_min, count_5_to_10_min, count_10_plus_min, total_conversations, total_closed, percentage_5_plus_min, percentage_5_to_10_min, percentage_10_plus_min, conversation_ids_5_plus_min, conversation_ids_10_plus_min
       FROM response_time_metrics
       WHERE date = $1
     `, [metric.date]);
@@ -724,5 +747,120 @@ async function fetchTeamConversationsCreatedToday(authHeader, startSeconds, endS
   }
 
   return all;
+}
+
+// Fetch count of conversations closed during the specified time range
+// Uses statistics.last_close_at to determine when a conversation was closed
+async function fetchClosedConversationsCount(authHeader, startSeconds, endSeconds) {
+  let closedCount = 0;
+  let startingAfter = null;
+  let pageCount = 0;
+  const MAX_PAGES = 15; // Allow more pages since we're counting across all time
+
+  while (pageCount < MAX_PAGES) {
+    // Query for closed conversations assigned to the team
+    const body = {
+      query: {
+        operator: "AND",
+        value: [
+          {
+            field: "team_assignee_id",
+            operator: "=",
+            value: "5480079"
+          },
+          {
+            field: "state",
+            operator: "=",
+            value: "closed"
+          },
+          {
+            // Filter by last_close_at to get conversations closed in our time range
+            // Note: Intercom's search API may not support statistics.last_close_at directly
+            // So we'll need to filter client-side
+            field: "updated_at",
+            operator: ">",
+            value: startSeconds - (7 * 24 * 60 * 60) // Look back 7 days from start to catch recent closes
+          }
+        ]
+      },
+      pagination: {
+        per_page: 150,
+        ...(startingAfter ? { starting_after: startingAfter } : {})
+      }
+    };
+
+    const resp = await fetch(`${INTERCOM_BASE_URL}/conversations/search`, {
+      method: "POST",
+      headers: {
+        "Authorization": authHeader,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Intercom-Version": "2.10"
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.error(`Intercom error ${resp.status} fetching closed conversations: ${text}`);
+      // Don't throw - return 0 count on error to not block the entire cron job
+      return 0;
+    }
+
+    const data = await resp.json();
+    const items = data.data || data.conversations || [];
+    
+    if (items.length === 0) {
+      break;
+    }
+
+    // For each conversation, we need to check statistics.last_close_at
+    // which requires fetching the full conversation details
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const batch = items.slice(i, i + BATCH_SIZE);
+      const batchPromises = batch.map(async (item) => {
+        try {
+          // Fetch full conversation to get statistics.last_close_at
+          const convResp = await fetch(`${INTERCOM_BASE_URL}/conversations/${item.id}`, {
+            headers: {
+              "Authorization": authHeader,
+              "Accept": "application/json",
+              "Intercom-Version": "2.10"
+            }
+          });
+          
+          if (convResp.ok) {
+            const fullConv = await convResp.json();
+            const lastCloseAt = fullConv.statistics?.last_close_at;
+            
+            // Check if the conversation was closed within our time range
+            if (lastCloseAt && lastCloseAt >= startSeconds && lastCloseAt <= endSeconds) {
+              return 1;
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch details for conversation ${item.id}:`, err.message);
+        }
+        return 0;
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      closedCount += batchResults.reduce((sum, val) => sum + val, 0);
+      
+      if (i + BATCH_SIZE < items.length) {
+        await new Promise(resolve => setTimeout(resolve, 50)); // Small delay between batches
+      }
+    }
+    
+    pageCount++;
+
+    const pages = data.pages || {};
+    const next = pages.next;
+    if (!next) break;
+    startingAfter = typeof next === "string" ? next : next.starting_after;
+  }
+
+  return closedCount;
 }
 

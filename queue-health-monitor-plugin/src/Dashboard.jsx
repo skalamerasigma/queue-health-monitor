@@ -5,13 +5,17 @@ import { useTheme } from "./ThemeContext";
 import HistoricalView from "./HistoricalView";
 import MyQueue from "./MyQueue";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, ReferenceLine } from 'recharts';
-import { formatDateTimeUTC, formatTimestampUTC, formatDateForChart, formatDateForTooltip } from "./utils/dateUtils";
+import { formatDateTimeUTC, formatTimestampUTC, formatDateForChart, formatDateForTooltip, calculateTimeRemaining, formatTimeRemaining } from "./utils/dateUtils";
 import "./Dashboard.css";
+
+// Users who can see the footer dev controls (TSE/Manager toggle and simulation dropdowns)
+// Add or remove names from this array to control access
+const FOOTER_CONTROLS_USERS = ['Stephen Skalamera'];
 
 // TSE Region mapping
 const TSE_REGIONS = {
   'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson', 'Somachi Ngoka'],
-  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker', 'Stephen Skalamera', 'David Zingher'],
+  'NY': ['Lyle Pierson Stachecki', 'Nick Clancey', 'Swapnil Deshpande', 'Ankita Dalvi', 'Grace Sanford', 'Erez Yagil', 'Julia Lusala', 'Betty Liu', 'Xyla Fang', 'Rashi Madnani', 'Nikhil Krishnappa', 'Ryan Jaipersaud', 'Krish Pawooskar', 'Siddhi Jadhav', 'Arley Schenker', 'David Zingher'],
   'SF': ['Sanyam Khurana', 'Hem Kamdar', 'Sagarika Sardesai', 'Nikita Bangale', 'Payton Steiner', 'Bhavana Prasad Kote', 'Grania M', 'Soheli Das', 'Hayden Greif-Neill', 'Roshini Padmanabha', 'Abhijeet Lal', 'Ratna Shivakumar', 'Sahibeer Singh', 'Vruddhi Kapre', 'Priyanshi Singh', 'Prerit Deshwal']
 };
 
@@ -477,6 +481,12 @@ const InfoIcon = ({ content, isDarkMode, position = 'right' }) => {
 };
 
 // Thresholds from Accountability Framework
+// Wait time targets
+const WAIT_TIME_TARGETS = {
+  TARGET_10_PLUS_MIN: 0, // Target for 10+ min waits: 0%
+  TARGET_5_TO_10_MIN: 2  // Target for 5-10 min waits: 2%
+};
+
 const THRESHOLDS = {
   MAX_OPEN_IDEAL: 0,
   MAX_OPEN_SOFT: 5,
@@ -521,58 +531,61 @@ function Dashboard(props) {
     return null;
   }, [user, teamMembers]);
   
-  // Check if user is Stephen Skalamera (can toggle between TSE and Manager modes)
-  const isStephenSkalamera = user?.name === 'Stephen Skalamera';
+  // Check if user has access to footer dev controls
+  const hasFooterControlsAccess = FOOTER_CONTROLS_USERS.includes(user?.name);
   
-  // Toggle for Stephen to switch between TSE and Manager modes (defaults to Manager mode)
-  const [stephenViewMode, setStephenViewMode] = useState('manager'); // 'manager' or 'tse'
+  // Toggle for users with footer controls access to switch between TSE and Manager modes (defaults to Manager mode)
+  const [devViewMode, setDevViewMode] = useState('manager'); // 'manager' or 'tse'
   
-  // TSE simulation for Stephen - allows viewing as any TSE
+  // TSE simulation - allows viewing as any TSE
   const [simulatedTSEId, setSimulatedTSEId] = useState(null);
   
-  // Manager simulation for Stephen - allows viewing as any manager
+  // Manager simulation - allows viewing as any manager
   const [simulatedManagerName, setSimulatedManagerName] = useState(null);
+  
+  // Audit logs modal state
+  const [showAuditLogs, setShowAuditLogs] = useState(false);
   
   // Get the effective TSE (simulated or actual) - used for MyQueue display
   const effectiveTSE = useMemo(() => {
-    // Only allow simulation when Stephen is in TSE mode
-    if (isStephenSkalamera && stephenViewMode === 'tse' && simulatedTSEId && teamMembers.length > 0) {
+    // Only allow simulation when user has footer controls access and is in TSE mode
+    if (hasFooterControlsAccess && devViewMode === 'tse' && simulatedTSEId && teamMembers.length > 0) {
       const simulated = teamMembers.find(tse => String(tse.id) === String(simulatedTSEId));
       if (simulated) return simulated;
     }
     return currentTSE;
-  }, [isStephenSkalamera, stephenViewMode, simulatedTSEId, teamMembers, currentTSE]);
+  }, [hasFooterControlsAccess, devViewMode, simulatedTSEId, teamMembers, currentTSE]);
   
-  // Determine user role based on their name (with Stephen's toggle override)
+  // Determine user role based on their name (with dev controls toggle override)
   const userRole = useMemo(() => {
     if (!user?.name) return 'other';
-    // Special case: Stephen can toggle between TSE and Manager modes
-    if (isStephenSkalamera) {
-      return stephenViewMode === 'manager' ? 'manager' : 'tse';
+    // Special case: Users with footer controls access can toggle between TSE and Manager modes
+    if (hasFooterControlsAccess) {
+      return devViewMode === 'manager' ? 'manager' : 'tse';
     }
     return getUserRole(user.name);
-  }, [user?.name, isStephenSkalamera, stephenViewMode]);
+  }, [user?.name, hasFooterControlsAccess, devViewMode]);
   
-  // Get manager info if user is a manager (uses simulated manager for Stephen if selected)
+  // Get manager info if user is a manager (uses simulated manager if selected)
   const managerInfo = useMemo(() => {
     if (userRole !== 'manager') return null;
-    // If Stephen is simulating another manager, use that manager's info
-    if (isStephenSkalamera && simulatedManagerName) {
+    // If user is simulating another manager, use that manager's info
+    if (hasFooterControlsAccess && simulatedManagerName) {
       return getManagerInfo(simulatedManagerName);
     }
     if (!user?.name) return null;
     return getManagerInfo(user.name);
-  }, [userRole, user?.name, isStephenSkalamera, simulatedManagerName]);
+  }, [userRole, user?.name, hasFooterControlsAccess, simulatedManagerName]);
   
   // Get manager's team members (filtered from teamMembers)
   const managerTeamMembers = useMemo(() => {
     if (userRole !== 'manager' || !teamMembers) return [];
-    // If Stephen is simulating another manager, use that manager's team
-    const managerName = isStephenSkalamera && simulatedManagerName ? simulatedManagerName : user?.name;
+    // If user is simulating another manager, use that manager's team
+    const managerName = hasFooterControlsAccess && simulatedManagerName ? simulatedManagerName : user?.name;
     if (!managerName) return [];
     const teamNames = getManagerTeam(managerName);
     return teamMembers.filter(member => teamNames.includes(member.name));
-  }, [userRole, user?.name, teamMembers, isStephenSkalamera, simulatedManagerName]);
+  }, [userRole, user?.name, teamMembers, hasFooterControlsAccess, simulatedManagerName]);
   
   // Set default view based on role - TSE users start on MyQueue
   const [activeView, setActiveView] = useState(() => {
@@ -580,16 +593,28 @@ function Dashboard(props) {
     return "overview";
   });
   
-  // Update active view when user role is determined
+  // Snooze timer modal state
+  const [snoozeModalOpen, setSnoozeModalOpen] = useState(false);
+  
+  // Track if initial view has been set to prevent changing view on refresh
+  const initialViewSetRef = useRef(false);
+  
+  // Update active view when user role is determined (only set initial view, don't change if user navigated)
   useEffect(() => {
-    if (userRole === 'tse' && currentTSE) {
+    // Only set initial view once, and only if still on default view
+    if (!initialViewSetRef.current && userRole === 'tse' && currentTSE && activeView === 'overview') {
       setActiveView("myqueue");
+      initialViewSetRef.current = true;
+    } else if (!initialViewSetRef.current && userRole !== 'tse') {
+      // Mark as set for non-TSE users too (they stay on overview)
+      initialViewSetRef.current = true;
     }
-  }, [userRole, currentTSE]);
+  }, [userRole, currentTSE, activeView]);
   const [filterTag, setFilterTag] = useState(["all"]);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const filterDropdownRef = useRef(null);
   const [filterTSE, setFilterTSE] = useState("all");
+  const [expandedFilters, setExpandedFilters] = useState(new Set()); // Default collapsed
   
   // Dismissed items management (must be early for use throughout component)
   const insightsDismissed = useDismissedItems('dismissedKeyInsights');
@@ -1012,6 +1037,7 @@ function Dashboard(props) {
           totalSnoozed: 0,
           waitingOnTSE: 0,
           waitingOnCustomer: 0,
+          snoozedForOnTrack: 0, // All snoozed EXCEPT customer-waiting tags
           awayModeEnabled: teamMember?.away_mode_enabled || false
         };
       } else {
@@ -1072,6 +1098,14 @@ function Dashboard(props) {
           waitingOnCustomerConvs.push(conv);
         }
         // Note: Snoozed conversations without specific tags are only counted in totalSnoozed
+        
+        // For "snoozed on track" metric: count all snoozed EXCEPT customer-waiting tags
+        // This includes: waiting-on-tse tagged, and snoozed without tags
+        // Excludes: waiting-on-customer-resolved and waiting-on-customer-unresolved
+        if (!hasWaitingOnCustomerTag) {
+          // Count all snoozed conversations that don't have customer-waiting tags
+          byTSE[tseId].snoozedForOnTrack = (byTSE[tseId].snoozedForOnTrack || 0) + 1;
+        }
       }
 
     });
@@ -1166,7 +1200,10 @@ function Dashboard(props) {
     
     filteredByTSE.forEach(tse => {
       const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-      const meetsWaitingOnTSE = tse.waitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+      // For "snoozed on track": count all snoozed EXCEPT customer-waiting tags
+      // This includes: waiting-on-tse tagged, and snoozed without tags
+      const snoozedForOnTrack = tse.snoozedForOnTrack || tse.waitingOnTSE || 0; // Fallback to waitingOnTSE for backward compatibility
+      const meetsWaitingOnTSE = snoozedForOnTrack <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
       
       if (meetsOpen && meetsWaitingOnTSE) {
         onTrackBoth++;
@@ -1413,29 +1450,218 @@ function Dashboard(props) {
             return conv.state === "open" && !isSnoozed;
           });
         } else if (tag === "waitingontse") {
-          filtered = metrics.waitingOnTSE || [];
-        } else if (tag === "waitingoncustomer") {
-          filtered = metrics.waitingOnCustomer || [];
-        } else if (tag === "waitingoncustomer-resolved") {
+          // Filter for snoozed conversations with "Last Snooze Workflow Used" = "Waiting On TSE"
           filtered = conversations.filter(conv => {
-            const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
             if (!isSnoozed) return false;
-            const tags = Array.isArray(conv.tags) ? conv.tags : [];
-            return tags.some(t => 
-              (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
-              (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
-            );
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            // Check if Last Snooze Workflow Used matches "Waiting On TSE"
+            return lastSnoozeWorkflow === "Waiting On TSE";
+          });
+        } else if (tag === "waitingoncustomer") {
+          // Filter for snoozed conversations with "Last Snooze Workflow Used" = "Waiting On Customer - Resolved" or "Waiting On Customer - Unresolved"
+          filtered = conversations.filter(conv => {
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
+            if (!isSnoozed) return false;
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            // Check if Last Snooze Workflow Used matches either customer waiting workflow
+            return lastSnoozeWorkflow === "Waiting On Customer - Resolved" || 
+                   lastSnoozeWorkflow === "Waiting On Customer - Unresolved";
+          });
+        } else if (tag === "snoozed-other") {
+          // Filter for snoozed conversations that don't have "Last Snooze Workflow Used" set to customer or TSE workflows
+          filtered = conversations.filter(conv => {
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
+            if (!isSnoozed) return false;
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            // Return true if snoozed but doesn't have a recognized workflow
+            return lastSnoozeWorkflow !== "Waiting On Customer - Resolved" && 
+                   lastSnoozeWorkflow !== "Waiting On Customer - Unresolved" &&
+                   lastSnoozeWorkflow !== "Waiting On TSE";
+          });
+        } else if (tag === "waitingoncustomer-resolved") {
+          // Filter for snoozed conversations with "Last Snooze Workflow Used" = "Waiting On Customer - Resolved"
+          filtered = conversations.filter(conv => {
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
+            if (!isSnoozed) return false;
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            return lastSnoozeWorkflow === "Waiting On Customer - Resolved";
           });
         } else if (tag === "waitingoncustomer-unresolved") {
+          // Filter for snoozed conversations with "Last Snooze Workflow Used" = "Waiting On Customer - Unresolved"
           filtered = conversations.filter(conv => {
-            const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
             if (!isSnoozed) return false;
-            const tags = Array.isArray(conv.tags) ? conv.tags : [];
-            return tags.some(t => 
-              (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
-              (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
-            );
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            return lastSnoozeWorkflow === "Waiting On Customer - Unresolved";
           });
+        } else if (tag === "closedtoday") {
+          // Filter for conversations closed today (in PT timezone)
+          const now = new Date();
+          const ptDateFormatter = new Intl.DateTimeFormat('en-US', { 
+            timeZone: 'America/Los_Angeles', 
+            year: 'numeric', month: '2-digit', day: '2-digit'
+          });
+          const todayPTDateStr = ptDateFormatter.format(now).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+          });
+          
+          // Helper to convert timestamp to PT date string
+          const toPTDateStr = (timestamp) => {
+            if (!timestamp) return null;
+            const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
+            const date = new Date(ms);
+            return ptDateFormatter.format(date).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+              return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+            });
+          };
+          
+          filtered = conversations.filter(conv => {
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") return false;
+            
+            const closedAt = conv.closed_at || conv.closedAt;
+            if (!closedAt) return false;
+            
+            // Handle both Unix timestamp (seconds) and milliseconds
+            const closedTimestamp = typeof closedAt === 'number' ? closedAt : (closedAt.getTime ? Math.floor(closedAt.getTime() / 1000) : null);
+            if (!closedTimestamp) return false;
+            
+            const closedDateStr = toPTDateStr(closedTimestamp);
+            return closedDateStr === todayPTDateStr;
+          });
+        } else if (tag === "closed") {
+          // Filter for closed conversations from today that are NOT auto-closed
+          const now = new Date();
+          const ptDateFormatter = new Intl.DateTimeFormat('en-US', { 
+            timeZone: 'America/Los_Angeles', 
+            year: 'numeric', month: '2-digit', day: '2-digit'
+          });
+          const todayPTDateStr = ptDateFormatter.format(now).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+          });
+          
+          // Helper to convert timestamp to PT date string
+          const toPTDateStr = (timestamp) => {
+            if (!timestamp) return null;
+            const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
+            const date = new Date(ms);
+            return ptDateFormatter.format(date).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+              return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+            });
+          };
+          
+          filtered = conversations.filter(conv => {
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") return false;
+            
+            // Exclude auto-closed conversations
+            const customAttributes = conv.custom_attributes || {};
+            const autoClosedValue = customAttributes["Auto-Closed"];
+            if (autoClosedValue) return false; // Skip if has Auto-Closed attribute
+            
+            const closedAt = conv.closed_at || conv.closedAt;
+            if (!closedAt) return false;
+            
+            // Handle both Unix timestamp (seconds) and milliseconds
+            const closedTimestamp = typeof closedAt === 'number' ? closedAt : (closedAt.getTime ? Math.floor(closedAt.getTime() / 1000) : null);
+            if (!closedTimestamp) return false;
+            
+            const closedDateStr = toPTDateStr(closedTimestamp);
+            return closedDateStr === todayPTDateStr;
+          });
+        } else if (tag === "autoclosed") {
+          // Filter for all auto-closed conversations using custom_attributes
+          // This matches conversations that display "Auto-Closed via..." in the table
+          filtered = conversations.filter(conv => {
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") return false;
+            
+            // Use the same logic as the table display - check for Auto-Closed custom attribute
+            const customAttributes = conv.custom_attributes || {};
+            const autoClosedValue = customAttributes["Auto-Closed"];
+            
+            // Only include if Auto-Closed exists and matches expected values (same as table display logic)
+            if (!autoClosedValue) return false;
+            
+            const autoClosedStr = String(autoClosedValue);
+            // Match only the expected values that would show "Auto-Closed via..." in the table
+            return autoClosedStr === "Waiting On Customer - Resolved" || 
+                   autoClosedStr === "Waiting On Customer - Unresolved";
+          });
+        } else if (tag === "autoclosed-resolved") {
+          // Filter for auto-closed conversations with Waiting On Customer - Resolved
+          // This matches conversations that display "Auto-Closed via Waiting On Customer - Resolved" in the table
+          filtered = conversations.filter(conv => {
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") return false;
+            
+            // Use the same logic as the table display
+            const customAttributes = conv.custom_attributes || {};
+            const autoClosedValue = customAttributes["Auto-Closed"];
+            
+            // Check if Auto-Closed value matches "Waiting On Customer - Resolved"
+            // This is the same check used in getClosedConversationStatus() for table display
+            if (!autoClosedValue) return false;
+            
+            const autoClosedStr = String(autoClosedValue);
+            const matches = autoClosedStr === "Waiting On Customer - Resolved";
+            
+            return matches;
+          });
+        } else if (tag === "autoclosed-unresolved") {
+          // Filter for auto-closed conversations with Waiting On Customer - Unresolved
+          // This matches conversations that display "Auto-Closed via Waiting On Customer - Unresolved" in the table
+          filtered = conversations.filter(conv => {
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") return false;
+            
+            // Use the same logic as the table display
+            const customAttributes = conv.custom_attributes || {};
+            const autoClosedValue = customAttributes["Auto-Closed"];
+            
+            // Check if Auto-Closed value matches "Waiting On Customer - Unresolved"
+            // This is the same check used in getClosedConversationStatus() for table display
+            if (!autoClosedValue) return false;
+            
+            const autoClosedStr = String(autoClosedValue);
+            const matches = autoClosedStr === "Waiting On Customer - Unresolved";
+            
+            return matches;
+          });
+        } else {
+          // Unrecognized filter tag - skip it (don't add any conversations)
+          return; // Skip this iteration
         }
         
         // Add conversation objects to the set (using ID as key)
@@ -1449,9 +1675,44 @@ function Dashboard(props) {
       
       // Convert set to array of IDs for filtering
       const matchedIds = Array.from(matchedConversations);
+      
+      // If we have filters selected but no matches, return empty array
+      // (Don't return all conversations if filters are active but nothing matches)
+      if (matchedIds.length === 0 && filterTag.length > 0 && !filterTag.includes("all")) {
+        return [];
+      }
+      
+      // Strict filtering: only return conversations that matched at least one filter
+      // IMPORTANT: If auto-closed filters are selected, exclude conversations that only matched "closedtoday"
+      // but don't have the "Auto-Closed" custom attribute
+      const hasAutoClosedFilter = filterTag.some(tag => 
+        tag === "autoclosed" || tag === "autoclosed-resolved" || tag === "autoclosed-unresolved"
+      );
+      
       return conversations.filter(conv => {
         const convId = conv.id || conv.conversation_id;
-        return convId && matchedIds.includes(String(convId));
+        if (!convId) return false;
+        
+        if (!matchedIds.includes(String(convId))) return false;
+        
+        // If auto-closed filters are selected, ensure the conversation actually has Auto-Closed attribute
+        if (hasAutoClosedFilter) {
+          const customAttributes = conv.custom_attributes || {};
+          const autoClosedValue = customAttributes["Auto-Closed"];
+          
+          // If this conversation matched via "closedtoday" but doesn't have Auto-Closed, exclude it
+          if (!autoClosedValue) {
+            // Check if it would have matched via closedtoday
+            const state = (conv.state || "").toLowerCase();
+            if (state === "closed" && filterTag.includes("closedtoday")) {
+              // This conversation matched via "closedtoday" but doesn't have Auto-Closed
+              // Since we're filtering by auto-closed, exclude it
+              return false;
+            }
+          }
+        }
+        
+        return true;
       });
     };
     
@@ -1493,7 +1754,7 @@ function Dashboard(props) {
     }
     
     return tagFiltered;
-  }, [conversations, filterTag, filterTSE, metrics, searchId]);
+  }, [conversations, filterTag, filterTSE, searchId]);
   
   // Get list of TSEs for filter dropdown
   // eslint-disable-next-line no-unused-vars
@@ -1777,7 +2038,7 @@ function Dashboard(props) {
   }
 
   return (
-    <div className="dashboard-container" style={isStephenSkalamera ? { paddingBottom: '60px' } : {}}>
+    <div className="dashboard-container" style={hasFooterControlsAccess ? { paddingBottom: '150px' } : {}}>
       {loading && conversations && conversations.length > 0 && (
         <div className="refreshing-indicator">
           <span>🔄 Refreshing data...</span>
@@ -1785,7 +2046,14 @@ function Dashboard(props) {
       )}
       <div className="dashboard-header">
         <div className="header-left">
-          <h2>Support Ops: Queue Health Monitor</h2>
+          <img 
+            src={isDarkMode 
+              ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768984017/2_de6mhs.svg"
+              : "https://res.cloudinary.com/doznvxtja/image/upload/v1768984723/Untitled_design_27_bivzhg.svg"
+            }
+            alt="Queue Health Monitor"
+            style={{ height: '32px', width: 'auto' }}
+          />
           {lastUpdated && (
             <span className="last-updated">
               Last updated: {lastUpdated.toLocaleTimeString()}
@@ -1793,131 +2061,188 @@ function Dashboard(props) {
           )}
         </div>
         <div className="header-actions">
-          {/* Manager Badge - shown only for managers */}
+          {/* Manager Badge with My Team Only Toggle - shown only for managers */}
           {userRole === 'manager' && managerInfo && (
             <div 
               className="manager-badge-indicator"
-              onClick={() => setActiveView("tse")}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
                 padding: '6px 12px',
                 borderRadius: '8px',
-                cursor: 'pointer',
-                backgroundColor: isDarkMode ? 'rgba(103, 58, 183, 0.15)' : 'rgba(103, 58, 183, 0.1)',
-                border: `1px solid ${isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)'}`,
+                backgroundColor: myTeamOnly 
+                  ? (isDarkMode ? 'rgba(103, 58, 183, 0.2)' : 'rgba(103, 58, 183, 0.1)')
+                  : (isDarkMode ? 'rgba(103, 58, 183, 0.15)' : 'rgba(103, 58, 183, 0.1)'),
+                border: `1px solid ${myTeamOnly 
+                  ? (isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)')
+                  : (isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)')}`,
                 transition: 'all 0.2s ease',
                 marginRight: '12px'
               }}
-              title="Click to view your team"
             >
-              <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                overflow: 'hidden',
-                border: `2px solid ${isDarkMode ? '#9575cd' : '#673ab7'}`,
-                flexShrink: 0
-              }}>
-                {getTSEAvatar(simulatedManagerName || user?.name) ? (
-                  <img 
-                    src={getTSEAvatar(simulatedManagerName || user?.name)} 
-                    alt={simulatedManagerName || user?.name}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                ) : (
-                  <div style={{
-                    width: '100%',
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: isDarkMode ? '#4a148c' : '#ede7f6',
-                    color: isDarkMode ? '#fff' : '#673ab7',
-                    fontSize: '14px',
-                    fontWeight: '600'
-                  }}>
-                    {(simulatedManagerName || user?.name)?.charAt(0) || '?'}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <span style={{ 
-                  fontSize: '11px', 
-                  color: isDarkMode ? '#aaa' : '#666',
-                  fontWeight: '500'
+              <div 
+                onClick={() => setActiveView("tse")}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  flex: 1
+                }}
+                title="Click to view your team"
+              >
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  border: `2px solid ${isDarkMode ? '#9575cd' : '#673ab7'}`,
+                  flexShrink: 0
                 }}>
-                  {managerInfo.title} - {managerInfo.region}
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    color: isDarkMode ? '#b39ddb' : '#673ab7'
+                  {getTSEAvatar(simulatedManagerName || user?.name) ? (
+                    <img 
+                      src={getTSEAvatar(simulatedManagerName || user?.name)} 
+                      alt={simulatedManagerName || user?.name}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div style={{
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: isDarkMode ? '#4a148c' : '#ede7f6',
+                      color: isDarkMode ? '#fff' : '#673ab7',
+                      fontSize: '14px',
+                      fontWeight: '600'
+                    }}>
+                      {(simulatedManagerName || user?.name)?.charAt(0) || '?'}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <span style={{ 
+                    fontSize: '11px', 
+                    color: isDarkMode ? '#aaa' : '#666',
+                    fontWeight: '500'
                   }}>
-                    {simulatedManagerName || user?.name}
-                    {simulatedManagerName && (
-                      <span style={{ 
-                        fontSize: '10px', 
-                        color: isDarkMode ? '#888' : '#999',
-                        fontWeight: '400',
-                        marginLeft: '4px'
-                      }}>
-                        (simulated)
-                      </span>
-                    )}
+                    {managerInfo.title} - {managerInfo.region}
                   </span>
-                  <span style={{
-                    fontSize: '11px',
-                    color: isDarkMode ? '#888' : '#999'
-                  }}>
-                    ({managerTeamMembers.length} team members)
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: isDarkMode ? '#b39ddb' : '#673ab7'
+                    }}>
+                      {simulatedManagerName || user?.name}
+                      {simulatedManagerName && (
+                        <span style={{ 
+                          fontSize: '10px', 
+                          color: isDarkMode ? '#888' : '#999',
+                          fontWeight: '400',
+                          marginLeft: '4px'
+                        }}>
+                          (simulated)
+                        </span>
+                      )}
+                    </span>
+                    <span style={{
+                      fontSize: '11px',
+                      color: isDarkMode ? '#888' : '#999'
+                    }}>
+                      ({managerTeamMembers.length} team members)
+                    </span>
+                  </div>
                 </div>
               </div>
+              <label 
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  paddingLeft: '8px',
+                  borderLeft: `1px solid ${isDarkMode ? 'rgba(103, 58, 183, 0.3)' : 'rgba(103, 58, 183, 0.2)'}`,
+                  marginLeft: '8px'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  checked={myTeamOnly}
+                  onChange={() => setMyTeamOnly(!myTeamOnly)}
+                  style={{ cursor: 'pointer' }}
+                />
+                <span style={{ 
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  color: myTeamOnly 
+                    ? (isDarkMode ? '#b39ddb' : '#673ab7')
+                    : (isDarkMode ? '#aaa' : '#666')
+                }}>
+                  My Team Only ({managerInfo.team.length})
+                </span>
+              </label>
             </div>
           )}
           
-          {/* My Team Only Toggle - Only for managers, available on all pages */}
-          {userRole === 'manager' && managerInfo && (
-            <label 
-              className="my-team-toggle-header"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                cursor: 'pointer',
-                padding: '6px 12px',
-                backgroundColor: myTeamOnly 
-                  ? (isDarkMode ? 'rgba(103, 58, 183, 0.2)' : 'rgba(103, 58, 183, 0.1)')
-                  : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'),
-                borderRadius: '8px',
-                border: `1px solid ${myTeamOnly 
-                  ? (isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)')
-                  : (isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)')}`,
-                transition: 'all 0.2s ease',
-                marginRight: '12px'
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={myTeamOnly}
-                onChange={() => setMyTeamOnly(!myTeamOnly)}
-                style={{ cursor: 'pointer' }}
-              />
-              <span style={{ 
-                fontSize: '12px',
-                fontWeight: '500',
-                color: myTeamOnly 
-                  ? (isDarkMode ? '#b39ddb' : '#673ab7')
-                  : (isDarkMode ? '#aaa' : '#666')
-              }}>
-                My Team Only ({managerInfo.team.length})
-              </span>
-            </label>
-          )}
-          
+          {/* Snooze Timer Icon - shown for TSEs */}
+          {userRole !== 'manager' && currentTSE && (() => {
+            const snoozedConversations = conversations
+              .filter(conv => {
+                const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+                if (!isSnoozed) return false;
+                const snoozedUntil = conv.snoozed_until || null;
+                return snoozedUntil !== null;
+              })
+              .map(conv => {
+                const snoozedUntil = conv.snoozed_until || null;
+                const snoozedUntilDate = snoozedUntil 
+                  ? (typeof snoozedUntil === "number" ? new Date(snoozedUntil * 1000) : new Date(snoozedUntil))
+                  : null;
+                const timeRemaining = snoozedUntilDate ? calculateTimeRemaining(snoozedUntilDate) : { expired: true, totalMs: 0 };
+                return { conv, timeRemaining, totalMinutes: timeRemaining.totalMs / (1000 * 60) };
+              });
+
+            const urgentCount = snoozedConversations.filter(item => 
+              item.timeRemaining.expired || item.totalMinutes <= 60
+            ).length;
+
+            if (snoozedConversations.length === 0) return null;
+
+            return (
+              <button
+                className="snooze-timer-header-button"
+                onClick={() => setSnoozeModalOpen(true)}
+                aria-label="Open snooze timers"
+                title="Snooze Timers"
+                style={{
+                  marginRight: '12px'
+                }}
+              >
+                <span className="snooze-header-icon">
+                  <img 
+                    src={isDarkMode 
+                      ? "https://res.cloudinary.com/doznvxtja/image/upload/v1769015660/33_hwpe4d.svg"
+                      : "https://res.cloudinary.com/doznvxtja/image/upload/v1769015660/32_qcptve.svg"
+                    }
+                    alt="Snooze Timer"
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      display: 'block'
+                    }}
+                  />
+                </span>
+                {urgentCount > 0 && (
+                  <span className="snooze-header-badge">{urgentCount}</span>
+                )}
+              </button>
+            );
+          })()}
+
           {/* My Queue Status Indicator - shown for TSEs and matching users (not managers) */}
           {userRole !== 'manager' && currentTSEMetrics && (
             <div 
@@ -2093,6 +2418,243 @@ function Dashboard(props) {
               }}
             />
           </div>
+
+          {/* Snooze Timer Modal */}
+          {snoozeModalOpen && userRole !== 'manager' && currentTSE && (() => {
+            // Helper function to get tags from conversation
+            const getTags = (conv) => {
+              if (!conv.tags) return [];
+              return Array.isArray(conv.tags) ? conv.tags : [];
+            };
+
+            // Helper function to check for specific tags
+            const hasTag = (tags, tagName) => {
+              return tags.some(t => {
+                const tagValue = t.name || t;
+                return typeof tagValue === 'string' && tagValue.toLowerCase() === tagName.toLowerCase();
+              });
+            };
+
+            // Filter to only show waiting-on-tse and waiting-on-customer conversations assigned to current TSE (excluding expired)
+            const tseId = currentTSE?.id;
+            const filteredConversations = conversations
+              .filter(conv => {
+                // First filter by TSE assignment
+                if (tseId) {
+                  const convTseId = conv.admin_assignee_id || 
+                                   (conv.admin_assignee && typeof conv.admin_assignee === "object" ? conv.admin_assignee.id : null);
+                  if (String(convTseId) !== String(tseId)) {
+                    return false; // Not assigned to current TSE
+                  }
+                }
+                
+                // Then filter by tags
+                const tags = getTags(conv);
+                const hasWaitingOnTSETag = hasTag(tags, "snooze.waiting-on-tse");
+                const hasWaitingOnCustomerResolvedTag = hasTag(tags, "snooze.waiting-on-customer-resolved");
+                const hasWaitingOnCustomerUnresolvedTag = hasTag(tags, "snooze.waiting-on-customer-unresolved");
+                
+                return hasWaitingOnTSETag || hasWaitingOnCustomerResolvedTag || hasWaitingOnCustomerUnresolvedTag;
+              })
+              .map(conv => {
+                const tags = getTags(conv);
+                let tagType = null;
+                if (hasTag(tags, "snooze.waiting-on-tse")) {
+                  tagType = "waiting-on-tse";
+                } else if (hasTag(tags, "snooze.waiting-on-customer-resolved")) {
+                  tagType = "waiting-on-customer-resolved";
+                } else if (hasTag(tags, "snooze.waiting-on-customer-unresolved")) {
+                  tagType = "waiting-on-customer-unresolved";
+                }
+
+                const snoozedUntil = conv.snoozed_until || null;
+                const snoozedUntilDate = snoozedUntil 
+                  ? (typeof snoozedUntil === "number" ? new Date(snoozedUntil * 1000) : new Date(snoozedUntil))
+                  : null;
+                const timeRemaining = snoozedUntilDate ? calculateTimeRemaining(snoozedUntilDate) : { expired: true, totalMs: 0 };
+                return { 
+                  conv, 
+                  tagType,
+                  timeRemaining, 
+                  totalMinutes: timeRemaining.totalMs / (1000 * 60) 
+                };
+              })
+              .filter(item => !item.timeRemaining.expired) // Filter out expired conversations
+              .sort((a, b) => {
+                // Sort by time remaining (ascending) - shortest time at top for heatmap
+                return a.totalMinutes - b.totalMinutes;
+              });
+
+            // Calculate heatmap colors based on time remaining
+            // Helper function to interpolate between red and green
+            const getHeatmapColor = (totalMinutes, maxMinutes) => {
+              if (maxMinutes === 0 || maxMinutes === totalMinutes) {
+                // If all have same time or no max, use red for urgency
+                return { r: 255, g: 68, b: 68 };
+              }
+              
+              // Normalize to 0-1 (0 = red for less time, 1 = green for more time)
+              // Invert so shorter time = more red
+              const ratio = 1 - (totalMinutes / maxMinutes);
+              
+              // Interpolate between red (#ff4444) and green (#4cec8c)
+              // Red: rgb(255, 68, 68) -> Green: rgb(76, 236, 140)
+              const r = Math.round(76 + (255 - 76) * ratio); // 76 -> 255 (more red for less time)
+              const g = Math.round(236 - (236 - 68) * ratio); // 236 -> 68 (less green for less time)
+              const b = Math.round(140 - (140 - 68) * ratio); // 140 -> 68 (less blue for less time)
+              
+              return { r, g, b };
+            };
+
+            // Find max time for heatmap calculation
+            const maxTimeMinutes = filteredConversations.length > 0
+              ? Math.max(...filteredConversations.map(item => item.totalMinutes))
+              : 0;
+
+            const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
+
+            return (
+              <>
+                <div 
+                  className="snooze-modal-overlay"
+                  onClick={() => setSnoozeModalOpen(false)}
+                />
+                <div className="snooze-modal">
+                  <div className="snooze-modal-header">
+                    <h2>Snooze Timers</h2>
+                    <button
+                      className="snooze-modal-close"
+                      onClick={() => setSnoozeModalOpen(false)}
+                      aria-label="Close modal"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  
+                  <div className="snooze-modal-content">
+                    {loading || !conversations || conversations.length === 0 ? (
+                      // Show loading skeletons while conversations are loading
+                      Array.from({ length: 5 }).map((_, idx) => (
+                        <div 
+                          key={`loading-${idx}`}
+                          className="countdown-card countdown-card-compact countdown-card-loading"
+                        >
+                          <div className="countdown-card-content">
+                            <div className="countdown-visual">
+                              <div className="countdown-ring">
+                                <div className="countdown-loading-spinner"></div>
+                              </div>
+                            </div>
+                            <div className="countdown-info">
+                              <div className="countdown-title countdown-skeleton-text"></div>
+                              <div className="countdown-details">
+                                <span className="countdown-id countdown-skeleton-text-small"></span>
+                                <span className="countdown-full-time countdown-skeleton-text-small"></span>
+                              </div>
+                            </div>
+                            <div className="countdown-action">
+                              <div className="countdown-arrow">→</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : filteredConversations.length === 0 ? (
+                      <div className="snooze-modal-empty">
+                        <p>No waiting conversations</p>
+                      </div>
+                    ) : (
+                      filteredConversations.map((item, idx) => {
+                        const conv = item.conv;
+                        const convId = conv.id || conv.conversation_id || idx;
+                        const convUrl = `${INTERCOM_BASE_URL}${convId}`;
+                        const convTitle = conv.title || conv.source?.title || `Conversation ${convId}`;
+                        const totalMinutes = item.totalMinutes;
+
+                        // Get tag type display info with better contrast
+                        const getTagInfo = (tagType) => {
+                          switch(tagType) {
+                            case "waiting-on-tse":
+                              return { 
+                                label: "Waiting on TSE", 
+                                color: "#B8860B", 
+                                bgColor: "#FFFACD" // Light yellow background for good contrast
+                              };
+                            case "waiting-on-customer-unresolved":
+                              return { 
+                                label: "Waiting on Customer (Unresolved)", 
+                                color: "#FFFFFF", 
+                                bgColor: "#DC143C" // Dark red background with white text
+                              };
+                            case "waiting-on-customer-resolved":
+                              return { 
+                                label: "Waiting on Customer (Resolved)", 
+                                color: "#FFFFFF", 
+                                bgColor: "#228B22" // Dark green background with white text
+                              };
+                            default:
+                              return { 
+                                label: "Unknown", 
+                                color: "#FFFFFF", 
+                                bgColor: "#666666" 
+                              };
+                          }
+                        };
+
+                        const tagInfo = getTagInfo(item.tagType);
+                        
+                        // Calculate heatmap background color
+                        const heatmapColor = getHeatmapColor(totalMinutes, maxTimeMinutes);
+                        const backgroundColor = `rgb(${heatmapColor.r}, ${heatmapColor.g}, ${heatmapColor.b})`;
+
+                        return (
+                          <div 
+                            key={convId}
+                            className="snooze-conversation-item"
+                            onClick={() => window.open(convUrl, '_blank')}
+                            style={{ backgroundColor: backgroundColor }}
+                          >
+                            <div className="snooze-item-header">
+                              <span 
+                                className="snooze-tag-badge"
+                                style={{ 
+                                  color: tagInfo.color,
+                                  backgroundColor: tagInfo.bgColor,
+                                  borderColor: tagInfo.color
+                                }}
+                              >
+                                {tagInfo.label}
+                              </span>
+                            </div>
+                            <div className="snooze-item-title">{convTitle}</div>
+                            <div className="snooze-item-footer">
+                              <span className="snooze-conv-id">#{String(convId).slice(-6)}</span>
+                              <span className="snooze-timer-large">
+                                {(() => {
+                                  const formatted = formatTimeRemaining(item.timeRemaining);
+                                  if (formatted && formatted !== "Expired") {
+                                    return formatted;
+                                  }
+                                  // Fallback: format manually
+                                  const { days = 0, hours = 0, minutes = 0, seconds = 0 } = item.timeRemaining || {};
+                                  const parts = [];
+                                  if (days > 0) parts.push(`${days}d`);
+                                  if (hours > 0) parts.push(`${hours}h`);
+                                  if (minutes > 0) parts.push(`${minutes}m`);
+                                  parts.push(`${seconds}s`);
+                                  return parts.join(' ') || '0s';
+                                })()}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+
           <div className="view-tabs">
             {/* My Queue tab - shown for TSEs, hidden for managers */}
             {userRole !== 'manager' && currentTSE && (
@@ -2200,7 +2762,7 @@ function Dashboard(props) {
       {activeView === "conversations" && (
         <div className="filter-bar">
           <div className="filter-group" style={{ position: 'relative' }} ref={filterDropdownRef}>
-            <label>FILTER BY SNOOZE TYPE</label>
+            <label>FILTER BY TYPE</label>
             <div 
               className="filter-select"
               onClick={() => setFilterDropdownOpen(!filterDropdownOpen)}
@@ -2217,6 +2779,15 @@ function Dashboard(props) {
               <span>
                 {filterTag.length === 0 ? 'Select filters...' :
                  filterTag.length === 1 && filterTag[0] === 'all' ? 'All Conversations' :
+                 filterTag.length === 1 && filterTag[0] === 'snoozed' ? 'All Snoozed' :
+                 filterTag.length === 1 && filterTag[0] === 'waitingoncustomer' ? 'Waiting On Customer' :
+                 filterTag.length === 1 && filterTag[0] === 'waitingontse' ? 'Waiting On TSE' :
+                 filterTag.length === 1 && filterTag[0] === 'snoozed-other' ? 'Snoozed - Other' :
+                 filterTag.length === 1 && filterTag[0] === 'closedtoday' ? 'Closed Today' :
+                 filterTag.length === 1 && filterTag[0] === 'closed' ? 'Closed' :
+                 filterTag.length === 1 && filterTag[0] === 'autoclosed' ? 'Auto-Closed' :
+                 filterTag.length === 1 && filterTag[0] === 'autoclosed-resolved' ? 'Auto-Closed - Resolved' :
+                 filterTag.length === 1 && filterTag[0] === 'autoclosed-unresolved' ? 'Auto-Closed - Unresolved' :
                  filterTag.length === 1 ? filterTag[0] :
                  `${filterTag.length} filters selected`}
               </span>
@@ -2224,46 +2795,339 @@ function Dashboard(props) {
             </div>
             {filterDropdownOpen && (
               <div className="filter-select-dropdown">
-                {[
-                  { value: 'all', label: 'All Conversations' },
-                  { value: 'snoozed', label: 'All Snoozed' },
-                  { value: 'open', label: 'Open Chats' },
-                  { value: 'waitingontse', label: 'Snoozed - Waiting On TSE' },
-                  { value: 'waitingoncustomer', label: 'Snoozed - Waiting On Customer' },
-                  { value: 'waitingoncustomer-resolved', label: '  └ Resolved' },
-                  { value: 'waitingoncustomer-unresolved', label: '  └ Unresolved' }
-                ].map(option => (
-                  <label
-                    key={option.value}
-                    className="filter-select-dropdown-item"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={filterTag.includes(option.value)}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        if (option.value === 'all') {
-                          // If "all" is selected, clear other selections
-                          setFilterTag(['all']);
-                        } else {
-                          // Remove "all" if it's selected and user selects something else
-                          let newFilters = filterTag.filter(t => t !== 'all');
-                          if (e.target.checked) {
-                            newFilters.push(option.value);
-                          } else {
-                            newFilters = newFilters.filter(t => t !== option.value);
-                          }
-                          // If nothing selected, default to "all"
-                          setFilterTag(newFilters.length === 0 ? ['all'] : newFilters);
+                {(() => {
+                  // Define hierarchical structure
+                  const filterOptions = [
+                    { value: 'all', label: 'All Conversations', children: null },
+                    {
+                      value: 'snoozed',
+                      label: 'All Snoozed',
+                      children: [
+                        {
+                          value: 'waitingoncustomer',
+                          label: 'Waiting On Customer',
+                          children: [
+                            { value: 'waitingoncustomer-resolved', label: 'Resolved', children: null },
+                            { value: 'waitingoncustomer-unresolved', label: 'Unresolved', children: null }
+                          ]
+                        },
+                        { value: 'waitingontse', label: 'Waiting On TSE', children: null },
+                        { value: 'snoozed-other', label: 'Other', children: null }
+                      ]
+                    },
+                    { value: 'open', label: 'Open Chats', children: null },
+                    {
+                      value: 'closedtoday',
+                      label: 'Closed Today',
+                      children: [
+                        { value: 'closed', label: 'Closed', children: null },
+                        {
+                          value: 'autoclosed',
+                          label: 'Auto-Closed',
+                          children: [
+                            { value: 'autoclosed-resolved', label: 'Waiting On Customer - Resolved', children: null },
+                            { value: 'autoclosed-unresolved', label: 'Waiting On Customer - Unresolved', children: null }
+                          ]
                         }
-                        setSearchId("");
-                      }}
-                      style={{ marginRight: '8px' }}
-                    />
-                    {option.label}
-                  </label>
-                ))}
+                      ]
+                    }
+                  ];
+
+                  // Recursive function to render filter items
+                  const renderFilterItem = (option, level = 0) => {
+                    const hasChildren = option.children && option.children.length > 0;
+                    const isExpanded = expandedFilters.has(option.value);
+                    const isParent = level === 0;
+                    const isChild1 = level === 1;
+                    const isChild2 = level === 2;
+                    
+                    let itemClassName = 'filter-select-dropdown-item';
+                    if (isParent) {
+                      itemClassName += ' filter-parent';
+                    } else if (isChild1) {
+                      itemClassName += ' filter-child-1';
+                    } else if (isChild2) {
+                      itemClassName += ' filter-child-2';
+                    }
+
+                    const toggleExpand = (e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setExpandedFilters(prev => {
+                        const newSet = new Set(prev);
+                        if (newSet.has(option.value)) {
+                          newSet.delete(option.value);
+                        } else {
+                          newSet.add(option.value);
+                        }
+                        return newSet;
+                      });
+                    };
+
+                    return (
+                      <div key={option.value}>
+                        <label
+                          className={itemClassName}
+                          onClick={(e) => {
+                            if (hasChildren && e.target.type !== 'checkbox') {
+                              toggleExpand(e);
+                            } else {
+                              e.stopPropagation();
+                            }
+                          }}
+                        >
+                          {hasChildren && (
+                            <span
+                              className="filter-expand-icon"
+                              onClick={toggleExpand}
+                              style={{
+                                display: 'inline-block',
+                                width: '16px',
+                                marginRight: '4px',
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                                fontSize: '10px',
+                                color: isDarkMode ? '#999' : '#666'
+                              }}
+                            >
+                              {isExpanded ? '▼' : '▶'}
+                            </span>
+                          )}
+                          {!hasChildren && <span style={{ display: 'inline-block', width: '16px', marginRight: '4px' }} />}
+                          <input
+                            type="checkbox"
+                            checked={filterTag.includes(option.value)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              if (option.value === 'all') {
+                                // If "all" is selected, clear other selections
+                                setFilterTag(['all']);
+                              } else if (option.value === 'snoozed') {
+                                // Handle All Snoozed parent: when checked, also check all children; when unchecked, uncheck all children
+                                let newFilters = filterTag.filter(t => t !== 'all');
+                                if (e.target.checked) {
+                                  // Add parent and all children
+                                  newFilters.push('snoozed');
+                                  if (!newFilters.includes('waitingoncustomer')) {
+                                    newFilters.push('waitingoncustomer');
+                                  }
+                                  if (!newFilters.includes('waitingoncustomer-resolved')) {
+                                    newFilters.push('waitingoncustomer-resolved');
+                                  }
+                                  if (!newFilters.includes('waitingoncustomer-unresolved')) {
+                                    newFilters.push('waitingoncustomer-unresolved');
+                                  }
+                                  if (!newFilters.includes('waitingontse')) {
+                                    newFilters.push('waitingontse');
+                                  }
+                                  if (!newFilters.includes('snoozed-other')) {
+                                    newFilters.push('snoozed-other');
+                                  }
+                                } else {
+                                  // Remove parent and all children
+                                  newFilters = newFilters.filter(t => 
+                                    t !== 'snoozed' && 
+                                    t !== 'waitingoncustomer' &&
+                                    t !== 'waitingoncustomer-resolved' && 
+                                    t !== 'waitingoncustomer-unresolved' &&
+                                    t !== 'waitingontse' &&
+                                    t !== 'snoozed-other'
+                                  );
+                                }
+                                setFilterTag(newFilters.length === 0 ? ['all'] : newFilters);
+                              } else if (option.value === 'waitingoncustomer') {
+                                // Handle Waiting On Customer parent: when checked, remove "All Snoozed" parent; when unchecked, uncheck children
+                                let newFilters = filterTag.filter(t => t !== 'all');
+                                if (e.target.checked) {
+                                  // Remove "All Snoozed" parent to allow precise filtering
+                                  newFilters = newFilters.filter(t => t !== 'snoozed');
+                                  // Remove specific children to allow parent-level filtering
+                                  newFilters = newFilters.filter(t => 
+                                    t !== 'waitingoncustomer-resolved' && 
+                                    t !== 'waitingoncustomer-unresolved'
+                                  );
+                                  // Add parent
+                                  if (!newFilters.includes('waitingoncustomer')) {
+                                    newFilters.push('waitingoncustomer');
+                                  }
+                                } else {
+                                  // Remove parent and both children
+                                  newFilters = newFilters.filter(t => 
+                                    t !== 'waitingoncustomer' && 
+                                    t !== 'waitingoncustomer-resolved' && 
+                                    t !== 'waitingoncustomer-unresolved'
+                                  );
+                                }
+                                setFilterTag(newFilters.length === 0 ? ['all'] : newFilters);
+                              } else if (option.value === 'closedtoday') {
+                                // Handle Closed Today parent: when checked, just add it; when unchecked, remove it and children
+                                let newFilters = filterTag.filter(t => t !== 'all');
+                                if (e.target.checked) {
+                                  // Remove any children to allow precise filtering
+                                  newFilters = newFilters.filter(t => 
+                                    t !== 'closed' &&
+                                    t !== 'autoclosed' && 
+                                    t !== 'autoclosed-resolved' && 
+                                    t !== 'autoclosed-unresolved'
+                                  );
+                                  // Add parent
+                                  if (!newFilters.includes('closedtoday')) {
+                                    newFilters.push('closedtoday');
+                                  }
+                                } else {
+                                  // Remove parent and all children
+                                  newFilters = newFilters.filter(t => 
+                                    t !== 'closedtoday' && 
+                                    t !== 'closed' &&
+                                    t !== 'autoclosed' && 
+                                    t !== 'autoclosed-resolved' && 
+                                    t !== 'autoclosed-unresolved'
+                                  );
+                                }
+                                setFilterTag(newFilters.length === 0 ? ['all'] : newFilters);
+                              } else if (option.value === 'closed') {
+                                // Handle Closed subcategory: when checked, remove Closed Today parent and auto-closed children
+                                let newFilters = filterTag.filter(t => t !== 'all');
+                                if (e.target.checked) {
+                                  // Remove Closed Today parent and auto-closed children to allow precise filtering
+                                  newFilters = newFilters.filter(t => 
+                                    t !== 'closedtoday' &&
+                                    t !== 'autoclosed' && 
+                                    t !== 'autoclosed-resolved' && 
+                                    t !== 'autoclosed-unresolved'
+                                  );
+                                  // Add the selected filter
+                                  if (!newFilters.includes('closed')) {
+                                    newFilters.push('closed');
+                                  }
+                                } else {
+                                  // Remove the filter
+                                  newFilters = newFilters.filter(t => t !== 'closed');
+                                }
+                                setFilterTag(newFilters.length === 0 ? ['all'] : newFilters);
+                              } else if (option.value === 'autoclosed') {
+                                // Handle Auto-Closed parent: when checked, remove Closed Today parent, Closed, and children; when unchecked, uncheck children
+                                let newFilters = filterTag.filter(t => t !== 'all');
+                                if (e.target.checked) {
+                                  // Remove Closed Today parent, Closed, and specific children to allow precise filtering
+                                  newFilters = newFilters.filter(t => 
+                                    t !== 'closedtoday' && 
+                                    t !== 'closed' &&
+                                    t !== 'autoclosed-resolved' && 
+                                    t !== 'autoclosed-unresolved'
+                                  );
+                                  // Add parent
+                                  if (!newFilters.includes('autoclosed')) {
+                                    newFilters.push('autoclosed');
+                                  }
+                                } else {
+                                  // Remove parent and both children
+                                  newFilters = newFilters.filter(t => 
+                                    t !== 'autoclosed' && 
+                                    t !== 'autoclosed-resolved' && 
+                                    t !== 'autoclosed-unresolved'
+                                  );
+                                }
+                                setFilterTag(newFilters.length === 0 ? ['all'] : newFilters);
+                              } else {
+                                // Remove "all" if it's selected and user selects something else
+                                let newFilters = filterTag.filter(t => t !== 'all');
+                                if (e.target.checked) {
+                                  // When checking a specific sub-sub-category, remove parent categories to allow precise filtering
+                                  if (option.value === 'waitingoncustomer-resolved' || 
+                                      option.value === 'waitingoncustomer-unresolved') {
+                                    // Remove parent categories when selecting a specific sub-subcategory
+                                    newFilters = newFilters.filter(t => 
+                                      t !== 'snoozed' && 
+                                      t !== 'waitingoncustomer'
+                                    );
+                                  } else if (option.value === 'waitingontse' || option.value === 'snoozed-other') {
+                                    // Remove parent category when selecting a specific snoozed subcategory
+                                    newFilters = newFilters.filter(t => t !== 'snoozed');
+                                  } else if (option.value === 'autoclosed-resolved' || 
+                                             option.value === 'autoclosed-unresolved') {
+                                    // Remove parent categories when selecting a specific auto-closed sub-subcategory
+                                    // CRITICAL: Remove "closedtoday" and "closed" to prevent matching all closed conversations
+                                    newFilters = newFilters.filter(t => 
+                                      t !== 'closedtoday' && 
+                                      t !== 'closed' &&
+                                      t !== 'autoclosed'
+                                    );
+                                  }
+                                  
+                                  // Add the selected filter
+                                  if (!newFilters.includes(option.value)) {
+                                    newFilters.push(option.value);
+                                  }
+                                } else {
+                                  newFilters = newFilters.filter(t => t !== option.value);
+                                  // If unchecking a child of autoclosed, also uncheck parent if both children are now unchecked
+                                  if ((option.value === 'autoclosed-resolved' || option.value === 'autoclosed-unresolved')) {
+                                    const hasResolved = newFilters.includes('autoclosed-resolved');
+                                    const hasUnresolved = newFilters.includes('autoclosed-unresolved');
+                                    if (!hasResolved && !hasUnresolved) {
+                                      newFilters = newFilters.filter(t => t !== 'autoclosed');
+                                      // Also uncheck "Closed Today" if no closed children remain
+                                      const hasClosedChildren = newFilters.some(t => t === 'closedtoday');
+                                      if (!hasClosedChildren) {
+                                        newFilters = newFilters.filter(t => t !== 'closedtoday');
+                                      }
+                                    }
+                                  }
+                                  // If unchecking a child of waitingoncustomer, also uncheck parent if both children are now unchecked
+                                  if ((option.value === 'waitingoncustomer-resolved' || option.value === 'waitingoncustomer-unresolved')) {
+                                    const hasResolved = newFilters.includes('waitingoncustomer-resolved');
+                                    const hasUnresolved = newFilters.includes('waitingoncustomer-unresolved');
+                                    if (!hasResolved && !hasUnresolved) {
+                                      newFilters = newFilters.filter(t => t !== 'waitingoncustomer');
+                                    }
+                                    // Also uncheck "All Snoozed" if no snoozed children remain
+                                    const hasSnoozedChildren = newFilters.some(t => 
+                                      t === 'waitingoncustomer' || t === 'waitingontse' || t === 'snoozed-other'
+                                    );
+                                    if (!hasSnoozedChildren) {
+                                      newFilters = newFilters.filter(t => t !== 'snoozed');
+                                    }
+                                  }
+                                  // If unchecking waitingoncustomer parent, uncheck "All Snoozed" if no other snoozed children remain
+                                  if (option.value === 'waitingoncustomer') {
+                                    const hasSnoozedChildren = newFilters.some(t => 
+                                      t === 'waitingontse' || t === 'snoozed-other'
+                                    );
+                                    if (!hasSnoozedChildren) {
+                                      newFilters = newFilters.filter(t => t !== 'snoozed');
+                                    }
+                                  }
+                                  // If unchecking a snoozed child (waitingontse or snoozed-other), uncheck "All Snoozed" if no children remain
+                                  if (option.value === 'waitingontse' || option.value === 'snoozed-other') {
+                                    const hasSnoozedChildren = newFilters.some(t => 
+                                      t === 'waitingoncustomer' || t === 'waitingontse' || t === 'snoozed-other'
+                                    );
+                                    if (!hasSnoozedChildren) {
+                                      newFilters = newFilters.filter(t => t !== 'snoozed');
+                                    }
+                                  }
+                                }
+                                // If nothing selected, default to "all"
+                                setFilterTag(newFilters.length === 0 ? ['all'] : newFilters);
+                              }
+                              setSearchId("");
+                            }}
+                            style={{ marginRight: '8px' }}
+                          />
+                          {option.label}
+                        </label>
+                        {hasChildren && isExpanded && (
+                          <div className="filter-children-container">
+                            {option.children.map(child => renderFilterItem(child, level + 1))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
+
+                  return filterOptions.map(option => renderFilterItem(option, 0));
+                })()}
               </div>
             )}
           </div>
@@ -2326,6 +3190,15 @@ function Dashboard(props) {
             </button>
             <button 
               onClick={() => {
+                setFilterTag(["closedtoday"]);
+                setFilterTSE("all");
+              }} 
+              className="filter-button"
+            >
+              Show Closed Today
+            </button>
+            <button 
+              onClick={() => {
                 setFilterTag(["snoozed"]);
               }} 
               className="filter-button"
@@ -2361,7 +3234,7 @@ function Dashboard(props) {
           conversations={conversations}
           teamMembers={teamMembers}
           currentUserEmail={effectiveTSE?.email || user?.email}
-          simulatedTSE={isStephenSkalamera && stephenViewMode === 'tse' && simulatedTSEId ? effectiveTSE : null}
+          simulatedTSE={hasFooterControlsAccess && devViewMode === 'tse' && simulatedTSEId ? effectiveTSE : null}
           loading={loading}
           error={error}
           onRefresh={onRefresh}
@@ -2411,45 +3284,6 @@ function Dashboard(props) {
           {/* Filters Container */}
           <div className="tse-filters-container">
             <h4 className="filters-title">Filters</h4>
-            
-            {/* My Team Only Toggle - Only for managers */}
-            {userRole === 'manager' && managerInfo && (
-              <div className="my-team-filter-section" style={{ marginBottom: '16px' }}>
-                <label 
-                  className="my-team-toggle"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    padding: '8px 12px',
-                    backgroundColor: myTeamOnly 
-                      ? (isDarkMode ? 'rgba(103, 58, 183, 0.2)' : 'rgba(103, 58, 183, 0.1)')
-                      : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'),
-                    borderRadius: '8px',
-                    border: `1px solid ${myTeamOnly 
-                      ? (isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)')
-                      : (isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)')}`,
-                    transition: 'all 0.2s ease'
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={myTeamOnly}
-                    onChange={() => setMyTeamOnly(!myTeamOnly)}
-                    style={{ cursor: 'pointer' }}
-                  />
-                  <span style={{ 
-                    fontWeight: '500',
-                    color: myTeamOnly 
-                      ? (isDarkMode ? '#b39ddb' : '#673ab7')
-                      : (isDarkMode ? '#aaa' : '#666')
-                  }}>
-                    My Team Only ({managerInfo.team.length} members)
-                  </span>
-                </label>
-              </div>
-            )}
             
             {/* Color Filters */}
             <div className="tse-color-filters-section">
@@ -2790,6 +3624,8 @@ function Dashboard(props) {
             {filterTag.length === 1 && filterTag[0] === "open" && filterTSE !== "unassigned" && "Open Conversations"}
             {filterTag.length === 1 && filterTag[0] === "all" && filterTSE !== "unassigned" && "All Open & Snoozed Conversations"}
             {filterTag.length === 1 && filterTag[0] === "snoozed" && "Total Snoozed Conversations"}
+            {filterTag.length === 1 && filterTag[0] === "closedtoday" && "Closed Today"}
+            {filterTag.length === 1 && filterTag[0] === "closed" && "Closed"}
             {filterTag.length === 1 && filterTag[0] === "waitingontse" && "Snoozed - Waiting On TSE"}
             {filterTag.length === 1 && filterTag[0] === "waitingoncustomer" && "Snoozed - Waiting On Customer"}
             {filterTag.length === 1 && filterTag[0] === "waitingoncustomer-resolved" && "Waiting On Customer - Resolved"}
@@ -2941,7 +3777,656 @@ function Dashboard(props) {
           </div>
         </div>
       )}
+
+      {/* Footer - Dev Controls (configurable via FOOTER_CONTROLS_USERS) */}
+      {hasFooterControlsAccess && (
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          padding: '12px 16px',
+          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '16px',
+          zIndex: 1000,
+          backdropFilter: 'blur(10px)'
+        }}>
+          {/* TSE/Manager Mode Toggle */}
+          <div 
+            className="view-mode-toggle"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              borderRadius: '8px',
+              backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+            }}
+          >
+            <span style={{ 
+              fontSize: '11px', 
+              color: devViewMode === 'tse' 
+                ? (isDarkMode ? '#81c784' : '#4caf50')
+                : (isDarkMode ? '#888' : '#999'),
+              fontWeight: devViewMode === 'tse' ? '600' : '400'
+            }}>
+              TSE
+            </span>
+            <button
+              onClick={() => {
+                const newMode = devViewMode === 'manager' ? 'tse' : 'manager';
+                setDevViewMode(newMode);
+                // Switch to appropriate default view
+                if (newMode === 'tse') {
+                  setActiveView('myqueue');
+                } else {
+                  setActiveView('overview');
+                }
+              }}
+              style={{
+                position: 'relative',
+                width: '40px',
+                height: '20px',
+                borderRadius: '10px',
+                border: 'none',
+                cursor: 'pointer',
+                backgroundColor: devViewMode === 'manager'
+                  ? (isDarkMode ? '#673ab7' : '#9575cd')
+                  : (isDarkMode ? '#4caf50' : '#81c784'),
+                transition: 'all 0.2s ease',
+                padding: 0
+              }}
+              title={`Switch to ${devViewMode === 'manager' ? 'TSE' : 'Manager'} mode`}
+            >
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '2px',
+                  left: devViewMode === 'manager' ? '22px' : '2px',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  backgroundColor: '#fff',
+                  transition: 'left 0.2s ease',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                }}
+              />
+            </button>
+            <span style={{ 
+              fontSize: '11px', 
+              color: devViewMode === 'manager' 
+                ? (isDarkMode ? '#b39ddb' : '#673ab7')
+                : (isDarkMode ? '#888' : '#999'),
+              fontWeight: devViewMode === 'manager' ? '600' : '400'
+            }}>
+              Manager
+            </span>
+          </div>
+          
+          {/* TSE Simulation Dropdown - only visible in TSE mode */}
+          {devViewMode === 'tse' && teamMembers.length > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span style={{ 
+                fontSize: '11px', 
+                color: isDarkMode ? '#888' : '#666',
+                fontWeight: '500'
+              }}>
+                Simulate:
+              </span>
+              <select
+                value={simulatedTSEId || ''}
+                onChange={(e) => setSimulatedTSEId(e.target.value || null)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+                  color: isDarkMode ? '#fff' : '#333',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  minWidth: '160px'
+                }}
+              >
+                <option value="">-- Select TSE --</option>
+                {['UK', 'NY', 'SF', 'Other'].map(region => {
+                  const regionTSEs = teamMembers.filter(tse => getTSERegion(tse.name) === region);
+                  if (regionTSEs.length === 0) return null;
+                  return (
+                    <optgroup key={region} label={region === 'NY' ? 'New York' : region === 'SF' ? 'San Francisco' : region}>
+                      {regionTSEs.sort((a, b) => a.name.localeCompare(b.name)).map(tse => (
+                        <option key={tse.id} value={tse.id}>{tse.name}</option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+              {simulatedTSEId && (
+                <button
+                  onClick={() => setSimulatedTSEId(null)}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
+                    color: isDarkMode ? '#fff' : '#333',
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
+                  title="Clear simulation"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+          
+          {/* Manager Simulation Dropdown - only visible in Manager mode */}
+          {devViewMode === 'manager' && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span style={{ 
+                fontSize: '11px', 
+                color: isDarkMode ? '#888' : '#666',
+                fontWeight: '500'
+              }}>
+                Simulate:
+              </span>
+              <select
+                value={simulatedManagerName || ''}
+                onChange={(e) => setSimulatedManagerName(e.target.value || null)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+                  color: isDarkMode ? '#fff' : '#333',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  minWidth: '160px'
+                }}
+              >
+                <option value="">-- Select Manager --</option>
+                {ALL_MANAGER_NAMES.filter(name => !FOOTER_CONTROLS_USERS.includes(name)).map(name => (
+                  <option key={name} value={name}>
+                    {name} ({getManagerInfo(name)?.region})
+                  </option>
+                ))}
+              </select>
+              {simulatedManagerName && (
+                <button
+                  onClick={() => setSimulatedManagerName(null)}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
+                    color: isDarkMode ? '#fff' : '#333',
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
+                  title="Clear simulation"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Audit Logs Button */}
+          <button
+            onClick={() => setShowAuditLogs(true)}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+              backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+              color: isDarkMode ? '#fff' : '#333',
+              fontSize: '12px',
+              cursor: 'pointer',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            title="View audit logs"
+          >
+            <span>📋</span>
+            <span>Audit Logs</span>
+          </button>
+        </div>
+      )}
+
+      {/* Audit Logs Modal */}
+      {showAuditLogs && (
+        <AuditLogsModal 
+          isOpen={showAuditLogs} 
+          onClose={() => setShowAuditLogs(false)}
+          isDarkMode={isDarkMode}
+        />
+      )}
     </div>
+  );
+}
+
+// Audit Logs Modal Component
+function AuditLogsModal({ isOpen, onClose, isDarkMode }) {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [filterAction, setFilterAction] = useState('');
+  const [filterUserId, setFilterUserId] = useState('');
+  const pageSize = 50;
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const fetchLogs = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const apiBaseUrl = process.env.NODE_ENV === 'production' 
+          ? window.location.origin
+          : (process.env.REACT_APP_API_URL || 'https://queue-health-monitor.vercel.app');
+        
+        const params = new URLSearchParams({
+          limit: pageSize.toString(),
+          offset: (page * pageSize).toString()
+        });
+        
+        if (filterAction) params.append('action', filterAction);
+        if (filterUserId) params.append('user_id', filterUserId);
+
+        const response = await fetch(`${apiBaseUrl}/api/audit-logs/get?${params}`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch audit logs');
+        }
+
+        const data = await response.json();
+        setLogs(data.logs || []);
+        setTotal(data.total || 0);
+      } catch (err) {
+        console.error('Error fetching audit logs:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLogs();
+  }, [isOpen, page, filterAction, filterUserId]);
+
+  const formatDateTime = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    const date = new Date(timestamp);
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZoneName: 'short'
+    });
+  };
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div 
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 10000,
+        padding: '20px'
+      }}
+      onClick={onClose}
+    >
+      <div 
+        style={{
+          backgroundColor: isDarkMode ? '#1e1e1e' : '#fff',
+          borderRadius: '12px',
+          width: '90%',
+          maxWidth: '1200px',
+          maxHeight: '90vh',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+          overflow: 'hidden'
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '20px 24px',
+          borderBottom: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}`,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <h2 style={{
+            margin: 0,
+            fontSize: '20px',
+            fontWeight: 600,
+            color: isDarkMode ? '#fff' : '#292929'
+          }}>
+            Audit Logs
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '24px',
+              cursor: 'pointer',
+              color: isDarkMode ? '#fff' : '#666',
+              padding: '4px 8px',
+              lineHeight: 1
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div style={{
+          padding: '16px 24px',
+          borderBottom: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}`,
+          display: 'flex',
+          gap: '12px',
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}>
+          <label style={{
+            fontSize: '13px',
+            color: isDarkMode ? '#e5e5e5' : '#666',
+            fontWeight: 500
+          }}>
+            Filter by Action:
+          </label>
+          <select
+            value={filterAction}
+            onChange={(e) => {
+              setFilterAction(e.target.value);
+              setPage(0);
+            }}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+              backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+              color: isDarkMode ? '#fff' : '#333',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="">All Actions</option>
+            <option value="sign_in">Sign In</option>
+            <option value="sign_out">Sign Out</option>
+          </select>
+
+          <label style={{
+            fontSize: '13px',
+            color: isDarkMode ? '#e5e5e5' : '#666',
+            fontWeight: 500,
+            marginLeft: '16px'
+          }}>
+            Filter by User ID:
+          </label>
+          <input
+            type="text"
+            value={filterUserId}
+            onChange={(e) => {
+              setFilterUserId(e.target.value);
+              setPage(0);
+            }}
+            placeholder="Enter user ID"
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+              backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+              color: isDarkMode ? '#fff' : '#333',
+              fontSize: '13px',
+              minWidth: '150px'
+            }}
+          />
+        </div>
+
+        {/* Content */}
+        <div style={{
+          flex: 1,
+          overflow: 'auto',
+          padding: '20px 24px'
+        }}>
+          {loading ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '40px',
+              color: isDarkMode ? '#999' : '#666'
+            }}>
+              Loading audit logs...
+            </div>
+          ) : error ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '40px',
+              color: '#ff6b6b'
+            }}>
+              Error: {error}
+            </div>
+          ) : logs.length === 0 ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '40px',
+              color: isDarkMode ? '#999' : '#666'
+            }}>
+              No audit logs found
+            </div>
+          ) : (
+            <>
+              <div style={{
+                marginBottom: '16px',
+                fontSize: '13px',
+                color: isDarkMode ? '#999' : '#666'
+              }}>
+                Showing {logs.length} of {total} logs
+              </div>
+              <table style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '13px'
+              }}>
+                <thead>
+                  <tr style={{
+                    borderBottom: `2px solid ${isDarkMode ? '#444' : '#e0e0e0'}`
+                  }}>
+                    <th style={{
+                      padding: '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: isDarkMode ? '#fff' : '#292929'
+                    }}>Timestamp</th>
+                    <th style={{
+                      padding: '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: isDarkMode ? '#fff' : '#292929'
+                    }}>Action</th>
+                    <th style={{
+                      padding: '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: isDarkMode ? '#fff' : '#292929'
+                    }}>User</th>
+                    <th style={{
+                      padding: '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: isDarkMode ? '#fff' : '#292929'
+                    }}>Email</th>
+                    <th style={{
+                      padding: '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: isDarkMode ? '#fff' : '#292929'
+                    }}>IP Address</th>
+                    <th style={{
+                      padding: '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: isDarkMode ? '#fff' : '#292929'
+                    }}>User Agent</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map((log, idx) => (
+                    <tr 
+                      key={log.id}
+                      style={{
+                        borderBottom: `1px solid ${isDarkMode ? '#333' : '#f0f0f0'}`,
+                        backgroundColor: idx % 2 === 0 
+                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
+                          : 'transparent'
+                      }}
+                    >
+                      <td style={{
+                        padding: '12px',
+                        color: isDarkMode ? '#e5e5e5' : '#333',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {formatDateTime(log.created_at)}
+                      </td>
+                      <td style={{
+                        padding: '12px',
+                        color: log.action === 'sign_in' 
+                          ? (isDarkMode ? '#4cec8c' : '#4caf50')
+                          : (isDarkMode ? '#ff9a74' : '#ff6b6b'),
+                        fontWeight: 500
+                      }}>
+                        {log.action === 'sign_in' ? '✓ Sign In' : '✗ Sign Out'}
+                      </td>
+                      <td style={{
+                        padding: '12px',
+                        color: isDarkMode ? '#e5e5e5' : '#333'
+                      }}>
+                        {log.user_name || log.user_id || 'N/A'}
+                      </td>
+                      <td style={{
+                        padding: '12px',
+                        color: isDarkMode ? '#e5e5e5' : '#333'
+                      }}>
+                        {log.user_email || 'N/A'}
+                      </td>
+                      <td style={{
+                        padding: '12px',
+                        color: isDarkMode ? '#999' : '#666',
+                        fontFamily: 'monospace',
+                        fontSize: '12px'
+                      }}>
+                        {log.ip_address || 'N/A'}
+                      </td>
+                      <td style={{
+                        padding: '12px',
+                        color: isDarkMode ? '#999' : '#666',
+                        fontSize: '12px',
+                        maxWidth: '300px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }} title={log.user_agent || ''}>
+                        {log.user_agent || 'N/A'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Pagination */}
+              {total > pageSize && (
+                <div style={{
+                  marginTop: '20px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}>
+                  <button
+                    onClick={() => setPage(Math.max(0, page - 1))}
+                    disabled={page === 0}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+                      backgroundColor: page === 0 
+                        ? (isDarkMode ? '#2a2a2a' : '#f5f5f5')
+                        : (isDarkMode ? '#2a2a2a' : '#fff'),
+                      color: page === 0 
+                        ? (isDarkMode ? '#666' : '#999')
+                        : (isDarkMode ? '#fff' : '#333'),
+                      cursor: page === 0 ? 'not-allowed' : 'pointer',
+                      fontSize: '13px'
+                    }}
+                  >
+                    Previous
+                  </button>
+                  <span style={{
+                    color: isDarkMode ? '#999' : '#666',
+                    fontSize: '13px'
+                  }}>
+                    Page {page + 1} of {Math.ceil(total / pageSize)}
+                  </span>
+                  <button
+                    onClick={() => setPage(Math.min(Math.ceil(total / pageSize) - 1, page + 1))}
+                    disabled={page >= Math.ceil(total / pageSize) - 1}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
+                      backgroundColor: page >= Math.ceil(total / pageSize) - 1
+                        ? (isDarkMode ? '#2a2a2a' : '#f5f5f5')
+                        : (isDarkMode ? '#2a2a2a' : '#fff'),
+                      color: page >= Math.ceil(total / pageSize) - 1
+                        ? (isDarkMode ? '#666' : '#999')
+                        : (isDarkMode ? '#fff' : '#333'),
+                      cursor: page >= Math.ceil(total / pageSize) - 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '13px'
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -3397,6 +4882,7 @@ function AlertsDropdown({ alerts, isOpen, onToggle, onClose, onTSEClick, onViewA
   );
 }
 
+
 // Modern Overview Dashboard Component
 function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, loadingHistorical, onNavigateToConversations, onNavigateToTSEView, onTSEClick, conversations, isInsightDismissed, dismissInsightItem }) {
   const { isDarkMode } = useTheme();
@@ -3404,11 +4890,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
   const [selectedHour, setSelectedHour] = useState(null); // null = show all, number = filter by hour
   const [showAllResponders, setShowAllResponders] = useState(false);
   const [showAllWaits, setShowAllWaits] = useState(false);
-  const [isWaitRateIconHovered, setIsWaitRateIconHovered] = useState(false);
-  const [isSnoozedIconHovered, setIsSnoozedIconHovered] = useState(false);
-  const [isAlertSummaryIconHovered, setIsAlertSummaryIconHovered] = useState(false);
   const [isSameDayCloseModalOpen, setIsSameDayCloseModalOpen] = useState(false);
   
+
   // Prepare on-track trend data with breakdown (Overall, Open, Snoozed)
   const onTrackChartData = useMemo(() => {
     console.log('Overview: Processing on-track trend data, snapshots:', historicalSnapshots);
@@ -3431,8 +4915,20 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
         
         tseData.forEach(tse => {
           const meetsOpen = (tse.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
-          const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
-          const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+          // For "snoozed on track": count all snoozed EXCEPT customer-waiting tags
+          // Use snoozedForOnTrack if available (new format), otherwise calculate from snapshot data
+          let snoozedForOnTrack = tse.snoozedForOnTrack;
+          if (snoozedForOnTrack === undefined) {
+            // Calculate from snapshot data: totalSnoozed - customerWaitSnoozed
+            const totalSnoozed = tse.totalSnoozed || 0;
+            const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
+            snoozedForOnTrack = totalSnoozed - customerWaitSnoozed;
+            // Fallback to old format if new calculation doesn't work
+            if (snoozedForOnTrack < 0) {
+              snoozedForOnTrack = tse.waitingOnTSE || tse.actionableSnoozed || 0;
+            }
+          }
+          const meetsWaitingOnTSE = snoozedForOnTrack <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
           
           if (meetsOpen) onTrackOpen++;
           if (meetsWaitingOnTSE) onTrackSnoozed++;
@@ -3740,6 +5236,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage10Plus || 0) * 10) / 10;
   }, [responseTimeTrendData]);
 
+  const currentResponseTimePct5to10 = useMemo(() => {
+    if (responseTimeTrendData.length === 0) return undefined;
+    return Math.round((responseTimeTrendData[responseTimeTrendData.length - 1]?.percentage5to10Min || 0) * 10) / 10;
+  }, [responseTimeTrendData]);
+
 
   // Calculate Close Rate %: Percentage of conversations created today that were closed (PT timezone)
   // Counts all conversations created today (PT), then calculates what percentage were closed
@@ -3857,6 +5358,44 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
 
   // For backward compatibility
   const sameDayClosePct = sameDayCloseData.pct;
+
+  // Calculate total closed today (ALL conversations closed today, regardless of when created)
+  const allClosedToday = useMemo(() => {
+    const conversationList = conversations || [];
+    if (conversationList.length === 0) return 0;
+
+    const now = new Date();
+    const ptDateFormatter = new Intl.DateTimeFormat('en-US', { 
+      timeZone: 'America/Los_Angeles', 
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    const todayPTDateStr = ptDateFormatter.format(now).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    });
+
+    const toPTDateStr = (timestamp) => {
+      if (!timestamp) return null;
+      const ms = typeof timestamp === 'number' 
+        ? (timestamp > 1e12 ? timestamp : timestamp * 1000)
+        : new Date(timestamp).getTime();
+      if (isNaN(ms)) return null;
+      const date = new Date(ms);
+      return ptDateFormatter.format(date).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      });
+    };
+
+    return conversationList.filter(conv => {
+      const state = (conv.state || "").toLowerCase();
+      if (state !== "closed") return false;
+      
+      const closedAt = conv.closed_at || conv.closedAt;
+      if (!closedAt) return false;
+      
+      const closedDateStr = toPTDateStr(closedAt);
+      return closedDateStr === todayPTDateStr;
+    }).length;
+  }, [conversations]);
 
   // Calculate Avg Initial Response for conversations created today between 2am-6pm PT
   const avgInitialResponseMinutes = useMemo(() => {
@@ -4430,31 +5969,54 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     if (metrics.onTrackOverall >= 80) {
       insights.push({
         type: 'positive',
-        text: `Strong on-track performance: ${metrics.onTrackOverall}% of TSEs are meeting targets`
+        text: `Strong on-track performance: ${metrics.onTrackOverall}% of TSEs are meeting targets`,
+        label: 'Strong on-track performance',
+        percentage: metrics.onTrackOverall
       });
     } else if (metrics.onTrackOverall < 60) {
       insights.push({
         type: 'warning',
-        text: `On-track performance needs attention: Only ${metrics.onTrackOverall}% of TSEs are meeting targets`
+        text: `On-track performance needs attention: Only ${metrics.onTrackOverall}% of TSEs are meeting targets`,
+        label: 'On-track performance needs attention',
+        percentage: metrics.onTrackOverall
       });
     } else {
       // Middle range - still provide insight
       insights.push({
         type: 'positive',
-        text: `On-track performance: ${metrics.onTrackOverall}% of TSEs are meeting targets`
+        text: `On-track performance: ${metrics.onTrackOverall}% of TSEs are meeting targets`,
+        label: 'On-track performance',
+        percentage: metrics.onTrackOverall
       });
     }
 
-    // Response time breakdown - 10+ min wait (only threshold)
-    if (currentResponseTimePct10Plus > 10) {
+    // Response time breakdown - 10+ min wait
+    if (currentResponseTimePct10Plus > WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN) {
       insights.push({
         type: 'warning',
-        text: `${currentResponseTimePct10Plus}% of conversations have 10+ min wait time - exceeds target (target: ≤10%)`
+        text: `${currentResponseTimePct10Plus}% of conversations have 10+ min wait time - exceeds target (target: ${WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%)`,
+        percentage: currentResponseTimePct10Plus
       });
-    } else if (currentResponseTimePct10Plus > 0) {
+    } else if (currentResponseTimePct10Plus === 0) {
       insights.push({
         type: 'positive',
-        text: `${currentResponseTimePct10Plus}% of conversations have 10+ min wait time - within target (target: ≤10%)`
+        text: `${currentResponseTimePct10Plus}% of conversations have 10+ min wait time - within target (target: ${WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%)`,
+        percentage: currentResponseTimePct10Plus
+      });
+    }
+    
+    // Response time breakdown - 5-10 min wait
+    if (currentResponseTimePct5to10 !== undefined && currentResponseTimePct5to10 > WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN) {
+      insights.push({
+        type: 'warning',
+        text: `${currentResponseTimePct5to10.toFixed(1)}% of conversations have 5-10 min wait time - exceeds target (target: ≤${WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%)`,
+        percentage: currentResponseTimePct5to10
+      });
+    } else if (currentResponseTimePct5to10 !== undefined && currentResponseTimePct5to10 <= WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN) {
+      insights.push({
+        type: 'positive',
+        text: `${currentResponseTimePct5to10.toFixed(1)}% of conversations have 5-10 min wait time - within target (target: ≤${WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%)`,
+        percentage: currentResponseTimePct5to10
       });
     }
 
@@ -4464,7 +6026,10 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
       const isGoodCorrelation = correlationData.correlationDirection === 'negative';
       insights.push({
         type: isGoodCorrelation ? 'positive' : 'warning',
-        text: `Overall Impact: On-track performance has a ${overallImpact} impact on response times${isGoodCorrelation ? ' (higher on-track = lower wait times)' : ' (concerning pattern)'}`
+        text: `Overall Impact: On-track performance has a ${overallImpact} impact on response times${isGoodCorrelation ? ' (higher on-track = lower wait times)' : ' (concerning pattern)'}`,
+        label: 'Overall Impact',
+        impactStrength: overallImpact,
+        isGoodCorrelation
       });
     }
 
@@ -4481,43 +6046,70 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     if (onTrackTrend.direction === 'up' && onTrackTrend.change >= 2 && onTrackPeriodDays > 0) {
       insights.push({
         type: 'positive',
-        text: `On-track performance improving: +${onTrackTrend.change.toFixed(1)}% vs yesterday`
+        text: `On-track performance improving: +${onTrackTrend.change.toFixed(1)}% vs yesterday`,
+        label: 'On-track performance improving',
+        percentage: onTrackTrend.change
       });
     } else if (onTrackTrend.direction === 'down' && onTrackTrend.change >= 2 && onTrackPeriodDays > 0) {
       insights.push({
         type: 'warning',
-        text: `On-track performance declining: -${onTrackTrend.change.toFixed(1)}% vs yesterday`
+        text: `On-track performance declining: -${onTrackTrend.change.toFixed(1)}% vs yesterday`,
+        label: 'On-track performance declining',
+        percentage: onTrackTrend.change
       });
     }
 
     if (responseTimeTrend.direction === 'down' && responseTimeTrend.change >= 1 && responseTimePeriodDays > 0) {
       insights.push({
         type: 'positive',
-        text: `Wait rate improving: -${responseTimeTrend.change.toFixed(1)}% vs yesterday`
+        text: `Wait rate improving: -${responseTimeTrend.change.toFixed(1)}% vs yesterday`,
+        label: 'Wait rate improving',
+        percentage: responseTimeTrend.change
       });
     } else if (responseTimeTrend.direction === 'up' && responseTimeTrend.change >= 1 && responseTimePeriodDays > 0) {
       insights.push({
         type: 'warning',
-        text: `Wait rate worsening: +${responseTimeTrend.change.toFixed(1)}% vs yesterday`
+        text: `Wait rate worsening: +${responseTimeTrend.change.toFixed(1)}% vs yesterday`,
+        label: 'Wait rate worsening',
+        percentage: responseTimeTrend.change
       });
     }
 
     // Add Impact tab insights if correlation data is available
     if (correlationData) {
-      // Add correlation insight
-      if (Math.abs(correlationData.correlation) >= 0.3) {
-        insights.push({
-          type: correlationData.correlationDirection === 'negative' ? 'positive' : 'warning',
-          text: `On-track performance shows ${correlationData.correlationStrength} ${correlationData.correlationDirection} correlation (${correlationData.correlation > 0 ? '+' : ''}${correlationData.correlation.toFixed(2)}) with wait rates${correlationData.correlationDirection === 'negative' ? ' - higher on-track correlates with lower wait times' : ' - this is concerning'}`
-        });
-      }
+      // Note: Correlation insight moved to separate insights above
 
       // Add improvement potential insight
       if (improvementPotential.improvement5to10 > 0 || improvementPotential.improvement10Plus > 0) {
-        const totalImprovement = improvementPotential.improvement5to10 + improvementPotential.improvement10Plus;
         insights.push({
           type: 'positive',
-          text: `Improvement potential: Maintaining High (80-100%) on-track could reduce wait times by ${totalImprovement.toFixed(1)}% overall`
+          text: `Improvement potential: Maintaining High (80-100%) on-track could reduce wait times by ${improvementPotential.improvement5to10.toFixed(2)}% for 5-10 min waits and reduced by ${improvementPotential.improvement10Plus.toFixed(2)}% for 10+ min waits`,
+          label: 'Improvement Potential',
+          improvement5to10: improvementPotential.improvement5to10,
+          improvement10Plus: improvementPotential.improvement10Plus
+        });
+      }
+      
+      // Add Wait Time Sensitivity insight
+      if (improvementPotential.improvement5to10 !== undefined && improvementPotential.improvement10Plus !== undefined) {
+        const isStronger5to10 = Math.abs(improvementPotential.improvement5to10) > Math.abs(improvementPotential.improvement10Plus);
+        if (isStronger5to10) {
+          insights.push({
+            type: 'positive',
+            text: `Wait Time Sensitivity: 5-10 min waits are more correlated with on-track performance than 10+ min waits`,
+            label: 'Wait Time Sensitivity'
+          });
+        }
+      }
+      
+      // Add Correlation Strength insight
+      if (Math.abs(correlationData.correlation) >= 0.3) {
+        insights.push({
+          type: correlationData.correlationDirection === 'negative' ? 'positive' : 'warning',
+          text: `Correlation Strength: The 5-10 min wait time bucket shows the ${correlationData.correlationStrength === 'strong' ? 'strongest' : correlationData.correlationStrength === 'moderate' ? 'moderate' : 'weakest'} correlation (${correlationData.correlation > 0 ? '+' : ''}${correlationData.correlation.toFixed(2)})`,
+          label: 'Correlation Strength',
+          correlationValue: correlationData.correlation,
+          correlationStrength: correlationData.correlationStrength
         });
       }
     }
@@ -4529,7 +6121,170 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
     }));
 
     return insightsWithIds.filter(insight => !isInsightDismissed(insight.id));
-  }, [metrics.onTrackOverall, currentResponseTimePct10Plus, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, correlationData, improvementPotential, isInsightDismissed]);
+  }, [metrics.onTrackOverall, currentResponseTimePct10Plus, currentResponseTimePct5to10, onTrackTrend, responseTimeTrend, onTrackTrendData, responseTimeTrendData, correlationData, improvementPotential, isInsightDismissed]);
+
+  // Format insight text with bold and colors
+  const formatInsightText = (insight) => {
+    // If insight has structured data, format it specially
+    if (insight.label === 'Overall Impact' && insight.impactStrength) {
+      const impactColor = insight.impactStrength === 'strong' ? '#fd8789' : insight.impactStrength === 'moderate' ? '#fbbf24' : '#4cec8c';
+      return (
+        <>
+          <strong>{insight.label}:</strong> On-track performance has a{' '}
+          <strong style={{ color: impactColor }}>{insight.impactStrength}</strong> impact on response times
+          {insight.isGoodCorrelation ? ' (higher on-track = lower wait times)' : ' (concerning pattern)'}
+        </>
+      );
+    }
+    
+    // Handle insights with percentage field - format them properly
+    if (insight.percentage !== undefined && insight.label) {
+      const percentageText = `${Math.abs(insight.percentage).toFixed(insight.percentage % 1 === 0 ? 0 : 1)}%`;
+      const sign = insight.percentage >= 0 ? '+' : '-';
+      
+      if (insight.label.includes('improving') || insight.label.includes('declining')) {
+        // Trend insights
+        return (
+          <>
+            <strong>{insight.label}:</strong> {sign}{percentageText} vs yesterday
+          </>
+        );
+      } else if (insight.label.includes('Strong on-track') || insight.label.includes('On-track performance')) {
+        // On-track performance insights
+        return (
+          <>
+            <strong>{insight.label}:</strong> <strong style={{ color: '#4cec8c' }}>{percentageText}</strong> of TSEs are meeting targets
+          </>
+        );
+      } else {
+        // Default percentage formatting
+        return (
+          <>
+            <strong>{insight.label}:</strong> <strong style={{ color: '#4cec8c' }}>{percentageText}</strong>
+            {insight.text.includes('exceeds target') && insight.text.includes('10+ min') && ' - exceeds target (target: 0%)'}
+            {insight.text.includes('within target') && insight.text.includes('10+ min') && ' - within target (target: 0%)'}
+            {insight.text.includes('exceeds target') && insight.text.includes('5-10 min') && ' - exceeds target (target: ≤2%)'}
+            {insight.text.includes('within target') && insight.text.includes('5-10 min') && ' - within target (target: ≤2%)'}
+          </>
+        );
+      }
+    }
+    
+    if (insight.label === 'Improvement Potential' && insight.improvement5to10 !== undefined) {
+      return (
+        <>
+          <strong>{insight.label}:</strong> If all days matched High (80-100%) on-track performance, wait times could be{' '}
+          {insight.improvement5to10 > 0 ? 'reduced' : 'increased'} by{' '}
+          <strong style={{ color: '#4cec8c' }}>
+            {Math.abs(insight.improvement5to10).toFixed(2)}% for 5-10 min waits
+          </strong> and{' '}
+          {insight.improvement10Plus > 0 ? 'reduced' : 'increased'} by{' '}
+          <strong style={{ color: '#4cec8c' }}>
+            {Math.abs(insight.improvement10Plus).toFixed(2)}% for 10+ min waits
+          </strong>
+        </>
+      );
+    }
+    
+    if (insight.label === 'Wait Time Sensitivity') {
+      return (
+        <>
+          <strong>{insight.label}:</strong> 5-10 min waits are more correlated with on-track performance than 10+ min waits
+        </>
+      );
+    }
+    
+    if (insight.label === 'Correlation Strength' && insight.correlationValue !== undefined) {
+      const strengthText = insight.correlationStrength === 'strong' ? 'strongest' : insight.correlationStrength === 'moderate' ? 'moderate' : 'weakest';
+      return (
+        <>
+          <strong>{insight.label}:</strong> The 5-10 min wait time bucket shows the {strengthText} correlation ({insight.correlationValue > 0 ? '+' : ''}{insight.correlationValue.toFixed(2)})
+        </>
+      );
+    }
+    
+    // Default formatting for other insights - extract percentages and make them bold
+    const text = insight.text;
+    const parts = [];
+    let lastIndex = 0;
+    
+    // Try to extract label if text starts with common labels
+    const labelMatch = text.match(/^(Overall Impact|Wait Time Sensitivity|Improvement Potential|Correlation Strength|On-track performance|Wait rate|Strong on-track performance|On-track performance needs attention|On-track performance improving|On-track performance declining|Wait rate improving|Wait rate worsening):/);
+    let label = null;
+    let textWithoutLabel = text;
+    
+    if (labelMatch) {
+      label = labelMatch[1];
+      textWithoutLabel = text.substring(label.length + 1).trim();
+    }
+    
+    // Match patterns like "XX%", "Strong", "moderate", "weak", etc.
+    // Order matters - match longer patterns first
+    const patterns = [
+      { regex: /\b(strongest|stronger|Strongest|Stronger)\b/g, color: '#fd8789' }, // "strongest/stronger" in red
+      { regex: /\b(Strong|strong)\b/g, color: '#fd8789' }, // "Strong" in red
+      { regex: /\b(moderate|Moderate)\b/g, color: '#fbbf24' }, // "moderate" in yellow
+      { regex: /\b(weakest|weaker|Weakest|Weaker)\b/g, color: '#4cec8c' }, // "weakest/weaker" in green
+      { regex: /\b(weak|Weak)\b/g, color: '#4cec8c' }, // "weak" in green
+      { regex: /([+-]?\d+\.?\d*)%/g, color: '#4cec8c' }, // Percentages (including +/-) in green
+    ];
+    
+    // Find all matches in text without label
+    const matches = [];
+    patterns.forEach(({ regex, color }) => {
+      let match;
+      regex.lastIndex = 0;
+      while ((match = regex.exec(textWithoutLabel)) !== null) {
+        matches.push({
+          index: match.index,
+          length: match[0].length,
+          text: match[0],
+          color
+        });
+      }
+    });
+    
+    // Sort matches by index
+    matches.sort((a, b) => a.index - b.index);
+    
+    // Build formatted parts
+    if (label) {
+      parts.push(<strong key="label">{label}:</strong>);
+      parts.push(' ');
+    }
+    
+    matches.forEach((match) => {
+      if (match.index > lastIndex) {
+        parts.push(textWithoutLabel.substring(lastIndex, match.index));
+      }
+      parts.push(
+        <strong key={`${match.index}-${match.text}`} style={{ color: match.color }}>
+          {match.text}
+        </strong>
+      );
+      lastIndex = match.index + match.length;
+    });
+    
+    if (lastIndex < textWithoutLabel.length) {
+      parts.push(textWithoutLabel.substring(lastIndex));
+    }
+    
+    // If no matches found but we have a label, return formatted label + text
+    if (matches.length === 0 && label) {
+      return (
+        <>
+          <strong>{label}:</strong> {textWithoutLabel}
+        </>
+      );
+    }
+    
+    // If no matches and no label, return original text
+    if (matches.length === 0 && !label) {
+      return text;
+    }
+    
+    return <>{parts}</>;
+  };
 
   // Calculate Region Performance Summary
   const regionPerformance = useMemo(() => {
@@ -4770,12 +6525,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   color: isDarkMode ? '#e5e5e5' : '#292929',
                   lineHeight: '1.5',
                   display: 'flex',
-                  justifyContent: 'space-between',
+                  justifyContent: 'flex-start',
                   alignItems: 'center',
                   gap: '8px'
                 }}
               >
-                <span style={{ flex: 1 }}>{insight.text}</span>
                 <button
                   onClick={() => dismissInsightItem(insight.id)}
                   style={{
@@ -4787,7 +6541,8 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     fontSize: '18px',
                     lineHeight: '1',
                     opacity: 0.7,
-                    transition: 'opacity 0.2s'
+                    transition: 'opacity 0.2s',
+                    flexShrink: 0
                   }}
                   onMouseEnter={(e) => e.target.style.opacity = '1'}
                   onMouseLeave={(e) => e.target.style.opacity = '0.7'}
@@ -4796,6 +6551,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                 >
                   ×
                 </button>
+                <span style={{ flex: 1 }}>{formatInsightText(insight)}</span>
               </div>
             ))}
           </div>
@@ -4810,6 +6566,7 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
           </div>
         )}
       </div>
+
 
       {/* Key KPIs - Organized by Realtime vs Historical */}
       <div className="overview-kpis">
@@ -4831,14 +6588,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               style={{ cursor: 'pointer' }}
             >
               <img 
-                src={isWaitRateIconHovered 
-                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768730937/3_150_x_150_px_18_v8m7rw.svg"
-                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1768731268/3_150_x_150_px_19_cpangf.svg"
-                }
+                src="https://res.cloudinary.com/doznvxtja/image/upload/v1768981418/3_150_x_150_px_20_tqz16p.svg"
                 alt="Wait Rate indicator"
                 className="wait-rate-kpi-gif"
-                onMouseEnter={() => setIsWaitRateIconHovered(true)}
-                onMouseLeave={() => setIsWaitRateIconHovered(false)}
               />
               <div className="kpi-label">
                 Performance Metrics vs Yesterday
@@ -4998,6 +6750,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             </div>
 
             <div className="kpi-card primary">
+              <img 
+                src="https://res.cloudinary.com/doznvxtja/image/upload/v1768981418/3_150_x_150_px_20_tqz16p.svg"
+                alt="Real-time Intercom Metrics indicator"
+                className="wait-rate-kpi-gif"
+              />
               <div className="kpi-label">
                 Real-time Intercom Metrics
                 <InfoIcon 
@@ -5106,6 +6863,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   <div style={{ fontSize: '10px', color: isDarkMode ? '#666' : '#999', marginTop: '4px' }}>
                     {sameDayCloseData.totalClosed} of {sameDayCloseData.totalCreated} created today
                   </div>
+                  <div style={{ fontSize: '10px', color: isDarkMode ? '#666' : '#999', marginTop: '2px' }}>
+                    {allClosedToday} total closed
+                  </div>
                 </div>
               </div>
             </div>
@@ -5123,14 +6883,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               style={{ cursor: onNavigateToConversations ? 'pointer' : 'default' }}
             >
               <img 
-                src={isSnoozedIconHovered 
-                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768730937/3_150_x_150_px_18_v8m7rw.svg"
-                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1768731268/3_150_x_150_px_19_cpangf.svg"
-                }
+                src="https://res.cloudinary.com/doznvxtja/image/upload/v1768981418/3_150_x_150_px_20_tqz16p.svg"
                 alt="Snoozed indicator"
                 className="wait-rate-kpi-gif"
-                onMouseEnter={() => setIsSnoozedIconHovered(true)}
-                onMouseLeave={() => setIsSnoozedIconHovered(false)}
               />
               <div className="kpi-label" style={{ marginBottom: '8px' }}>
                 SNOOZED
@@ -5275,14 +7030,9 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               style={{ cursor: onNavigateToTSEView ? 'pointer' : 'default' }}
             >
               <img 
-                src={isAlertSummaryIconHovered 
-                  ? "https://res.cloudinary.com/doznvxtja/image/upload/v1768730937/3_150_x_150_px_18_v8m7rw.svg"
-                  : "https://res.cloudinary.com/doznvxtja/image/upload/v1768731268/3_150_x_150_px_19_cpangf.svg"
-                }
+                src="https://res.cloudinary.com/doznvxtja/image/upload/v1768981418/3_150_x_150_px_20_tqz16p.svg"
                 alt="Alert Summary indicator"
                 className="wait-rate-kpi-gif"
-                onMouseEnter={() => setIsAlertSummaryIconHovered(true)}
-                onMouseLeave={() => setIsAlertSummaryIconHovered(false)}
               />
               <div className="kpi-label">
                 Alert Summary
@@ -5596,11 +7346,11 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                     <p><strong>What this shows:</strong> Daily percentage of conversations that waited 5+ minutes for a first response, broken down by wait time buckets.</p>
                     <p><strong>Lines:</strong></p>
                     <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                      <li><strong>5+ Min Wait %</strong> (amber, solid): Total percentage of conversations waiting 5+ minutes</li>
-                      <li><strong>5-10 Min Wait %</strong> (orange, dashed): Percentage waiting 5-10 minutes</li>
+                      <li><strong>5+ Min Wait %</strong> (orange, solid): Total percentage of conversations waiting 5+ minutes</li>
+                      <li><strong>5-10 Min Wait %</strong> (blue, dashed): Percentage waiting 5-10 minutes</li>
                       <li><strong>10+ Min Wait %</strong> (red, dashed): Percentage waiting 10+ minutes</li>
                     </ul>
-                    <p><strong>Reference Line:</strong> The red dashed line at 10% represents the target threshold for 10+ Min Waits (≤10%). Values at or below this line indicate good performance.</p>
+                    <p><strong>Reference Lines:</strong> The red dashed line at {WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}% represents the target threshold for 10+ Min Waits ({WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%). The orange dashed line at {WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}% represents the target threshold for 5-10 Min Waits (≤{WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%). Values at or below these lines indicate good performance.</p>
                     <p><strong>How to use:</strong> Hover over data points to see exact values.</p>
                   </div>
                 }
@@ -5608,6 +7358,45 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
             </h4>
             <span className="trend-period">7 days</span>
           </div>
+          
+          {/* Target Definitions - Above Graph */}
+          <div style={{
+            marginBottom: '16px',
+            padding: '12px 16px',
+            backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+            borderRadius: '8px',
+            border: `1px solid ${isDarkMode ? '#333' : '#e0e0e0'}`
+          }}>
+            <div style={{
+              fontSize: '13px',
+              fontWeight: 600,
+              color: isDarkMode ? '#ffffff' : '#292929',
+              marginBottom: '8px'
+            }}>
+              Target Definitions:
+            </div>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              fontSize: '12px',
+              color: isDarkMode ? '#e5e5e5' : '#666'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="24" height="4" style={{ flexShrink: 0 }}>
+                  <line x1="0" y1="2" x2="24" y2="2" stroke="#fd8789" strokeWidth="2" strokeDasharray="2 2" />
+                </svg>
+                <span><strong>10+ Min Waits:</strong> Target is {WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="24" height="4" style={{ flexShrink: 0 }}>
+                  <line x1="0" y1="2" x2="24" y2="2" stroke="#ff9a74" strokeWidth="2" strokeDasharray="2 2" />
+                </svg>
+                <span><strong>5-10 Min Waits:</strong> Target is ≤{WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%</span>
+              </div>
+            </div>
+          </div>
+          
           {responseTimeChartData.length > 0 ? (() => {
             // Calculate dynamic Y-axis domain based on data
             const maxValue = Math.max(
@@ -5649,38 +7438,43 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
                   }}
                   />
                   <ReferenceLine
-                  y={10} 
+                  y={WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN} 
                   stroke="#fd8789" 
                   strokeDasharray="2 2" 
                   strokeWidth={2}
-                  label={{ value: "Target: ≤10% (10+ Min Waits)", position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                  />
+                  <ReferenceLine
+                  y={WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN} 
+                  stroke="#ff9a74" 
+                  strokeDasharray="2 2" 
+                  strokeWidth={2}
                   />
                   <Line 
                     type="monotone" 
                     dataKey="percentage5PlusMin"
-                  stroke="#ffc107" 
+                  stroke="#ffa500" 
                   strokeWidth={2}
                   name="5+ Min Wait %"
-                  dot={{ r: 4, fill: '#ffc107' }}
+                  dot={{ r: 4, fill: '#ffa500' }}
                   label={createHolidayLabel(responseTimeChartData, false)}
                   />
                   <Line 
                     type="monotone" 
                     dataKey="percentage5to10Min"
-                  stroke="#ff9a74" 
+                  stroke="#2196f3" 
                   strokeWidth={3}
                   name="5-10 Min Wait %"
-                  dot={{ r: 5, fill: '#ff9a74' }}
+                  dot={{ r: 5, fill: '#2196f3' }}
                   strokeDasharray="5 5"
                   activeDot={{ r: 7 }}
                   />
                   <Line 
                     type="monotone" 
                     dataKey="percentage10PlusMin"
-                  stroke="#fd8789" 
+                  stroke="#f44336" 
                   strokeWidth={3}
                   name="10+ Min Wait %"
-                  dot={{ r: 5, fill: '#fd8789' }}
+                  dot={{ r: 5, fill: '#f44336' }}
                   strokeDasharray="5 5"
                   activeDot={{ r: 7 }}
                 />
@@ -6166,214 +7960,6 @@ function OverviewDashboard({ metrics, historicalSnapshots, responseTimeMetrics, 
               )}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Footer - Stephen Skalamera Controls */}
-      {isStephenSkalamera && (
-        <div style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: '12px 16px',
-          backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '16px',
-          zIndex: 1000,
-          backdropFilter: 'blur(10px)'
-        }}>
-          {/* TSE/Manager Mode Toggle */}
-          <div 
-            className="view-mode-toggle"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
-            }}
-          >
-            <span style={{ 
-              fontSize: '11px', 
-              color: stephenViewMode === 'tse' 
-                ? (isDarkMode ? '#81c784' : '#4caf50')
-                : (isDarkMode ? '#888' : '#999'),
-              fontWeight: stephenViewMode === 'tse' ? '600' : '400'
-            }}>
-              TSE
-            </span>
-            <button
-              onClick={() => {
-                const newMode = stephenViewMode === 'manager' ? 'tse' : 'manager';
-                setStephenViewMode(newMode);
-                // Switch to appropriate default view
-                if (newMode === 'tse') {
-                  setActiveView('myqueue');
-                } else {
-                  setActiveView('overview');
-                }
-              }}
-              style={{
-                position: 'relative',
-                width: '40px',
-                height: '20px',
-                borderRadius: '10px',
-                border: 'none',
-                cursor: 'pointer',
-                backgroundColor: stephenViewMode === 'manager'
-                  ? (isDarkMode ? '#673ab7' : '#9575cd')
-                  : (isDarkMode ? '#4caf50' : '#81c784'),
-                transition: 'all 0.2s ease',
-                padding: 0
-              }}
-              title={`Switch to ${stephenViewMode === 'manager' ? 'TSE' : 'Manager'} mode`}
-            >
-              <span
-                style={{
-                  position: 'absolute',
-                  top: '2px',
-                  left: stephenViewMode === 'manager' ? '22px' : '2px',
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '50%',
-                  backgroundColor: '#fff',
-                  transition: 'left 0.2s ease',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-                }}
-              />
-            </button>
-            <span style={{ 
-              fontSize: '11px', 
-              color: stephenViewMode === 'manager' 
-                ? (isDarkMode ? '#b39ddb' : '#673ab7')
-                : (isDarkMode ? '#888' : '#999'),
-              fontWeight: stephenViewMode === 'manager' ? '600' : '400'
-            }}>
-              Manager
-            </span>
-          </div>
-          
-          {/* TSE Simulation Dropdown - only for Stephen in TSE mode */}
-          {stephenViewMode === 'tse' && teamMembers.length > 0 && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <span style={{ 
-                fontSize: '11px', 
-                color: isDarkMode ? '#888' : '#666',
-                fontWeight: '500'
-              }}>
-                Simulate:
-              </span>
-              <select
-                value={simulatedTSEId || ''}
-                onChange={(e) => setSimulatedTSEId(e.target.value || null)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: '6px',
-                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
-                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
-                  color: isDarkMode ? '#fff' : '#333',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  minWidth: '160px'
-                }}
-              >
-                <option value="">-- Select TSE --</option>
-                {['UK', 'NY', 'SF', 'Other'].map(region => {
-                  const regionTSEs = teamMembers.filter(tse => getTSERegion(tse.name) === region);
-                  if (regionTSEs.length === 0) return null;
-                  return (
-                    <optgroup key={region} label={region === 'NY' ? 'New York' : region === 'SF' ? 'San Francisco' : region}>
-                      {regionTSEs.sort((a, b) => a.name.localeCompare(b.name)).map(tse => (
-                        <option key={tse.id} value={tse.id}>{tse.name}</option>
-                      ))}
-                    </optgroup>
-                  );
-                })}
-              </select>
-              {simulatedTSEId && (
-                <button
-                  onClick={() => setSimulatedTSEId(null)}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    border: 'none',
-                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
-                    color: isDarkMode ? '#fff' : '#333',
-                    fontSize: '11px',
-                    cursor: 'pointer'
-                  }}
-                  title="Clear simulation"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          )}
-          
-          {/* Manager Simulation Dropdown - only for Stephen in Manager mode */}
-          {stephenViewMode === 'manager' && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <span style={{ 
-                fontSize: '11px', 
-                color: isDarkMode ? '#888' : '#666',
-                fontWeight: '500'
-              }}>
-                Simulate:
-              </span>
-              <select
-                value={simulatedManagerName || ''}
-                onChange={(e) => setSimulatedManagerName(e.target.value || null)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: '6px',
-                  border: `1px solid ${isDarkMode ? '#444' : '#ccc'}`,
-                  backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
-                  color: isDarkMode ? '#fff' : '#333',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  minWidth: '160px'
-                }}
-              >
-                <option value="">-- Select Manager --</option>
-                {ALL_MANAGER_NAMES.filter(name => name !== 'Stephen Skalamera').map(name => (
-                  <option key={name} value={name}>
-                    {name} ({getManagerInfo(name)?.region})
-                  </option>
-                ))}
-              </select>
-              {simulatedManagerName && (
-                <button
-                  onClick={() => setSimulatedManagerName(null)}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    border: 'none',
-                    backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
-                    color: isDarkMode ? '#fff' : '#333',
-                    fontSize: '11px',
-                    cursor: 'pointer'
-                  }}
-                  title="Clear simulation"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          )}
         </div>
       )}
 
@@ -7077,13 +8663,15 @@ function ConversationTable({ conversations }) {
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
   const [columnWidths, setColumnWidths] = useState({
+    row: 60,
     id: 150,
     created: 180,
     updated: 180,
     assigned: 150,
     author: 200,
     state: 250,
-    tags: 200
+    tags: 200,
+    email: 200
   });
   const [isResizing, setIsResizing] = useState(null);
   const [resizeStart, setResizeStart] = useState({ x: 0, width: 0 });
@@ -7211,6 +8799,13 @@ function ConversationTable({ conversations }) {
       <table className="conversations-table">
         <thead>
           <tr>
+            <th style={{ width: columnWidths.row, position: 'relative', minWidth: '50px' }}>
+              #
+              <div 
+                className="column-resizer"
+                onMouseDown={(e) => handleMouseDown(e, 'row')}
+              />
+            </th>
             <th style={{ width: columnWidths.id, position: 'relative' }}>
               ID
               <div 
@@ -7291,62 +8886,257 @@ function ConversationTable({ conversations }) {
           </tr>
         </thead>
         <tbody>
-          {sortedConversations.map((conv) => {
+          {sortedConversations.map((conv, index) => {
             const id = conv.id;
-            const tags = Array.isArray(conv.tags) ? conv.tags : [];
+            const rowNumber = index + 1;
             
-            // Extract tag names
-            const tagNames = tags.map(t => typeof t === "string" ? t : t.name);
-            
-            // Define the three snooze tags we care about (in priority order)
-            const snoozeTags = [
-              "snooze.waiting-on-customer-resolved",
-              "snooze.waiting-on-customer-unresolved",
-              "snooze.waiting-on-tse"
-            ];
-            
-            // Mapping from tag names to display names
-            const tagDisplayMapping = {
-              "snooze.waiting-on-customer-resolved": "Waiting On Customer - Resolved",
-              "snooze.waiting-on-customer-unresolved": "Waiting On Customer - Unresolved",
-              "snooze.waiting-on-tse": "Waiting On TSE - Deep Dive"
+            // Helper function to determine status and workflow for closed conversations
+            const getClosedConversationStatus = () => {
+              const isClosed = (conv.state || "").toLowerCase() === "closed";
+              if (!isClosed) return null;
+              
+              // Check custom_attributes["Auto-Closed"] field
+              const customAttributes = conv.custom_attributes || {};
+              const autoClosedValue = customAttributes["Auto-Closed"];
+              
+              if (!autoClosedValue) {
+                // No Auto-Closed custom attribute: return "Closed" status and "--" workflow
+                return { status: "Closed", workflow: "--" };
+              }
+              
+              // Check if Auto-Closed value matches the expected workflow values
+              const autoClosedStr = String(autoClosedValue);
+              if (autoClosedStr === "Waiting On Customer - Unresolved") {
+                return { status: "Auto-Closed via Waiting On Customer - Unresolved", workflow: "--" };
+              } else if (autoClosedStr === "Waiting On Customer - Resolved") {
+                return { status: "Auto-Closed via Waiting On Customer - Resolved", workflow: "--" };
+              }
+              
+              // Auto-Closed exists but doesn't match expected values: return "Closed"
+              return { status: "Closed", workflow: "--" };
             };
             
-            // Find the first tag that matches one of our three snooze tags (case-insensitive)
-            const activeWorkflowTag = tagNames.find(tagName => 
-              tagName && snoozeTags.some(snoozeTag => 
-                tagName.toLowerCase() === snoozeTag.toLowerCase()
-              )
-            );
+            const closedStatusInfo = getClosedConversationStatus();
+            const isClosed = (conv.state || "").toLowerCase() === "closed";
             
-            // Check if conversation state is "open" (not snoozed)
-            const isOpen = (conv.state || "open").toLowerCase() === "open" && conv.state !== "snoozed";
+            // Check state first - if "Open" or "Closed", always show "--"
+            const convState = (conv.state || "open").toLowerCase();
+            const isOpen = convState === "open";
+            const isSnoozed = convState === "snoozed" || conv.snoozed_until;
             
             // Map the tag to its display name (case-insensitive lookup)
-            let displayTag = "No Active Snooze Workflows";
-            if (isOpen) {
-              // If state is "Open", show N/A
-              displayTag = "N/A";
-            } else if (activeWorkflowTag) {
-              const normalizedTag = activeWorkflowTag.toLowerCase();
-              displayTag = tagDisplayMapping[normalizedTag] || activeWorkflowTag;
+            let displayTag = "--";
+            let displayStatus = conv.state || "open";
+            
+            if (isClosed && closedStatusInfo) {
+              // Use closed conversation logic for status
+              displayStatus = closedStatusInfo.status;
+              // For closed conversations, always show "--" for workflow
+              displayTag = "--";
+            } else if (isOpen) {
+              // If state is "Open", ALWAYS show "--"
+              displayTag = "--";
+            } else if (isSnoozed) {
+              // If state is "Snoozed", use "Last Snooze Workflow Used" custom attribute
+              const customAttributes = conv.custom_attributes || {};
+              const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+              
+              if (lastSnoozeWorkflow) {
+                displayTag = String(lastSnoozeWorkflow);
+              } else {
+                // Fallback to "--" if not set
+                displayTag = "--";
+              }
             }
             
-            // Determine background color based on display tag
-            const getWorkflowBackgroundColor = (tag) => {
-              if (tag === "N/A") {
-                return "transparent"; // No background for N/A
-              } else if (tag === "Waiting On TSE - Deep Dive") {
-                return isDarkMode ? "#4a1f1f" : "#ffd0d0"; // Dark red in dark mode, light red in light mode
-              } else if (tag === "Waiting On Customer - Unresolved") {
-                return isDarkMode ? "#4a3d1f" : "#fff0c0"; // Dark yellow-brown in dark mode, light yellow in light mode
-              } else if (tag === "Waiting On Customer - Resolved") {
-                return isDarkMode ? "#1f3a2a" : "#d0f0dc"; // Dark green in dark mode, light green in light mode
+            // Countdown timer component for snoozed conversations
+            const SnoozeCountdownTimer = ({ targetDate }) => {
+              const [timeRemaining, setTimeRemaining] = useState(() => 
+                calculateTimeRemaining(targetDate)
+              );
+              
+              useEffect(() => {
+                if (!targetDate) return;
+                
+                const updateTimer = () => {
+                  const remaining = calculateTimeRemaining(targetDate);
+                  setTimeRemaining(remaining);
+                };
+                
+                // Update immediately
+                updateTimer();
+                
+                // Update every second
+                const interval = setInterval(updateTimer, 1000);
+                
+                return () => clearInterval(interval);
+              }, [targetDate]);
+              
+              const snoozeBg = isDarkMode ? '#5A3A2A' : '#FFE5D9';
+              const snoozeColor = isDarkMode ? '#FF9A74' : '#D84C4C';
+              
+              if (timeRemaining.expired) {
+                return (
+                  <span style={{
+                    backgroundColor: snoozeBg,
+                    color: snoozeColor,
+                    padding: '4px 12px',
+                    borderRadius: '16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    display: 'inline-block'
+                  }}>
+                    Snoozed (Expired)
+                  </span>
+                );
               }
-              return "transparent"; // No background for "No Active Snooze Workflows"
+              
+              return (
+                <span style={{
+                  backgroundColor: snoozeBg,
+                  color: snoozeColor,
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'inline-block',
+                  whiteSpace: 'nowrap'
+                }}>
+                  Snoozed: {formatTimeRemaining(timeRemaining)}
+                </span>
+              );
             };
             
-            const workflowBackgroundColor = getWorkflowBackgroundColor(displayTag);
+            // Helper function to render status badge(s)
+            const renderStatusBadge = (status) => {
+              if (status.startsWith("Auto-Closed via ")) {
+                // Split into two badges connected by "via"
+                const waitingTag = status.replace("Auto-Closed via ", "");
+                const autoClosedBg = isDarkMode ? '#1F4A4A' : '#C8E6F0';
+                const autoClosedColor = isDarkMode ? '#7BC8D8' : '#4F9C9C';
+                const unresolvedBg = isDarkMode ? '#5A2A2A' : '#FFDDDD';
+                const unresolvedColor = isDarkMode ? '#FF6B6B' : '#D84C4C';
+                const resolvedBg = isDarkMode ? '#3A2A5A' : '#E6E6FA';
+                const resolvedColor = isDarkMode ? '#9370DB' : '#6A5ACD';
+                
+                return (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{
+                      backgroundColor: autoClosedBg,
+                      color: autoClosedColor,
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      display: 'inline-block'
+                    }}>
+                      Auto-Closed
+                    </span>
+                    <span style={{ color: isDarkMode ? '#ccc' : '#333', fontSize: '12px' }}>via</span>
+                    <span style={{
+                      backgroundColor: waitingTag.includes("Unresolved") ? unresolvedBg : resolvedBg,
+                      color: waitingTag.includes("Unresolved") ? unresolvedColor : resolvedColor,
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      display: 'inline-block'
+                    }}>
+                      {waitingTag}
+                    </span>
+                  </span>
+                );
+              } else if (status === "Auto-Closed") {
+                return (
+                  <span style={{
+                    backgroundColor: isDarkMode ? '#1F4A4A' : '#C8E6F0',
+                    color: isDarkMode ? '#7BC8D8' : '#4F9C9C',
+                    padding: '4px 12px',
+                    borderRadius: '16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    display: 'inline-block'
+                  }}>
+                    Auto-Closed
+                  </span>
+                );
+              } else if (status === "Closed") {
+                return (
+                  <span style={{
+                    backgroundColor: isDarkMode ? '#2A5A2A' : '#CCFFCC',
+                    color: isDarkMode ? '#90EE90' : '#339933',
+                    padding: '4px 12px',
+                    borderRadius: '16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    display: 'inline-block'
+                  }}>
+                    Closed
+                  </span>
+                );
+              } else if (status === "Open" || status === "open") {
+                return (
+                  <span style={{
+                    backgroundColor: isDarkMode ? 'rgba(53, 161, 180, 0.2)' : '#e3f2fd',
+                    color: isDarkMode ? '#35a1b4' : '#1976d2',
+                    padding: '4px 12px',
+                    borderRadius: '16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    display: 'inline-block'
+                  }}>
+                    Open
+                  </span>
+                );
+              } else if (conv.state === 'snoozed' && conv.snoozedUntilDate) {
+                return <SnoozeCountdownTimer targetDate={conv.snoozedUntilDate} />;
+              } else {
+                return (
+                  <span style={{ 
+                    textTransform: 'capitalize',
+                    fontWeight: 400
+                  }}>
+                    {status}
+                  </span>
+                );
+              }
+            };
+            
+            // Helper function to render workflow badge
+            const renderWorkflowBadge = (tag) => {
+              if (tag === "N/A" || tag === "--" || tag === "No Active Snooze Workflows") {
+                return <span style={{ color: isDarkMode ? '#999' : '#999' }}>—</span>;
+              }
+              
+              let backgroundColor, color;
+              if (tag === "Waiting On TSE - Deep Dive") {
+                backgroundColor = isDarkMode ? '#5A4A1F' : '#FFFACD';
+                color = isDarkMode ? '#D4AF37' : '#B8860B';
+              } else if (tag === "Waiting On Customer - Unresolved") {
+                backgroundColor = isDarkMode ? '#5A2A2A' : '#FFDDDD';
+                color = isDarkMode ? '#FF6B6B' : '#D84C4C';
+              } else if (tag === "Waiting On Customer - Resolved") {
+                backgroundColor = isDarkMode ? '#3A2A5A' : '#E6E6FA';
+                color = isDarkMode ? '#9370DB' : '#6A5ACD';
+              } else {
+                return <span style={{ color: isDarkMode ? '#999' : '#999' }}>—</span>;
+              }
+              
+              return (
+                <span style={{
+                  backgroundColor,
+                  color,
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'inline-block',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {tag}
+                </span>
+              );
+            };
             
             const created = conv.created_at || conv.createdAt || conv.first_opened_at;
             const createdDateUTC = created ? formatTimestampUTC(created) : null;
@@ -7360,6 +9150,9 @@ function ConversationTable({ conversations }) {
 
             return (
               <tr key={id}>
+                <td style={{ width: columnWidths.row, textAlign: 'center', color: isDarkMode ? '#999' : '#666' }}>
+                  {rowNumber}
+                </td>
                 <td className="id-cell" style={{ width: columnWidths.id }}>
                   <a 
                     href={`${INTERCOM_BASE_URL}${id}`} 
@@ -7378,24 +9171,11 @@ function ConversationTable({ conversations }) {
                 </td>
                 <td style={{ width: columnWidths.assigned }}>{assigneeName}</td>
                 <td className="state-cell" style={{ width: columnWidths.state }}>
-                  {conv.state === 'snoozed' && conv.snoozedUntilDate ? (
-                    <span style={{ 
-                      textTransform: 'capitalize',
-                      fontWeight: 600,
-                      color: '#ff9a74'
-                    }}>
-                      Snoozed Until {formatTimestampUTC(conv.snoozedUntilDate)}
-                    </span>
-                  ) : (
-                    <span style={{ 
-                      textTransform: 'capitalize',
-                      fontWeight: 400
-                    }}>
-                      {conv.state || "open"}
-                    </span>
-                  )}
+                  {renderStatusBadge(displayStatus)}
                 </td>
-                <td className="tags-cell" style={{ width: columnWidths.tags, backgroundColor: workflowBackgroundColor }}>{displayTag}</td>
+                <td className="tags-cell" style={{ width: columnWidths.tags }}>
+                  {renderWorkflowBadge(displayTag)}
+                </td>
                 <td style={{ width: columnWidths.email }}>{conv.authorEmail || "-"}</td>
               </tr>
             );
@@ -7753,7 +9533,7 @@ function HelpModal({ onClose }) {
               <p><strong>Insight Types:</strong></p>
               <ul>
                 <li><strong>On-Track Performance:</strong> Current percentage of TSEs meeting targets, with status indicators (Strong ≥80%, Needs Attention &lt;60%)</li>
-                <li><strong>Response Time Status:</strong> Current percentage of conversations with 10+ minute wait times, compared to target (≤10%)</li>
+                <li><strong>Response Time Status:</strong> Current percentage of conversations with 10+ minute wait times, compared to target ({WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%), and 5-10 minute wait times, compared to target (≤{WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%)</li>
                 <li><strong>Trend Indicators:</strong> Shows improving or declining trends for both on-track and wait rate metrics</li>
                 <li><strong>Impact Insights:</strong> Correlation analysis and improvement potential from the Impact tab</li>
               </ul>
@@ -7917,12 +9697,12 @@ function HelpModal({ onClose }) {
                 <li><strong>What:</strong> Multi-line chart showing wait time percentages over the last 7 days</li>
                 <li><strong>Lines:</strong>
                   <ul>
-                    <li><strong>5+ Min Wait %:</strong> Amber/orange line - total percentage waiting 5+ minutes</li>
-                    <li><strong>5-10 Min Wait %:</strong> Orange line - percentage waiting 5-10 minutes</li>
-                    <li><strong>10+ Min Wait %:</strong> Red/pink line - percentage waiting 10+ minutes</li>
+                    <li><strong>5+ Min Wait %:</strong> Orange line - total percentage waiting 5+ minutes</li>
+                    <li><strong>5-10 Min Wait %:</strong> Blue line - percentage waiting 5-10 minutes</li>
+                    <li><strong>10+ Min Wait %:</strong> Red line - percentage waiting 10+ minutes</li>
                   </ul>
                 </li>
-                <li><strong>Target Line:</strong> Horizontal dashed line at 10% indicating the target for 10+ Min Waits (≤10%)</li>
+                <li><strong>Target Lines:</strong> Horizontal dashed lines indicating targets: red line at {WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}% for 10+ Min Waits ({WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%), orange line at {WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}% for 5-10 Min Waits (≤{WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%)</li>
                 <li><strong>Y-Axis:</strong> Scales dynamically up to 20% to ensure readability</li>
                 <li><strong>Data Source:</strong> Response time metrics collected nightly</li>
               </ul>
@@ -8443,7 +10223,7 @@ function HelpModal({ onClose }) {
               </div>
               <p><strong>Purpose:</strong> Comprehensive analysis of first response times, focusing on customer experience quality by tracking conversations with extended wait times before the first admin reply.</p>
               
-              <p><strong>Target:</strong> The goal is to keep the percentage of conversations with 10+ minute wait times at or below 10%.</p>
+              <p><strong>Targets:</strong> The goal is to keep the percentage of conversations with 10+ minute wait times at {WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}% and 5-10 minute wait times at or below {WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%.</p>
 
               <p><strong>Date Range & TSE Filter:</strong> Same as Daily On Track Trends tab - select date range and TSEs to analyze. Filters apply to all visualizations.</p>
 
@@ -8476,12 +10256,12 @@ function HelpModal({ onClose }) {
                 <li><strong>Type:</strong> Multi-line chart showing three wait time categories</li>
                 <li><strong>Lines:</strong>
                   <ul>
-                    <li><strong>5+ Min Wait %:</strong> Amber/orange line - total percentage waiting 5+ minutes</li>
-                    <li><strong>5-10 Min Wait %:</strong> Orange line - percentage waiting 5-10 minutes</li>
-                    <li><strong>10+ Min Wait %:</strong> Red/pink line - percentage waiting 10+ minutes</li>
+                    <li><strong>5+ Min Wait %:</strong> Orange line - total percentage waiting 5+ minutes</li>
+                    <li><strong>5-10 Min Wait %:</strong> Blue line - percentage waiting 5-10 minutes</li>
+                    <li><strong>10+ Min Wait %:</strong> Red line - percentage waiting 10+ minutes</li>
                   </ul>
                 </li>
-                <li><strong>Target Line:</strong> Horizontal dashed line at 10% indicating the target for 10+ Min Waits (≤10%)</li>
+                <li><strong>Target Lines:</strong> Horizontal dashed lines indicating targets: red line at {WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}% for 10+ Min Waits ({WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%), orange line at {WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}% for 5-10 Min Waits (≤{WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%)</li>
                 <li><strong>Y-Axis:</strong> Scales dynamically up to 20% (or higher if needed) to ensure readability</li>
                 <li><strong>Legend:</strong> Ordered to show 5+ Min first, then 5-10 Min, then 10+ Min</li>
                 <li><strong>Holiday Indicators:</strong> Icons mark holidays</li>

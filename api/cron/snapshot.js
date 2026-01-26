@@ -107,7 +107,8 @@ export default async function handler(req, res) {
           name: admin.name || admin.email?.split("@")[0] || `TSE ${tseId}`,
           open: 0,
           actionableSnoozed: 0,
-          customerWaitSnoozed: 0
+          customerWaitSnoozed: 0,
+          snoozedForOnTrack: 0 // All snoozed EXCEPT customer-waiting tags
         };
       }
     });
@@ -149,11 +150,18 @@ export default async function handler(req, res) {
       if (isSnoozed) {
         byTSE[tseId].totalSnoozed = (byTSE[tseId].totalSnoozed || 0) + 1;
         if (hasWaitingOnTSETag) {
-          byTSE[tseId].actionableSnoozed++; // This field now represents "Waiting On TSE"
+          byTSE[tseId].actionableSnoozed++; // This field represents "Waiting On TSE" (for backward compatibility)
         } else if (hasWaitingOnCustomerTag) {
           byTSE[tseId].customerWaitSnoozed++; // This field represents "Waiting On Customer"
         }
         // Snoozed conversations without specific tags are only counted in totalSnoozed
+        
+        // For "snoozed on track" metric: count all snoozed EXCEPT customer-waiting tags
+        // This includes: waiting-on-tse tagged, and snoozed without tags
+        // Excludes: waiting-on-customer-resolved and waiting-on-customer-unresolved
+        if (!hasWaitingOnCustomerTag) {
+          byTSE[tseId].snoozedForOnTrack = (byTSE[tseId].snoozedForOnTrack || 0) + 1;
+        }
       }
 
       if (conv.state === "open" && !isSnoozed) {
@@ -186,7 +194,8 @@ export default async function handler(req, res) {
         open: tse.open,
         actionableSnoozed: tse.actionableSnoozed,
         customerWaitSnoozed: tse.customerWaitSnoozed,
-        totalSnoozed: tse.totalSnoozed || 0
+        totalSnoozed: tse.totalSnoozed || 0,
+        snoozedForOnTrack: tse.snoozedForOnTrack || 0 // All snoozed EXCEPT customer-waiting tags
       }))
     };
 

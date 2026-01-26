@@ -1,4 +1,79 @@
 import fetch from "node-fetch";
+import pkg from 'pg';
+const { Pool } = pkg;
+
+// Disable TLS certificate verification for Supabase (required for self-signed certs)
+// This is safe for Supabase as they use their own certificate infrastructure
+if (process.env.POSTGRES_URL?.includes('supabase.co') || 
+    process.env.POSTGRES_URL_NON_POOLING?.includes('supabase.co')) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
+// Database connection pool for audit logging
+let auditPool = null;
+
+function getAuditPool() {
+  if (!auditPool) {
+    let connectionString = process.env.POSTGRES_URL || 
+                          process.env.POSTGRES_URL_NON_POOLING || 
+                          process.env.POSTGRES_PRISMA_URL;
+    
+    if (!connectionString) {
+      console.warn('No Postgres connection string found for audit logging');
+      return null;
+    }
+    
+    const isSupabase = connectionString.includes('supabase.co');
+    
+    if (isSupabase) {
+      if (connectionString.includes('sslmode=')) {
+        connectionString = connectionString.replace(/sslmode=[^&]*/, 'sslmode=require');
+      } else {
+        connectionString += (connectionString.includes('?') ? '&' : '?') + 'sslmode=require';
+      }
+    }
+    
+    const sslConfig = isSupabase ? { rejectUnauthorized: false } : undefined;
+    
+    auditPool = new Pool({
+      connectionString,
+      ssl: sslConfig,
+      max: 1,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000
+    });
+  }
+  return auditPool;
+}
+
+async function logAuditEvent(action, userInfo, req) {
+  try {
+    const pool = getAuditPool();
+    if (!pool) return; // Silently fail if DB not available
+    
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0] || 
+                     req.headers['x-real-ip'] || 
+                     req.connection?.remoteAddress || 
+                     'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, user_name, user_email, action, ip_address, user_agent, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [
+        userInfo?.id?.toString() || null,
+        userInfo?.name || null,
+        userInfo?.email || null,
+        action,
+        ipAddress,
+        userAgent
+      ]
+    );
+  } catch (error) {
+    // Log error but don't fail the request
+    console.error('Audit logging error:', error);
+  }
+}
 
 /**
  * Handle Intercom OAuth callback
@@ -75,6 +150,11 @@ export default async function handler(req, res) {
     let userInfo = null;
     if (userResponse.ok) {
       userInfo = await userResponse.json();
+    }
+
+    // Log sign-in event
+    if (userInfo) {
+      await logAuditEvent('sign_in', userInfo, req);
     }
 
     // Store access token in secure httpOnly cookie

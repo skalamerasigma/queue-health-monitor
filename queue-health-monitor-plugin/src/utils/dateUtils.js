@@ -104,3 +104,56 @@ export function formatDateUTC(dateStr) {
   const dayPadded = String(date.getUTCDate()).padStart(2, '0');
   return `${monthName} ${dayPadded} ${year} UTC`;
 }
+
+/**
+ * Calculate time remaining until a target date
+ * @param {Date|string|number} targetDate - The target date to count down to
+ * @returns {Object} Object with days, hours, minutes, seconds, and total milliseconds
+ */
+export function calculateTimeRemaining(targetDate) {
+  if (!targetDate) {
+    return { days: 0, hours: 0, minutes: 0, seconds: 0, totalMs: 0, expired: true };
+  }
+  
+  const target = typeof targetDate === "number" 
+    ? new Date(targetDate * 1000) 
+    : new Date(targetDate);
+  
+  if (isNaN(target.getTime())) {
+    return { days: 0, hours: 0, minutes: 0, seconds: 0, totalMs: 0, expired: true };
+  }
+  
+  const now = new Date();
+  const totalMs = target.getTime() - now.getTime();
+  const expired = totalMs <= 0;
+  
+  if (expired) {
+    return { days: 0, hours: 0, minutes: 0, seconds: 0, totalMs: 0, expired: true };
+  }
+  
+  const days = Math.floor(totalMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((totalMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((totalMs % (1000 * 60)) / 1000);
+  
+  return { days, hours, minutes, seconds, totalMs, expired: false };
+}
+
+/**
+ * Format time remaining as a readable string
+ * @param {Object} timeRemaining - Object from calculateTimeRemaining
+ * @returns {string} Formatted string like "2d 5h 30m 15s"
+ */
+export function formatTimeRemaining(timeRemaining) {
+  if (timeRemaining.expired) {
+    return "Expired";
+  }
+  
+  const parts = [];
+  if (timeRemaining.days > 0) parts.push(`${timeRemaining.days}d`);
+  if (timeRemaining.hours > 0) parts.push(`${timeRemaining.hours}h`);
+  if (timeRemaining.minutes > 0) parts.push(`${timeRemaining.minutes}m`);
+  if (timeRemaining.seconds >= 0 || parts.length === 0) parts.push(`${timeRemaining.seconds}s`);
+  
+  return parts.join(" ");
+}

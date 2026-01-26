@@ -1,7 +1,51 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { useTheme } from "./ThemeContext";
-import { formatDateTimeUTC } from "./utils/dateUtils";
+import { useAuth } from "./AuthContext";
+import { formatDateTimeUTC, calculateTimeRemaining, formatTimeRemaining } from "./utils/dateUtils";
 import "./MyQueue.css";
+
+// Custom hook for managing dismissed items in localStorage
+function useDismissedItems(storageKey) {
+  const [dismissedItems, setDismissedItems] = useState(() => {
+    try {
+      const stored = localStorage.getItem(storageKey);
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const dismissItem = useCallback((itemId) => {
+    setDismissedItems(prev => {
+      const updated = [...prev, itemId];
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save dismissed items:', e);
+      }
+      return updated;
+    });
+  }, [storageKey]);
+
+  const isDismissed = useCallback((itemId) => {
+    return dismissedItems.includes(itemId);
+  }, [dismissedItems]);
+
+  const clearDismissed = useCallback(() => {
+    setDismissedItems([]);
+    try {
+      localStorage.removeItem(storageKey);
+    } catch (e) {
+      console.error('Failed to clear dismissed items:', e);
+    }
+  }, [storageKey]);
+
+  return { dismissedItems, dismissItem, isDismissed, clearDismissed };
+}
+
+// Users who can see the footer dev controls (TSE/Manager toggle and simulation dropdowns)
+// Must match Dashboard.jsx
+const FOOTER_CONTROLS_USERS = ['Stephen Skalamera'];
 
 const THRESHOLDS = {
   MAX_OPEN_SOFT: 5,
@@ -12,12 +56,235 @@ const THRESHOLDS = {
 
 const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
 
+// Countdown Card Component (unused - kept for potential future use)
+// eslint-disable-next-line no-unused-vars, react-hooks/exhaustive-deps
+function CountdownCard({ conv, isDarkMode, index = 0, compact = false }) {
+  const snoozedUntil = conv.snoozed_until || null;
+  const snoozedUntilDate = useMemo(() => {
+    return snoozedUntil 
+      ? (typeof snoozedUntil === "number" ? new Date(snoozedUntil * 1000) : new Date(snoozedUntil))
+      : null;
+  }, [snoozedUntil]);
+  
+  const [timeRemaining, setTimeRemaining] = useState(() => 
+    snoozedUntilDate ? calculateTimeRemaining(snoozedUntilDate) : { expired: true }
+  );
+  
+  useEffect(() => {
+    if (!snoozedUntilDate) return;
+    
+    const updateTimer = () => {
+      const remaining = calculateTimeRemaining(snoozedUntilDate);
+      setTimeRemaining(remaining);
+    };
+    
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    
+    return () => clearInterval(interval);
+  }, [snoozedUntilDate]);
+  
+  const isExpired = timeRemaining.expired;
+  const totalMinutes = timeRemaining.totalMs / (1000 * 60);
+  const urgencyLevel = isExpired ? 'critical' : totalMinutes <= 30 ? 'high' : totalMinutes <= 60 ? 'medium' : 'low';
+  
+  // Calculate progress percentage (0-100%)
+  // For expired: 100% (fully red)
+  // For < 2 hours: show progress from 0-100%
+  // For > 2 hours: show minimal progress (5%) to indicate active timer
+  const maxMinutes = 120; // 2 hours
+  let progress;
+  if (isExpired) {
+    progress = 100; // Fully expired
+  } else if (totalMinutes <= maxMinutes) {
+    progress = ((maxMinutes - totalMinutes) / maxMinutes) * 100;
+  } else {
+    progress = 5; // Show minimal progress for longer timers
+  }
+  
+  const convId = conv.id || conv.conversation_id || 'unknown';
+  const convUrl = `${INTERCOM_BASE_URL}${convId}`;
+  const convTitle = conv.title || conv.source?.title || `Conversation ${convId}`;
+  
+  return (
+    <div 
+      className={`countdown-card countdown-${urgencyLevel} ${compact ? 'countdown-card-compact' : 'countdown-card-overlap'}`}
+      onClick={() => window.open(convUrl, '_blank')}
+      style={compact ? {} : {
+        zIndex: 1000 - index,
+        '--overlap-offset': `${index * -20}px`
+      }}
+      data-index={index}
+    >
+      <div className="countdown-card-content">
+        <div className="countdown-visual">
+          <div className="countdown-ring">
+            <svg className="countdown-svg" viewBox="0 0 100 100">
+              <circle
+                className="countdown-ring-bg"
+                cx="50"
+                cy="50"
+                r="45"
+                fill="none"
+                stroke={isDarkMode ? '#333' : '#e0e0e0'}
+                strokeWidth="8"
+              />
+              <circle
+                className={`countdown-ring-progress countdown-ring-${urgencyLevel}`}
+                cx="50"
+                cy="50"
+                r="45"
+                fill="none"
+                strokeWidth="8"
+                strokeLinecap="round"
+                strokeDasharray={`${2 * Math.PI * 45}`}
+                strokeDashoffset={`${2 * Math.PI * 45 * (1 - progress / 100)}`}
+                transform="rotate(-90 50 50)"
+                style={{
+                  transition: 'stroke-dashoffset 0.5s ease',
+                  stroke: urgencyLevel === 'critical' 
+                    ? '#ff4444' 
+                    : urgencyLevel === 'high' 
+                      ? '#ff8800' 
+                      : urgencyLevel === 'medium'
+                        ? '#ffaa00'
+                        : '#4cec8c'
+                }}
+              />
+            </svg>
+            <div className="countdown-time-display">
+              {isExpired ? (
+                <span className="countdown-expired">EXPIRED</span>
+              ) : timeRemaining.days > 0 ? (
+                <>
+                  <span className="countdown-minutes">{timeRemaining.days}</span>
+                  <span className="countdown-label">day{timeRemaining.days !== 1 ? 's' : ''}</span>
+                </>
+              ) : timeRemaining.hours > 0 ? (
+                <>
+                  <span className="countdown-minutes">{timeRemaining.hours}</span>
+                  <span className="countdown-label">hr{timeRemaining.hours !== 1 ? 's' : ''}</span>
+                </>
+              ) : (
+                <>
+                  <span className="countdown-minutes">{Math.floor(totalMinutes)}</span>
+                  <span className="countdown-label">min</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        <div className="countdown-info">
+          <div className="countdown-title">{convTitle}</div>
+          <div className="countdown-details">
+            <span className="countdown-id">#{String(convId).slice(-6)}</span>
+            {!isExpired && (
+              <span className="countdown-full-time">
+                {formatTimeRemaining(timeRemaining)}
+              </span>
+            )}
+          </div>
+          {isExpired && (
+            <div className="countdown-warning">
+              ⚠️ Snooze timer has expired
+            </div>
+          )}
+        </div>
+        
+        <div className="countdown-action">
+          <div className="countdown-arrow">→</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simulatedTSE = null, loading, error, onRefresh, lastUpdated, historicalSnapshots = [], responseTimeMetrics = [] }) {
   const { isDarkMode } = useTheme();
+  const { user } = useAuth();
+  
+  // Check if user has access to footer dev controls
+  const hasFooterControlsAccess = FOOTER_CONTROLS_USERS.includes(user?.name);
   const [filterTags, setFilterTags] = useState(["all"]);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const filterDropdownRef = useRef(null);
   const [searchId, setSearchId] = useState("");
+  const [expandedFilters, setExpandedFilters] = useState(new Set()); // Default collapsed
+  
+  // Manage dismissed insights
+  const insightsDismissed = useDismissedItems('dismissedMyQueueInsights');
+  const isInsightDismissed = insightsDismissed.isDismissed;
+  const dismissInsightItem = insightsDismissed.dismissItem;
+
+  // Format insight text with bold and colors
+  const formatInsightText = useCallback((insight) => {
+    // Performance percentage insights
+    if (insight.percentage !== undefined && insight.days !== undefined) {
+      const percentageText = `${insight.percentage.toFixed(0)}%`;
+      const daysText = `${insight.days} day${insight.days !== 1 ? 's' : ''}`;
+      const color = insight.type === 'positive' ? '#4cec8c' : '#fd8789';
+      
+      if (insight.type === 'positive') {
+        return (
+          <>
+            <strong>Excellent performance:</strong> <strong style={{ color }}>{percentageText}</strong> on-track over <strong>{daysText}</strong>
+          </>
+        );
+      } else {
+        return (
+          <>
+            Only <strong style={{ color }}>{percentageText}</strong> on-track over <strong>{daysText}</strong>
+          </>
+        );
+      }
+    }
+    
+    // Average open chats insight
+    if (insight.avgOpen !== undefined && insight.target !== undefined) {
+      const avgText = `${insight.avgOpen.toFixed(1)}`;
+      const targetText = `≤${insight.target}`;
+      return (
+        <>
+          Average open chats (<strong style={{ color: '#fd8789' }}>{avgText}</strong>) exceeds target (<strong>{targetText}</strong>)
+        </>
+      );
+    }
+    
+    // Average waiting on TSE insight
+    if (insight.avgWaiting !== undefined && insight.target !== undefined) {
+      const avgText = `${insight.avgWaiting.toFixed(1)}`;
+      const targetText = `≤${insight.target}`;
+      return (
+        <>
+          Average waiting on TSE (<strong style={{ color: '#fd8789' }}>{avgText}</strong>) exceeds target (<strong>{targetText}</strong>)
+        </>
+      );
+    }
+    
+    // Trend insights
+    if (insight.change !== undefined && insight.period !== undefined) {
+      const changeText = `${insight.change > 0 ? '+' : ''}${insight.change.toFixed(1)}%`;
+      const color = insight.type === 'positive' ? '#4cec8c' : '#fd8789';
+      
+      if (insight.type === 'positive') {
+        return (
+          <>
+            <strong>Performance improving:</strong> <strong style={{ color }}>{changeText}</strong> on-track <strong>{insight.period}</strong>
+          </>
+        );
+      } else {
+        return (
+          <>
+            <strong style={{ color }}>{changeText}</strong> on-track <strong>{insight.period}</strong>
+          </>
+        );
+      }
+    }
+    
+    // Fallback to plain text
+    return insight.text;
+  }, []);
 
   // Find current user's TSE info from teamMembers
   // If simulatedTSE is provided (Stephen simulating another TSE), use that instead
@@ -152,8 +419,29 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
     let answeredToday = 0;
     let closedToday = 0;
 
-    // Calculate today's start and end in seconds (UTC)
-    const now = Date.now();
+    // Calculate today's date in PT timezone (same logic as Close Rate %)
+    const now = new Date();
+    
+    // Get current PT time formatter
+    const ptDateFormatter = new Intl.DateTimeFormat('en-US', { 
+      timeZone: 'America/Los_Angeles', 
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    const todayPTDateStr = ptDateFormatter.format(now).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    });
+
+    // Helper function to convert UTC timestamp to PT date string
+    const toPTDateStr = (timestamp) => {
+      if (!timestamp) return null;
+      const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
+      const date = new Date(ms);
+      return ptDateFormatter.format(date).replace(/(\d+)\/(\d+)\/(\d+)/, (_, month, day, year) => {
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      });
+    };
+
+    // Calculate today's start and end in seconds (UTC) for closedToday calculation
     const todayStart = new Date(now);
     todayStart.setUTCHours(0, 0, 0, 0);
     const todayEnd = new Date(todayStart);
@@ -180,10 +468,17 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
         (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
       );
 
-      // Check if conversation was answered today
-      const firstAdminReplyAt = conv.statistics?.first_admin_reply_at;
-      if (firstAdminReplyAt && firstAdminReplyAt >= todayStartSeconds && firstAdminReplyAt < todayEndSeconds) {
-        answeredToday++;
+      // Check if conversation was assigned to this TSE today (PT timezone)
+      // Uses same logic as Close Rate %: counts conversations created today (PT date)
+      // Conversations are already filtered to this TSE via myConversations filter
+      // API already filters by team_assignee_id: 5480079
+      const createdAt = conv.created_at || conv.createdAt || conv.first_opened_at;
+      if (createdAt) {
+        const createdDateStr = toPTDateStr(createdAt);
+        // Only count conversations created today (in PT) that are assigned to this TSE
+        if (createdDateStr && createdDateStr === todayPTDateStr) {
+          answeredToday++;
+        }
       }
 
       // Check if conversation has auto-closed tag and was closed today
@@ -243,6 +538,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
     };
   }, [myConversations]);
 
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -259,34 +555,109 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
     }
   }, [filterDropdownOpen]);
 
-  // Filter options configuration
+  // Filter options configuration - hierarchical structure
   const filterOptions = [
-    { value: "all", label: "All Conversations" },
-    { value: "open", label: "Open Chats" },
-    { value: "closed", label: "Closed" },
-    { value: "waitingontse", label: "Waiting on TSE" },
-    { value: "waitingoncustomer", label: "Waiting on Customer" },
-    { value: "waitingoncustomer-resolved", label: "  └ Waiting on Customer - Resolved" },
-    { value: "waitingoncustomer-unresolved", label: "  └ Waiting on Customer - Unresolved" }
+    { value: "all", label: "All Conversations", children: null },
+    {
+      value: "snoozed",
+      label: "All Snoozed",
+      children: [
+        {
+          value: "waitingoncustomer",
+          label: "Waiting on Customer",
+          children: [
+            { value: "waitingoncustomer-resolved", label: "Resolved", children: null },
+            { value: "waitingoncustomer-unresolved", label: "Unresolved", children: null }
+          ]
+        },
+        { value: "waitingontse", label: "Waiting on TSE", children: null },
+        { value: "snoozed-other", label: "Other", children: null }
+      ]
+    },
+    { value: "open", label: "Open Chats", children: null },
+    {
+      value: "closed",
+      label: "Closed Today",
+      children: [
+        { value: "closed-regular", label: "Closed", children: null },
+        {
+          value: "autoclosed",
+          label: "Auto-Closed",
+          children: [
+            { value: "autoclosed-resolved", label: "Waiting On Customer - Resolved", children: null },
+            { value: "autoclosed-unresolved", label: "Waiting On Customer - Unresolved", children: null }
+          ]
+        }
+      ]
+    }
   ];
 
-  const handleFilterToggle = (value) => {
+  const handleFilterToggle = (value, e) => {
     if (value === "all") {
       // If "all" is clicked, toggle it and clear others
       setFilterTags(filterTags.includes("all") ? [] : ["all"]);
     } else {
-      // Remove "all" if any specific filter is selected
+      // For all other filters, make them completely independent - no cascading behavior
+      // Remove "all" if it's selected and user selects something else
       let newFilters = filterTags.filter(tag => tag !== "all");
       
-      if (newFilters.includes(value)) {
-        // Remove the filter
-        newFilters = newFilters.filter(tag => tag !== value);
+      if (e.target.checked) {
+        // When checking any filter, remove parent categories to allow filtering to just that specific type
+        if (value === "waitingoncustomer-resolved" || 
+            value === "waitingoncustomer-unresolved") {
+          // Remove parent categories when selecting a specific sub-subcategory
+          newFilters = newFilters.filter(t => 
+            t !== "snoozed" && 
+            t !== "waitingoncustomer"
+          );
+        } else if (value === "waitingoncustomer") {
+          // Remove parent category when selecting a subcategory
+          newFilters = newFilters.filter(t => t !== "snoozed");
+        } else if (value === "waitingontse" || value === "snoozed-other") {
+          // Remove parent category when selecting a specific snoozed subcategory
+          newFilters = newFilters.filter(t => t !== "snoozed");
+        } else if (value === "autoclosed-resolved" || 
+                   value === "autoclosed-unresolved") {
+          // Remove parent categories when selecting a specific auto-closed sub-subcategory
+          newFilters = newFilters.filter(t => 
+            t !== "closed" && 
+            t !== "closed-regular" &&
+            t !== "autoclosed"
+          );
+        } else if (value === "autoclosed") {
+          // Remove closed parent and closed-regular sibling when selecting auto-closed subcategory
+          newFilters = newFilters.filter(t => 
+            t !== "closed" &&
+            t !== "closed-regular"
+          );
+        } else if (value === "closed") {
+          // Remove auto-closed children when selecting closed parent to allow precise filtering
+          newFilters = newFilters.filter(t => 
+            t !== "closed-regular" &&
+            t !== "autoclosed" && 
+            t !== "autoclosed-resolved" && 
+            t !== "autoclosed-unresolved"
+          );
+        } else if (value === "closed-regular") {
+          // Remove closed parent and auto-closed children when selecting closed-regular subcategory
+          newFilters = newFilters.filter(t => 
+            t !== "closed" &&
+            t !== "autoclosed" && 
+            t !== "autoclosed-resolved" && 
+            t !== "autoclosed-unresolved"
+          );
+        }
+        
+        // Add the selected filter
+        if (!newFilters.includes(value)) {
+          newFilters.push(value);
+        }
       } else {
-        // Add the filter
-        newFilters.push(value);
+        // Simply remove the unchecked filter - no cascading behavior
+        newFilters = newFilters.filter(tag => tag !== value);
       }
       
-      // If no filters selected, default to "all"
+      // If nothing selected, default to "all"
       setFilterTags(newFilters.length === 0 ? ["all"] : newFilters);
     }
   };
@@ -308,41 +679,139 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
             const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
             return conv.state === "open" && !isSnoozed;
           } else if (filterTag === "closed") {
-            // Just check if state is closed - API already filters to today's closed conversations
+            // Filter for all conversations closed today (API already filters to today's closed conversations)
             const state = (conv.state || "").toLowerCase();
             return state === "closed";
+          } else if (filterTag === "closed-regular") {
+            // Filter for closed conversations from today that are NOT auto-closed
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") return false;
+            
+            // Exclude auto-closed conversations
+            const customAttributes = conv.custom_attributes || {};
+            const autoClosedValue = customAttributes["Auto-Closed"];
+            if (autoClosedValue) return false; // Skip if has Auto-Closed attribute
+            
+            return true;
           } else if (filterTag === "waitingontse") {
-            const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+            // Filter for snoozed conversations with "Last Snooze Workflow Used" = "Waiting On TSE"
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
             if (!isSnoozed) return false;
-            const tags = Array.isArray(conv.tags) ? conv.tags : [];
-            return tags.some(t => 
-              (t.name && t.name.toLowerCase() === "snooze.waiting-on-tse") || 
-              (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-tse")
-            );
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            // Check if Last Snooze Workflow Used matches "Waiting On TSE"
+            return lastSnoozeWorkflow === "Waiting On TSE";
           } else if (filterTag === "waitingoncustomer") {
-            const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+            // Filter for snoozed conversations with "Last Snooze Workflow Used" = "Waiting On Customer - Resolved" or "Waiting On Customer - Unresolved"
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
             if (!isSnoozed) return false;
-            const tags = Array.isArray(conv.tags) ? conv.tags : [];
-            return tags.some(t => 
-              (t.name && (t.name.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved")) || 
-              (typeof t === "string" && (t.toLowerCase() === "snooze.waiting-on-customer-resolved" || t.toLowerCase() === "snooze.waiting-on-customer-unresolved"))
-            );
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            // Check if Last Snooze Workflow Used matches either customer waiting workflow
+            return lastSnoozeWorkflow === "Waiting On Customer - Resolved" || 
+                   lastSnoozeWorkflow === "Waiting On Customer - Unresolved";
           } else if (filterTag === "waitingoncustomer-resolved") {
-            const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+            // Filter for snoozed conversations with "Last Snooze Workflow Used" = "Waiting On Customer - Resolved"
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
             if (!isSnoozed) return false;
-            const tags = Array.isArray(conv.tags) ? conv.tags : [];
-            return tags.some(t => 
-              (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-resolved") || 
-              (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-resolved")
-            );
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            return lastSnoozeWorkflow === "Waiting On Customer - Resolved";
           } else if (filterTag === "waitingoncustomer-unresolved") {
-            const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
+            // Filter for snoozed conversations with "Last Snooze Workflow Used" = "Waiting On Customer - Unresolved"
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
             if (!isSnoozed) return false;
-            const tags = Array.isArray(conv.tags) ? conv.tags : [];
-            return tags.some(t => 
-              (t.name && t.name.toLowerCase() === "snooze.waiting-on-customer-unresolved") || 
-              (typeof t === "string" && t.toLowerCase() === "snooze.waiting-on-customer-unresolved")
-            );
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            return lastSnoozeWorkflow === "Waiting On Customer - Unresolved";
+          } else if (filterTag === "snoozed") {
+            // Filter for all snoozed conversations
+            return conv.state === "snoozed" || conv.snoozed_until || 
+                   (conv.statistics && conv.statistics.state === "snoozed");
+          } else if (filterTag === "snoozed-other") {
+            // Filter for snoozed conversations that don't have "Last Snooze Workflow Used" set to customer or TSE workflows
+            const isSnoozed = conv.state === "snoozed" || 
+                             conv.state === "Snoozed" ||
+                             conv.snoozed_until || 
+                             (conv.statistics && conv.statistics.state === "snoozed");
+            if (!isSnoozed) return false;
+            
+            const customAttributes = conv.custom_attributes || {};
+            const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+            
+            // Return true if snoozed but doesn't have a recognized workflow
+            return lastSnoozeWorkflow !== "Waiting On Customer - Resolved" && 
+                   lastSnoozeWorkflow !== "Waiting On Customer - Unresolved" &&
+                   lastSnoozeWorkflow !== "Waiting On TSE";
+          } else if (filterTag === "autoclosed") {
+            // Filter for all auto-closed conversations using custom_attributes
+            // This matches conversations that display "Auto-Closed via..." in the table
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") return false;
+            
+            // Use the same logic as the table display - check for Auto-Closed custom attribute
+            const customAttributes = conv.custom_attributes || {};
+            const autoClosedValue = customAttributes["Auto-Closed"];
+            
+            // Only include if Auto-Closed exists and matches expected values (same as table display logic)
+            if (!autoClosedValue) return false;
+            
+            const autoClosedStr = String(autoClosedValue);
+            // Match only the expected values that would show "Auto-Closed via..." in the table
+            return autoClosedStr === "Waiting On Customer - Resolved" || 
+                   autoClosedStr === "Waiting On Customer - Unresolved";
+          } else if (filterTag === "autoclosed-resolved") {
+            // Filter for auto-closed conversations with Waiting On Customer - Resolved
+            // This matches conversations that display "Auto-Closed via Waiting On Customer - Resolved" in the table
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") return false;
+            
+            // Use the same logic as the table display
+            const customAttributes = conv.custom_attributes || {};
+            const autoClosedValue = customAttributes["Auto-Closed"];
+            
+            // Check if Auto-Closed value matches "Waiting On Customer - Resolved"
+            // This is the same check used in getClosedConversationStatus() for table display
+            if (!autoClosedValue) return false;
+            
+            const autoClosedStr = String(autoClosedValue);
+            return autoClosedStr === "Waiting On Customer - Resolved";
+          } else if (filterTag === "autoclosed-unresolved") {
+            // Filter for auto-closed conversations with Waiting On Customer - Unresolved
+            // This matches conversations that display "Auto-Closed via Waiting On Customer - Unresolved" in the table
+            const state = (conv.state || "").toLowerCase();
+            if (state !== "closed") return false;
+            
+            // Use the same logic as the table display
+            const customAttributes = conv.custom_attributes || {};
+            const autoClosedValue = customAttributes["Auto-Closed"];
+            
+            // Check if Auto-Closed value matches "Waiting On Customer - Unresolved"
+            // This is the same check used in getClosedConversationStatus() for table display
+            if (!autoClosedValue) return false;
+            
+            const autoClosedStr = String(autoClosedValue);
+            return autoClosedStr === "Waiting On Customer - Unresolved";
           }
           return false;
         });
@@ -465,43 +934,64 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
     if (onTrackPercentage >= 80) {
       insights.push({
         type: 'positive',
-        text: `Excellent performance: ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`
+        text: `Excellent performance: ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`,
+        id: `myqueue-excellent-performance-${onTrackPercentage.toFixed(0)}`,
+        percentage: onTrackPercentage,
+        days: tseHistory.length
       });
     } else if (onTrackPercentage < 60) {
       insights.push({
         type: 'warning',
-        text: `Only ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`
+        text: `Only ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`,
+        id: `myqueue-low-performance-${onTrackPercentage.toFixed(0)}`,
+        percentage: onTrackPercentage,
+        days: tseHistory.length
       });
     }
 
     if (avgOpen > THRESHOLDS.MAX_OPEN_SOFT) {
       insights.push({
         type: 'warning',
-        text: `Average open chats (${avgOpen.toFixed(1)}) exceeds target (≤${THRESHOLDS.MAX_OPEN_SOFT})`
+        text: `Average open chats (${avgOpen.toFixed(1)}) exceeds target (≤${THRESHOLDS.MAX_OPEN_SOFT})`,
+        id: `myqueue-avg-open-${avgOpen.toFixed(1)}`,
+        avgOpen: avgOpen,
+        target: THRESHOLDS.MAX_OPEN_SOFT
       });
     }
 
     if (avgWaitingOnTSE > THRESHOLDS.MAX_WAITING_ON_TSE_SOFT) {
       insights.push({
         type: 'warning',
-        text: `Average waiting on TSE (${avgWaitingOnTSE.toFixed(1)}) exceeds target (≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})`
+        text: `Average waiting on TSE (${avgWaitingOnTSE.toFixed(1)}) exceeds target (≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})`,
+        id: `myqueue-avg-waiting-${avgWaitingOnTSE.toFixed(1)}`,
+        avgWaiting: avgWaitingOnTSE,
+        target: THRESHOLDS.MAX_WAITING_ON_TSE_SOFT
       });
     }
 
     if (trend.direction === 'improving') {
       insights.push({
         type: 'positive',
-        text: `Performance improving: ${trend.change > 0 ? '+' : ''}${trend.change.toFixed(1)}% on-track ${trend.period}`
+        text: `Performance improving: ${trend.change > 0 ? '+' : ''}${trend.change.toFixed(1)}% on-track ${trend.period}`,
+        id: `myqueue-improving-${trend.period}-${trend.change.toFixed(1)}`,
+        change: trend.change,
+        period: trend.period
       });
     } else if (trend.direction === 'worsening') {
       insights.push({
         type: 'warning',
-        text: `${trend.change.toFixed(1)}% on-track ${trend.period}`
+        text: `${trend.change.toFixed(1)}% on-track ${trend.period}`,
+        id: `myqueue-worsening-${trend.period}-${trend.change.toFixed(1)}`,
+        change: trend.change,
+        period: trend.period
       });
     }
 
+    // Filter dismissed insights
+    const filteredInsights = insights.filter(insight => !isInsightDismissed(insight.id));
+
     return { 
-      insights,
+      insights: filteredInsights,
       totalDays: tseHistory.length,
       onTrackPercentage: Math.round(onTrackPercentage),
       avgOpen: Math.round(avgOpen * 10) / 10,
@@ -509,12 +999,12 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
       trend,
       history: tseHistory
     };
-  }, [currentTSE, historicalSnapshots]);
+  }, [currentTSE, historicalSnapshots, isInsightDismissed]);
 
   // Show loading state while team members are being fetched
   if (loading && teamMembers.length === 0) {
     return (
-      <div className="my-queue-container">
+      <div className="my-queue-container" style={hasFooterControlsAccess ? { paddingBottom: '150px' } : {}}>
         <div className="my-queue-header">
           <h1>My Queue</h1>
         </div>
@@ -535,7 +1025,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
       : [];
     
     return (
-      <div className="my-queue-container">
+      <div className="my-queue-container" style={hasFooterControlsAccess ? { paddingBottom: '150px' } : {}}>
         <div className="my-queue-header">
           <h1>My Queue</h1>
         </div>
@@ -569,7 +1059,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
   }
 
   return (
-    <div className="my-queue-container">
+    <div className="my-queue-container" style={hasFooterControlsAccess ? { paddingBottom: '150px' } : {}}>
       {error && (
         <div className="my-queue-error">
           <p>Error: {error}</p>
@@ -597,20 +1087,48 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {tseMetrics.insights.map((insight, idx) => (
               <div 
-                key={idx}
+                key={insight.id || idx}
                 style={{
-                  backgroundColor: insight.type === 'positive' 
-                    ? (isDarkMode ? '#1a3a2a' : '#d4edda')
-                    : (isDarkMode ? '#3a2a1a' : '#fff3cd'),
-                  color: insight.type === 'positive'
-                    ? (isDarkMode ? '#4cec8c' : '#155724')
-                    : (isDarkMode ? '#ffc107' : '#856404'),
                   padding: '8px 12px',
                   borderRadius: '4px',
-                  fontSize: '13px'
+                  backgroundColor: insight.type === 'positive' 
+                    ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
+                    : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
+                  borderLeft: `3px solid ${insight.type === 'positive' ? '#4cec8c' : '#fd8789'}`,
+                  fontSize: '13px',
+                  color: isDarkMode ? '#e5e5e5' : '#292929',
+                  lineHeight: '1.5',
+                  display: 'flex',
+                  justifyContent: 'flex-start',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
               >
-                {insight.type === 'positive' ? '✓' : '⚠'} {insight.text}
+                <button
+                  onClick={() => dismissInsightItem(insight.id)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: isDarkMode ? '#999' : '#666',
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    fontSize: '18px',
+                    lineHeight: '1',
+                    opacity: 0.7,
+                    transition: 'opacity 0.2s',
+                    flexShrink: 0
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '1'}
+                  onMouseLeave={(e) => e.target.style.opacity = '0.7'}
+                  aria-label="Dismiss insight"
+                  title="Dismiss"
+                >
+                  ×
+                </button>
+                <span style={{ flex: 1 }}>
+                  {insight.type === 'positive' ? '✓ ' : '⚠ '}
+                  {formatInsightText(insight)}
+                </span>
               </div>
             ))}
           </div>
@@ -865,23 +1383,102 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
               {filterTags.includes("all") || filterTags.length === 0
                 ? "All Conversations"
                 : filterTags.length === 1
-                ? filterOptions.find(opt => opt.value === filterTags[0])?.label || "Select filters"
+                ? (filterTags[0] === "snoozed" ? "All Snoozed" :
+                   filterTags[0] === "waitingoncustomer" ? "Waiting On Customer" :
+                   filterTags[0] === "waitingontse" ? "Waiting On TSE" :
+                   filterTags[0] === "snoozed-other" ? "Snoozed - Other" :
+                  filterTags[0] === "closed" ? "Closed Today" :
+                  filterTags[0] === "closed-regular" ? "Closed" :
+                  filterTags[0] === "autoclosed" ? "Auto-Closed" :
+                  filterTags[0] === "autoclosed-resolved" ? "Auto-Closed - Resolved" :
+                  filterTags[0] === "autoclosed-unresolved" ? "Auto-Closed - Unresolved" :
+                  filterOptions.find(opt => opt.value === filterTags[0])?.label || "Select filters")
                 : `${filterTags.length} filters selected`}
               <span className="filter-dropdown-arrow">{filterDropdownOpen ? "▲" : "▼"}</span>
             </button>
             {filterDropdownOpen && (
               <div className="filter-dropdown-menu">
-                {filterOptions.map(option => (
-                  <label key={option.value} className="filter-checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={filterTags.includes(option.value)}
-                      onChange={() => handleFilterToggle(option.value)}
-                      className="filter-checkbox"
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
+                {(() => {
+                  // Recursive function to render filter items
+                  const renderFilterItem = (option, level = 0) => {
+                    const hasChildren = option.children && option.children.length > 0;
+                    const isExpanded = expandedFilters.has(option.value);
+                    const isParent = level === 0;
+                    const isChild1 = level === 1;
+                    const isChild2 = level === 2;
+                    
+                    let itemClassName = 'filter-checkbox-label';
+                    if (isParent) {
+                      itemClassName += ' filter-parent';
+                    } else if (isChild1) {
+                      itemClassName += ' filter-child-1';
+                    } else if (isChild2) {
+                      itemClassName += ' filter-child-2';
+                    }
+
+                    const toggleExpand = (e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setExpandedFilters(prev => {
+                        const newSet = new Set(prev);
+                        if (newSet.has(option.value)) {
+                          newSet.delete(option.value);
+                        } else {
+                          newSet.add(option.value);
+                        }
+                        return newSet;
+                      });
+                    };
+
+                    return (
+                      <div key={option.value}>
+                        <label
+                          className={itemClassName}
+                          onClick={(e) => {
+                            if (hasChildren && e.target.type !== 'checkbox') {
+                              toggleExpand(e);
+                            } else {
+                              e.stopPropagation();
+                            }
+                          }}
+                        >
+                          {hasChildren && (
+                            <span
+                              className="filter-expand-icon"
+                              onClick={toggleExpand}
+                              style={{
+                                display: 'inline-block',
+                                width: '16px',
+                                marginRight: '4px',
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                                fontSize: '10px',
+                                color: isDarkMode ? '#999' : '#666'
+                              }}
+                            >
+                              {isExpanded ? '▼' : '▶'}
+                            </span>
+                          )}
+                          {!hasChildren && <span style={{ display: 'inline-block', width: '16px', marginRight: '4px' }} />}
+                          <input
+                            type="checkbox"
+                            checked={filterTags.includes(option.value)}
+                            onChange={(e) => handleFilterToggle(option.value, e)}
+                            className="filter-checkbox"
+                          />
+                          <span>{option.label}</span>
+                        </label>
+                        {hasChildren && isExpanded && (
+                          <div className="filter-children-container">
+                            {option.children.map(child => renderFilterItem(child, level + 1))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
+
+                  return filterOptions.map(option => renderFilterItem(option, 0));
+                })()}
               </div>
             )}
           </div>
@@ -906,7 +1503,15 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
           {filterTags.includes("all") || filterTags.length === 0
             ? "All Conversations"
             : filterTags.length === 1
-            ? (filterTags[0] === "closed" ? "Closed" : filterOptions.find(opt => opt.value === filterTags[0])?.label.replace("  └ ", "") || "All Conversations")
+            ? (filterTags[0] === "closed" ? "Closed" :
+               filterTags[0] === "snoozed" ? "All Snoozed" :
+               filterTags[0] === "waitingoncustomer" ? "Waiting On Customer" :
+               filterTags[0] === "waitingontse" ? "Waiting On TSE" :
+               filterTags[0] === "snoozed-other" ? "Snoozed - Other" :
+               filterTags[0] === "autoclosed" ? "Auto-Closed" :
+               filterTags[0] === "autoclosed-resolved" ? "Auto-Closed - Resolved" :
+               filterTags[0] === "autoclosed-unresolved" ? "Auto-Closed - Unresolved" :
+               filterOptions.find(opt => opt.value === filterTags[0])?.label || "All Conversations")
             : `${filterTags.length} Filters Selected`} 
           ({filteredConversations.length})
         </h3>
@@ -920,6 +1525,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
             <table>
               <thead>
                 <tr>
+                  <th>#</th>
                   <th>ID</th>
                   <th>Status</th>
                   <th>Active Snooze Workflow</th>
@@ -928,95 +1534,271 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
                 </tr>
               </thead>
               <tbody>
-                {filteredConversations.map(conv => {
+                {filteredConversations.map((conv, index) => {
+                  const rowNumber = index + 1;
                   const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
-                  const tags = Array.isArray(conv.tags) ? conv.tags : [];
-                  const tagNames = tags.map(t => typeof t === "string" ? t : t.name).filter(Boolean);
-                  
-                  // Mapping from tag names to display names (handles both with and without "snooze." prefix)
-                  const workflowMapping = {
-                    "waiting-on-customer-unresolved": "Waiting On Customer - Unresolved",
-                    "waiting-on-customer-resolved": "Waiting On Customer - Resolved",
-                    "waiting-on-tse": "Waiting On TSE - Deep Dive",
-                    "snooze.waiting-on-customer-unresolved": "Waiting On Customer - Unresolved",
-                    "snooze.waiting-on-customer-resolved": "Waiting On Customer - Resolved",
-                    "snooze.waiting-on-tse": "Waiting On TSE - Deep Dive",
-                    "snooze.auto-closed": "Auto-Closed",
-                    "auto-closed": "Auto-Closed"
-                  };
+                  const snoozedUntil = conv.snoozed_until || null;
+                  const snoozedUntilDate = snoozedUntil ? (typeof snoozedUntil === "number" ? new Date(snoozedUntil * 1000) : new Date(snoozedUntil)) : null;
                   
                   const isClosed = (conv.state || "").toLowerCase() === "closed";
                   
-                  // For closed conversations, only check for auto-close tag
-                  // For other states, check for workflow tags
-                  let displayWorkflow = "";
-                  
-                  if (isClosed) {
-                    // Only show auto-closed tag for closed conversations
-                    const hasAutoClosedTag = tagNames.some(tagName => {
-                      if (!tagName) return false;
-                      const normalizedTag = tagName.toLowerCase();
-                      return normalizedTag === "snooze.auto-closed" || normalizedTag === "auto-closed";
-                    });
-                    if (hasAutoClosedTag) {
-                      displayWorkflow = "Auto-Closed";
-                    }
-                    // Otherwise leave blank
-                  } else {
-                    // Find the first matching workflow tag for non-closed conversations
-                    const activeWorkflowTag = tagNames.find(tagName => {
-                      if (!tagName) return false;
-                      const normalizedTag = tagName.toLowerCase();
-                      // Check exact match
-                      if (workflowMapping[normalizedTag]) return true;
-                      // Check if it ends with the workflow pattern (handles variations)
-                      return normalizedTag.includes("waiting-on-customer-unresolved") ||
-                             normalizedTag.includes("waiting-on-customer-resolved") ||
-                             normalizedTag.includes("waiting-on-tse");
-                    });
+                  // Helper function to determine status and workflow for closed conversations
+                  const getClosedConversationStatus = () => {
+                    if (!isClosed) return null;
                     
-                    // Get display value
-                    if (activeWorkflowTag) {
-                      const normalizedTag = activeWorkflowTag.toLowerCase();
-                      // Try exact match first
-                      if (workflowMapping[normalizedTag]) {
-                        displayWorkflow = workflowMapping[normalizedTag];
-                      } else if (normalizedTag.includes("waiting-on-customer-unresolved")) {
-                        displayWorkflow = "Waiting On Customer - Unresolved";
-                      } else if (normalizedTag.includes("waiting-on-customer-resolved")) {
-                        displayWorkflow = "Waiting On Customer - Resolved";
-                      } else if (normalizedTag.includes("waiting-on-tse")) {
-                        displayWorkflow = "Waiting On TSE - Deep Dive";
-                      }
+                    // Check custom_attributes["Auto-Closed"] field
+                    const customAttributes = conv.custom_attributes || {};
+                    const autoClosedValue = customAttributes["Auto-Closed"];
+                    
+                    if (!autoClosedValue) {
+                      // No Auto-Closed custom attribute: return "Closed" status and "--" workflow
+                      return { status: "Closed", workflow: "--" };
+                    }
+                    
+                    // Check if Auto-Closed value matches the expected workflow values
+                    const autoClosedStr = String(autoClosedValue);
+                    if (autoClosedStr === "Waiting On Customer - Unresolved") {
+                      return { status: "Auto-Closed via Waiting On Customer - Unresolved", workflow: "--" };
+                    } else if (autoClosedStr === "Waiting On Customer - Resolved") {
+                      return { status: "Auto-Closed via Waiting On Customer - Resolved", workflow: "--" };
+                    }
+                    
+                    // Auto-Closed exists but doesn't match expected values: return "Closed"
+                    return { status: "Closed", workflow: "--" };
+                  };
+                  
+                  const closedStatusInfo = getClosedConversationStatus();
+                  
+                  // Check state first - if "Open" or "Closed", always show "--"
+                  const convState = (conv.state || "open").toLowerCase();
+                  const isOpenState = convState === "open";
+                  
+                  // For closed conversations, use the closed status logic
+                  // For other states, check for workflow tags
+                  let displayWorkflow = "--";
+                  let displayStatus = isClosed ? "Closed" : isSnoozed ? "Snoozed" : "Open";
+                  
+                  if (isClosed && closedStatusInfo) {
+                    // Use closed conversation logic for status
+                    displayStatus = closedStatusInfo.status;
+                    // For closed conversations, always show "--" for workflow
+                    displayWorkflow = "--";
+                  } else if (isOpenState) {
+                    // If state is "Open", ALWAYS show "--"
+                    displayWorkflow = "--";
+                  } else if (isSnoozed) {
+                    // If state is "Snoozed", use "Last Snooze Workflow Used" custom attribute
+                    const customAttributes = conv.custom_attributes || {};
+                    const lastSnoozeWorkflow = customAttributes["Last Snooze Workflow Used"];
+                    
+                    if (lastSnoozeWorkflow) {
+                      displayWorkflow = String(lastSnoozeWorkflow);
+                    } else {
+                      // Fallback to "--" if not set
+                      displayWorkflow = "--";
                     }
                   }
                   
-                  // Get workflow badge class based on workflow type
-                  const getWorkflowBadgeClass = (workflow) => {
-                    if (!workflow) return '';
-                    if (workflow === 'Waiting On TSE - Deep Dive') return 'workflow-badge workflow-tse';
-                    if (workflow === 'Waiting On Customer - Resolved') return 'workflow-badge workflow-resolved';
-                    if (workflow === 'Waiting On Customer - Unresolved') return 'workflow-badge workflow-unresolved';
-                    if (workflow === 'Auto-Closed') return 'workflow-badge workflow-auto-closed';
-                    return '';
+                  // Countdown timer component for snoozed conversations
+                  const SnoozeCountdownTimer = ({ targetDate }) => {
+                    const [timeRemaining, setTimeRemaining] = useState(() => 
+                      calculateTimeRemaining(targetDate)
+                    );
+                    
+                    useEffect(() => {
+                      if (!targetDate) return;
+                      
+                      const updateTimer = () => {
+                        const remaining = calculateTimeRemaining(targetDate);
+                        setTimeRemaining(remaining);
+                      };
+                      
+                      // Update immediately
+                      updateTimer();
+                      
+                      // Update every second
+                      const interval = setInterval(updateTimer, 1000);
+                      
+                      return () => clearInterval(interval);
+                    }, [targetDate]);
+                    
+                    const snoozeBg = isDarkMode ? '#5A3A2A' : '#FFE5D9';
+                    const snoozeColor = isDarkMode ? '#FF9A74' : '#D84C4C';
+                    
+                    if (timeRemaining.expired) {
+                      return (
+                        <span style={{
+                          backgroundColor: snoozeBg,
+                          color: snoozeColor,
+                          padding: '4px 12px',
+                          borderRadius: '16px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          display: 'inline-block'
+                        }}>
+                          Snoozed (Expired)
+                        </span>
+                      );
+                    }
+                    
+                    return (
+                      <span style={{
+                        backgroundColor: snoozeBg,
+                        color: snoozeColor,
+                        padding: '4px 12px',
+                        borderRadius: '16px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        display: 'inline-block',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        Snoozed: {formatTimeRemaining(timeRemaining)}
+                      </span>
+                    );
+                  };
+                  
+                  // Helper function to render status badge(s)
+                  const renderStatusBadge = (status) => {
+                    if (status.startsWith("Auto-Closed via ")) {
+                      // Split into two badges connected by "via"
+                      const waitingTag = status.replace("Auto-Closed via ", "");
+                      const autoClosedBg = isDarkMode ? '#1F4A4A' : '#C8E6F0';
+                      const autoClosedColor = isDarkMode ? '#7BC8D8' : '#4F9C9C';
+                      const unresolvedBg = isDarkMode ? '#5A2A2A' : '#FFDDDD';
+                      const unresolvedColor = isDarkMode ? '#FF6B6B' : '#D84C4C';
+                      const resolvedBg = isDarkMode ? '#3A2A5A' : '#E6E6FA';
+                      const resolvedColor = isDarkMode ? '#9370DB' : '#6A5ACD';
+                      
+                      return (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span style={{
+                            backgroundColor: autoClosedBg,
+                            color: autoClosedColor,
+                            padding: '4px 12px',
+                            borderRadius: '16px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            display: 'inline-block'
+                          }}>
+                            Auto-Closed
+                          </span>
+                          <span style={{ color: isDarkMode ? '#ccc' : '#333', fontSize: '12px' }}>via</span>
+                          <span style={{
+                            backgroundColor: waitingTag.includes("Unresolved") ? unresolvedBg : resolvedBg,
+                            color: waitingTag.includes("Unresolved") ? unresolvedColor : resolvedColor,
+                            padding: '4px 12px',
+                            borderRadius: '16px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            display: 'inline-block'
+                          }}>
+                            {waitingTag}
+                          </span>
+                        </span>
+                      );
+                    } else if (status === "Auto-Closed") {
+                      return (
+                        <span style={{
+                          backgroundColor: isDarkMode ? '#1F4A4A' : '#C8E6F0',
+                          color: isDarkMode ? '#7BC8D8' : '#4F9C9C',
+                          padding: '4px 12px',
+                          borderRadius: '16px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          display: 'inline-block'
+                        }}>
+                          Auto-Closed
+                        </span>
+                      );
+                    } else if (status === "Closed") {
+                      return (
+                        <span style={{
+                          backgroundColor: isDarkMode ? '#2A5A2A' : '#CCFFCC',
+                          color: isDarkMode ? '#90EE90' : '#339933',
+                          padding: '4px 12px',
+                          borderRadius: '16px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          display: 'inline-block'
+                        }}>
+                          Closed
+                        </span>
+                      );
+                    } else if (status === "Open" || status === "open") {
+                      return (
+                        <span style={{
+                          backgroundColor: isDarkMode ? 'rgba(53, 161, 180, 0.2)' : '#e3f2fd',
+                          color: isDarkMode ? '#35a1b4' : '#1976d2',
+                          padding: '4px 12px',
+                          borderRadius: '16px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          display: 'inline-block'
+                        }}>
+                          Open
+                        </span>
+                      );
+                    } else if (conv.state === 'snoozed' && snoozedUntilDate) {
+                      return <SnoozeCountdownTimer targetDate={snoozedUntilDate} />;
+                    } else {
+                      return (
+                        <span style={{ 
+                          textTransform: 'capitalize',
+                          fontWeight: 400
+                        }}>
+                          {status}
+                        </span>
+                      );
+                    }
+                  };
+                  
+                  // Helper function to render workflow badge
+                  const renderWorkflowBadge = (workflow) => {
+                    if (workflow === "N/A" || workflow === "--" || workflow === "No Active Snooze Workflows") {
+                      return <span style={{ color: isDarkMode ? '#999' : '#999' }}>—</span>;
+                    }
+                    
+                    let backgroundColor, color;
+                    if (workflow === "Waiting On TSE - Deep Dive") {
+                      backgroundColor = isDarkMode ? '#5A4A1F' : '#FFFACD';
+                      color = isDarkMode ? '#D4AF37' : '#B8860B';
+                    } else if (workflow === "Waiting On Customer - Unresolved") {
+                      backgroundColor = isDarkMode ? '#5A2A2A' : '#FFDDDD';
+                      color = isDarkMode ? '#FF6B6B' : '#D84C4C';
+                    } else if (workflow === "Waiting On Customer - Resolved") {
+                      backgroundColor = isDarkMode ? '#3A2A5A' : '#E6E6FA';
+                      color = isDarkMode ? '#9370DB' : '#6A5ACD';
+                    } else {
+                      return <span style={{ color: isDarkMode ? '#999' : '#999' }}>—</span>;
+                    }
+                    
+                    return (
+                      <span style={{
+                        backgroundColor,
+                        color,
+                        padding: '4px 12px',
+                        borderRadius: '16px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        display: 'inline-block',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {workflow}
+                      </span>
+                    );
                   };
                   
                   return (
                     <tr key={conv.id || conv.conversation_id}>
+                      <td style={{ textAlign: 'center', color: isDarkMode ? '#999' : '#666' }}>
+                        {rowNumber}
+                      </td>
                       <td className="conv-id">{conv.id || conv.conversation_id}</td>
                       <td>
-                        <span className={`status-badge-small ${isClosed ? "closed" : isSnoozed ? "snoozed" : "open"}`}>
-                          {isClosed ? "Closed" : isSnoozed ? "Snoozed" : "Open"}
-                        </span>
+                        {renderStatusBadge(displayStatus)}
                       </td>
                       <td>
-                        {displayWorkflow ? (
-                          <span className={getWorkflowBadgeClass(displayWorkflow)}>
-                            {displayWorkflow}
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--text-tertiary, #999)' }}>—</span>
-                        )}
+                        {renderWorkflowBadge(displayWorkflow)}
                       </td>
                       <td>{formatDate(conv.created_at || conv.createdAt)}</td>
                       <td>

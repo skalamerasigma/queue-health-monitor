@@ -9,7 +9,8 @@ export function AuthProvider({ children }) {
 
   const checkAuth = async () => {
     try {
-      const apiBaseUrl = process.env.REACT_APP_API_URL || 'https://queue-health-monitor.vercel.app';
+      // Always use production API URL for TSE view (API routes are not deployed with this app)
+      const apiBaseUrl = 'https://queue-health-monitor.vercel.app';
       
       const response = await fetch(`${apiBaseUrl}/api/auth/intercom/me`, {
         method: 'GET',

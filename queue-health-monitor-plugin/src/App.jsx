@@ -91,7 +91,6 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
   const { isAuthenticated, loading: authLoading, login } = useAuth();
   const [data, setData] = useState({ conversations: [], teamMembers: [] });
   const [loading, setLoading] = useState(false);
-  const [loadingClosedConversations, setLoadingClosedConversations] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [currentUserEmail, setCurrentUserEmail] = useState(null);
@@ -241,7 +240,6 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
   // Fetch closed conversations separately in the background
   async function fetchClosedConversations() {
     const closedFetchStartTime = performance.now();
-    setLoadingClosedConversations(true);
     try {
       const apiBaseUrl = process.env.NODE_ENV === 'production' 
         ? `${window.location.origin}/api/intercom/conversations/open-team-5480079`
@@ -300,8 +298,6 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
       const errorTime = performance.now() - closedFetchStartTime;
       console.warn(`App: Error fetching closed conversations after ${Math.round(errorTime)}ms:`, e.message);
       // Silently fail - closed conversations are loaded in background
-    } finally {
-      setLoadingClosedConversations(false);
     }
   }
 
@@ -443,7 +439,6 @@ function AppContent({ currentUserEmail: propsCurrentUserEmail }) {
     conversations: data.conversations || data,
     teamMembers: data.teamMembers || [],
     loading,
-    loadingClosedConversations,
     error,
     onRefresh: () => {
       fetchData(true, false); // Manual refresh includes closed conversations

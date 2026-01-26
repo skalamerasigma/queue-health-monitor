@@ -5,6 +5,12 @@ import { formatTimestampUTC, formatDateForChart, formatDateForTooltip, formatDat
 import { useTheme } from './ThemeContext';
 import './HistoricalView.css';
 
+// Wait time targets
+const WAIT_TIME_TARGETS = {
+  TARGET_10_PLUS_MIN: 0, // Target for 10+ min waits: 0%
+  TARGET_5_TO_10_MIN: 2  // Target for 5-10 min waits: 2%
+};
+
 // TSE Region mapping
 const TSE_REGIONS = {
   'UK': ['Salman Filli', 'Erin Liu', 'Kabilan Thayaparan', 'J', 'Nathan Simpson', 'Somachi Ngoka'],
@@ -370,13 +376,22 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
   const [loadingResults, setLoadingResults] = useState(false);
   const [expandedDates, setExpandedDates] = useState(new Set());
   const [expandedResponseTimeDates, setExpandedResponseTimeDates] = useState(new Set());
-  const [selectedRanges, setSelectedRanges] = useState(new Set(['80-100', '60-79', '40-59', '20-39', '0-19'])); // All ranges selected by default
-  const [selectedHeatmapRegions, setSelectedHeatmapRegions] = useState(new Set(['UK', 'NY', 'SF', 'Other'])); // All regions selected by default
   const [onTrackSortConfig, setOnTrackSortConfig] = useState({ key: 'date', direction: 'desc' });
   const [responseTimeSortConfig, setResponseTimeSortConfig] = useState({ key: 'date', direction: 'desc' });
   const [onTrackDaysToShow, setOnTrackDaysToShow] = useState(7);
   const [responseTimeDaysToShow, setResponseTimeDaysToShow] = useState(7);
   const [expandedRegions, setExpandedRegions] = useState(new Set()); // All collapsed by default
+  const [timePeriod, setTimePeriod] = useState('daily'); // 'daily', 'weekly', 'monthly'
+  const [viewType, setViewType] = useState('all'); // 'all', 'by-region', 'by-team', 'by-tse'
+  // Track dismissed insights with localStorage persistence
+  const [dismissedInsights, setDismissedInsights] = useState(() => {
+    try {
+      const stored = localStorage.getItem('dismissedAnalyticsInsights');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch (e) {
+      return new Set();
+    }
+  });
   const [hasManuallyCleared, setHasManuallyCleared] = useState(false); // Track if user manually cleared selection
   const [showPeriodComparison, setShowPeriodComparison] = useState(false); // Toggle for period comparison
 
@@ -531,10 +546,20 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
       tseData.forEach(tse => {
         totalCount++;
         const meetsOpen = tse.open <= ON_TRACK_THRESHOLDS.MAX_OPEN_SOFT;
-        // On-track uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
-        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
-        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
-        const meetsSnoozed = totalWaitingOnTSE <= ON_TRACK_THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        // On-track uses: all snoozed conversations EXCEPT customer-waiting tags
+        // Use snoozedForOnTrack if available (new format), otherwise calculate from snapshot data
+        let snoozedForOnTrack = tse.snoozedForOnTrack;
+        if (snoozedForOnTrack === undefined) {
+          // Calculate from snapshot data: totalSnoozed - customerWaitSnoozed
+          const totalSnoozed = tse.totalSnoozed || 0;
+          const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
+          snoozedForOnTrack = totalSnoozed - customerWaitSnoozed;
+          // Fallback to old format if new calculation doesn't work
+          if (snoozedForOnTrack < 0) {
+            snoozedForOnTrack = tse.actionableSnoozed || 0;
+          }
+        }
+        const meetsSnoozed = snoozedForOnTrack <= ON_TRACK_THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
         
         if (meetsOpen && meetsSnoozed) {
           onTrackCount++;
@@ -991,10 +1016,20 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
       tseData.forEach(tse => {
         dataByDate[date].totalTSEs++;
         const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        // On-track uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
-        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
-        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
-        const meetsSnoozed = totalWaitingOnTSE <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        // On-track uses: all snoozed conversations EXCEPT customer-waiting tags
+        // Use snoozedForOnTrack if available (new format), otherwise calculate from snapshot data
+        let snoozedForOnTrack = tse.snoozedForOnTrack;
+        if (snoozedForOnTrack === undefined) {
+          // Calculate from snapshot data: totalSnoozed - customerWaitSnoozed
+          const totalSnoozed = tse.totalSnoozed || 0;
+          const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
+          snoozedForOnTrack = totalSnoozed - customerWaitSnoozed;
+          // Fallback to old format if new calculation doesn't work
+          if (snoozedForOnTrack < 0) {
+            snoozedForOnTrack = tse.actionableSnoozed || 0;
+          }
+        }
+        const meetsSnoozed = snoozedForOnTrack <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
         
         if (meetsOpen) dataByDate[date].onTrackOpen++;
         if (meetsSnoozed) dataByDate[date].onTrackSnoozed++;
@@ -1106,10 +1141,20 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
       tseData.forEach(tse => {
         const region = getTSERegion(tse.name);
         const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        // On-track uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
-        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
-        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
-        const meetsSnoozed = totalWaitingOnTSE <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        // On-track uses: all snoozed conversations EXCEPT customer-waiting tags
+        // Use snoozedForOnTrack if available (new format), otherwise calculate from snapshot data
+        let snoozedForOnTrack = tse.snoozedForOnTrack;
+        if (snoozedForOnTrack === undefined) {
+          // Calculate from snapshot data: totalSnoozed - customerWaitSnoozed
+          const totalSnoozed = tse.totalSnoozed || 0;
+          const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
+          snoozedForOnTrack = totalSnoozed - customerWaitSnoozed;
+          // Fallback to old format if new calculation doesn't work
+          if (snoozedForOnTrack < 0) {
+            snoozedForOnTrack = tse.actionableSnoozed || 0;
+          }
+        }
+        const meetsSnoozed = snoozedForOnTrack <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
         
         regionOnTrack[region].total++;
         if (meetsOpen && meetsSnoozed) regionOnTrack[region].onTrack++;
@@ -1377,92 +1422,270 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
   }, [chartData]);
 
 
-  // Calculate average on-track per TSE across selected date range
-  const tseAverageOnTrack = useMemo(() => {
-    if (!snapshots.length) return [];
+
+
+  // Helper function to aggregate data by time period
+  const aggregateByTimePeriod = (data, period) => {
+    if (period === 'daily') return data;
+    
+    const grouped = {};
+    data.forEach(item => {
+      const date = new Date(item.date);
+      let key;
+      
+      if (period === 'weekly') {
+        // Get week start (Monday)
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - diff + 1);
+        weekStart.setHours(0, 0, 0, 0);
+        key = weekStart.toISOString().split('T')[0];
+      } else if (period === 'monthly') {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      }
+      
+      if (!grouped[key]) {
+        grouped[key] = { date: key, items: [] };
+      }
+      grouped[key].items.push(item);
+    });
+    
+    return Object.values(grouped).map(group => {
+      const avgOpen = group.items.reduce((sum, item) => sum + (item.avgOpen || item.open || 0), 0) / group.items.length;
+      const avgActionableSnoozed = group.items.reduce((sum, item) => sum + (item.avgActionableSnoozed || item.actionableSnoozed || 0), 0) / group.items.length;
+      return {
+        date: group.date,
+        avgOpen: Math.round(avgOpen * 10) / 10,
+        avgActionableSnoozed: Math.round(avgActionableSnoozed * 10) / 10,
+        count: group.items.length
+      };
+    }).sort((a, b) => new Date(a.date) - new Date(b.date));
+  };
+
+  // Calculate average open and actionable snoozed chats over time
+  const averageChatsData = useMemo(() => {
+    if (!snapshots.length) return { daily: [], byRegion: {}, byTeam: {}, byTSE: {} };
 
     const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva", "Stephen Skalamera"];
-    const tseStats = {};
-    
+    const dailyData = [];
+    const byRegion = {};
+    const byTeam = {};
+    const byTSE = {};
+
     snapshots.forEach(snapshot => {
-      // Always use all TSEs (independent of main page filters), but exclude specified TSEs
-      let tseData = snapshot.tseData;
-      
-      // Filter out excluded TSEs
-      tseData = tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
+      let tseData = snapshot.tseData.filter(tse => !EXCLUDED_TSE_NAMES.includes(tse.name));
       
       // Apply manager team filter if set
       if (managerTeamFilter) {
         tseData = tseData.filter(tse => managerTeamFilter.includes(tse.name));
       }
 
+      if (tseData.length === 0) return;
+
+      // Calculate averages for this snapshot
+      let totalOpen = 0;
+      let totalActionableSnoozed = 0;
+      let tseCount = 0;
+
+      const regionTotals = {};
+      const teamTotals = {};
+
       tseData.forEach(tse => {
-        if (!tseStats[tse.id]) {
-          tseStats[tse.id] = {
-            id: tse.id,
-            name: tse.name,
-            daysCounted: 0,
-            openOnTrackDays: 0,
-            snoozedOnTrackDays: 0,
-            overallOnTrackDays: 0
-          };
+        const open = tse.open || 0;
+        // Calculate actionable snoozed: totalSnoozed - customerWaitSnoozed
+        let actionableSnoozed = tse.snoozedForOnTrack;
+        if (actionableSnoozed === undefined) {
+          const totalSnoozed = tse.totalSnoozed || 0;
+          const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
+          actionableSnoozed = totalSnoozed - customerWaitSnoozed;
+          if (actionableSnoozed < 0) {
+            actionableSnoozed = tse.actionableSnoozed || 0;
+          }
         }
 
-        const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        // On-track uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
-        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
-        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
-        const meetsSnoozed = totalWaitingOnTSE <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
-        const meetsBoth = meetsOpen && meetsSnoozed;
+        totalOpen += open;
+        totalActionableSnoozed += actionableSnoozed;
+        tseCount++;
 
-        tseStats[tse.id].daysCounted++;
-        if (meetsOpen) tseStats[tse.id].openOnTrackDays++;
-        if (meetsSnoozed) tseStats[tse.id].snoozedOnTrackDays++;
-        if (meetsBoth) tseStats[tse.id].overallOnTrackDays++;
+        // Group by region
+        const region = getTSERegion(tse.name);
+        if (!regionTotals[region]) {
+          regionTotals[region] = { open: 0, actionableSnoozed: 0, count: 0 };
+        }
+        regionTotals[region].open += open;
+        regionTotals[region].actionableSnoozed += actionableSnoozed;
+        regionTotals[region].count++;
+
+        // Group by team (using manager team filter or all)
+        const team = managerTeamFilter ? 'Selected Team' : 'All Teams';
+        if (!teamTotals[team]) {
+          teamTotals[team] = { open: 0, actionableSnoozed: 0, count: 0 };
+        }
+        teamTotals[team].open += open;
+        teamTotals[team].actionableSnoozed += actionableSnoozed;
+        teamTotals[team].count++;
+
+        // Individual TSE
+        if (!byTSE[tse.id]) {
+          byTSE[tse.id] = { name: tse.name, data: [] };
+        }
+        byTSE[tse.id].data.push({
+          date: snapshot.date,
+          open,
+          actionableSnoozed
+        });
+      });
+
+      const avgOpen = tseCount > 0 ? totalOpen / tseCount : 0;
+      const avgActionableSnoozed = tseCount > 0 ? totalActionableSnoozed / tseCount : 0;
+
+      dailyData.push({
+        date: snapshot.date,
+        avgOpen: Math.round(avgOpen * 10) / 10,
+        avgActionableSnoozed: Math.round(avgActionableSnoozed * 10) / 10
+      });
+
+      // Store region averages
+      Object.keys(regionTotals).forEach(region => {
+        if (!byRegion[region]) {
+          byRegion[region] = [];
+        }
+        const regionAvg = {
+          date: snapshot.date,
+          avgOpen: Math.round((regionTotals[region].open / regionTotals[region].count) * 10) / 10,
+          avgActionableSnoozed: Math.round((regionTotals[region].actionableSnoozed / regionTotals[region].count) * 10) / 10
+        };
+        byRegion[region].push(regionAvg);
+      });
+
+      // Store team averages
+      Object.keys(teamTotals).forEach(team => {
+        if (!byTeam[team]) {
+          byTeam[team] = [];
+        }
+        const teamAvg = {
+          date: snapshot.date,
+          avgOpen: Math.round((teamTotals[team].open / teamTotals[team].count) * 10) / 10,
+          avgActionableSnoozed: Math.round((teamTotals[team].actionableSnoozed / teamTotals[team].count) * 10) / 10
+        };
+        byTeam[team].push(teamAvg);
       });
     });
 
-    return Object.values(tseStats)
-      .map(tse => ({
-        name: tse.name,
-        openOnTrack: tse.daysCounted > 0 
-          ? Math.round((tse.openOnTrackDays / tse.daysCounted) * 100) 
-          : 0,
-        snoozedOnTrack: tse.daysCounted > 0 
-          ? Math.round((tse.snoozedOnTrackDays / tse.daysCounted) * 100) 
-          : 0,
-        overallOnTrack: tse.daysCounted > 0 
-          ? Math.round((tse.overallOnTrackDays / tse.daysCounted) * 100) 
-          : 0
-      }))
-      .sort((a, b) => b.overallOnTrack - a.overallOnTrack); // Sort by overall on-track descending
+    // Sort all data by date
+    dailyData.sort((a, b) => new Date(a.date) - new Date(b.date));
+    Object.keys(byRegion).forEach(region => {
+      byRegion[region].sort((a, b) => new Date(a.date) - new Date(b.date));
+    });
+    Object.keys(byTeam).forEach(team => {
+      byTeam[team].sort((a, b) => new Date(a.date) - new Date(b.date));
+    });
+    Object.keys(byTSE).forEach(tseId => {
+      byTSE[tseId].data.sort((a, b) => new Date(a.date) - new Date(b.date));
+    });
+
+    return { daily: dailyData, byRegion, byTeam, byTSE };
   }, [snapshots, managerTeamFilter]);
 
-  // Filter TSEs based on selected ranges and regions
-  const filteredTseAverageOnTrack = useMemo(() => {
-    if (selectedRanges.size === 0) return []; // If no ranges selected, show nothing
-    if (selectedHeatmapRegions.size === 0) return []; // If no regions selected, show nothing
+  // Prepare combined data for by-region view
+  const regionChartData = useMemo(() => {
+    if (viewType !== 'by-region') return [];
     
-    const rangeMap = {
-      '80-100': (value) => value >= 80 && value <= 100,
-      '60-79': (value) => value >= 60 && value < 80,
-      '40-59': (value) => value >= 40 && value < 60,
-      '20-39': (value) => value >= 20 && value < 40,
-      '0-19': (value) => value >= 0 && value < 20
-    };
-
-    return tseAverageOnTrack.filter(tse => {
-      // Check if TSE is in selected region
-      const tseRegion = getTSERegion(tse.name);
-      if (!selectedHeatmapRegions.has(tseRegion)) return false;
-      
-      // Check if TSE is in selected range
-      return Array.from(selectedRanges).some(range => {
-        const checkRange = rangeMap[range];
-        return checkRange && checkRange(tse.overallOnTrack);
-      });
+    // Aggregate each region's data by time period first
+    const aggregatedRegions = {};
+    Object.keys(averageChatsData.byRegion).forEach(region => {
+      aggregatedRegions[region] = aggregateByTimePeriod(averageChatsData.byRegion[region], timePeriod);
     });
-  }, [tseAverageOnTrack, selectedRanges, selectedHeatmapRegions]);
+    
+    // Get all unique dates from aggregated data
+    const allDates = new Set();
+    Object.values(aggregatedRegions).forEach(regionData => {
+      regionData.forEach(item => allDates.add(item.date));
+    });
+    
+    const sortedDates = Array.from(allDates).sort((a, b) => new Date(a) - new Date(b));
+    
+    return sortedDates.map(date => {
+      const dataPoint = { date };
+      Object.keys(aggregatedRegions).forEach(region => {
+        const regionData = aggregatedRegions[region];
+        const matchingData = regionData.find(d => d.date === date);
+        if (matchingData) {
+          dataPoint[`${region}_open`] = matchingData.avgOpen;
+          dataPoint[`${region}_snoozed`] = matchingData.avgActionableSnoozed;
+        }
+      });
+      return dataPoint;
+    });
+  }, [averageChatsData, viewType, timePeriod]);
+
+  // Prepare combined data for by-team view
+  const teamChartData = useMemo(() => {
+    if (viewType !== 'by-team') return [];
+    
+    // Aggregate each team's data by time period first
+    const aggregatedTeams = {};
+    Object.keys(averageChatsData.byTeam).forEach(team => {
+      aggregatedTeams[team] = aggregateByTimePeriod(averageChatsData.byTeam[team], timePeriod);
+    });
+    
+    // Get all unique dates from aggregated data
+    const allDates = new Set();
+    Object.values(aggregatedTeams).forEach(teamData => {
+      teamData.forEach(item => allDates.add(item.date));
+    });
+    
+    const sortedDates = Array.from(allDates).sort((a, b) => new Date(a) - new Date(b));
+    
+    return sortedDates.map(date => {
+      const dataPoint = { date };
+      Object.keys(aggregatedTeams).forEach(team => {
+        const teamData = aggregatedTeams[team];
+        const matchingData = teamData.find(d => d.date === date);
+        if (matchingData) {
+          dataPoint[`${team}_open`] = matchingData.avgOpen;
+          dataPoint[`${team}_snoozed`] = matchingData.avgActionableSnoozed;
+        }
+      });
+      return dataPoint;
+    });
+  }, [averageChatsData, viewType, timePeriod]);
+
+  // Prepare combined data for by-tse view (top 10)
+  const tseChartData = useMemo(() => {
+    if (viewType !== 'by-tse') return [];
+    
+    const topTSEs = Object.keys(averageChatsData.byTSE).slice(0, 10);
+    
+    // Aggregate each TSE's data by time period first
+    const aggregatedTSEs = {};
+    topTSEs.forEach(tseId => {
+      const tseData = averageChatsData.byTSE[tseId];
+      aggregatedTSEs[tseId] = aggregateByTimePeriod(tseData.data, timePeriod);
+    });
+    
+    // Get all unique dates from aggregated data
+    const allDates = new Set();
+    Object.values(aggregatedTSEs).forEach(tseData => {
+      tseData.forEach(item => allDates.add(item.date));
+    });
+    
+    const sortedDates = Array.from(allDates).sort((a, b) => new Date(a) - new Date(b));
+    
+    return sortedDates.map(date => {
+      const dataPoint = { date };
+      topTSEs.forEach(tseId => {
+        const tseData = aggregatedTSEs[tseId];
+        const matchingData = tseData.find(d => d.date === date);
+        if (matchingData) {
+          dataPoint[`${tseId}_open`] = matchingData.avgOpen;
+          dataPoint[`${tseId}_snoozed`] = matchingData.avgActionableSnoozed;
+        }
+      });
+      return dataPoint;
+    });
+  }, [averageChatsData, viewType, timePeriod]);
 
   // Prepare table data grouped by date
   const groupedTableData = useMemo(() => {
@@ -1491,18 +1714,49 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
           totalTSEs: 0,
           onTrackOpen: 0,
           onTrackSnoozed: 0,
-          onTrackBoth: 0
+          onTrackBoth: 0,
+          totalOpen: 0,
+          totalActionableSnoozed: 0
         };
       }
 
+      // Track region-level stats for team averages
+      const regionStats = {};
+      
       tseData.forEach(tse => {
         const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        // On-track uses: open conversations and snoozed conversations with tag snooze.waiting-on-tse
-        // actionableSnoozed = snoozed conversations with tag snooze.waiting-on-tse
-        const totalWaitingOnTSE = tse.actionableSnoozed || 0;
-        const meetsSnoozed = totalWaitingOnTSE <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
-        const exceedsTargets = tse.open === 0 && totalWaitingOnTSE === 0;
+        // On-track uses: all snoozed conversations EXCEPT customer-waiting tags
+        // Use snoozedForOnTrack if available (new format), otherwise calculate from snapshot data
+        let snoozedForOnTrack = tse.snoozedForOnTrack;
+        if (snoozedForOnTrack === undefined) {
+          // Calculate from snapshot data: totalSnoozed - customerWaitSnoozed
+          const totalSnoozed = tse.totalSnoozed || 0;
+          const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
+          snoozedForOnTrack = totalSnoozed - customerWaitSnoozed;
+          // Fallback to old format if new calculation doesn't work
+          if (snoozedForOnTrack < 0) {
+            snoozedForOnTrack = tse.actionableSnoozed || 0;
+          }
+        }
+        const meetsSnoozed = snoozedForOnTrack <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        const exceedsTargets = tse.open === 0 && snoozedForOnTrack === 0;
         const overallOnTrack = meetsOpen && meetsSnoozed;
+        
+        // Get region for this TSE
+        const region = getTSERegion(tse.name);
+        if (!regionStats[region]) {
+          regionStats[region] = {
+            totalTSEs: 0,
+            onTrackOpen: 0,
+            onTrackSnoozed: 0,
+            onTrackBoth: 0
+          };
+        }
+        
+        regionStats[region].totalTSEs++;
+        if (meetsOpen) regionStats[region].onTrackOpen++;
+        if (meetsSnoozed) regionStats[region].onTrackSnoozed++;
+        if (meetsOpen && meetsSnoozed) regionStats[region].onTrackBoth++;
         
         groupedByDate[snapshot.date].tses.push({
           tseName: tse.name,
@@ -1510,16 +1764,32 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
           actionableSnoozed: tse.actionableSnoozed,
           customerWaitSnoozed: tse.customerWaitSnoozed,
           totalSnoozed: tse.totalSnoozed || 0,
+          snoozedForOnTrack: snoozedForOnTrack,
           openOnTrack: meetsOpen,
           snoozedOnTrack: meetsSnoozed,
           overallOnTrack: overallOnTrack,
-          exceedsTargets: exceedsTargets
+          exceedsTargets: exceedsTargets,
+          region: region
         });
 
         groupedByDate[snapshot.date].totalTSEs++;
+        groupedByDate[snapshot.date].totalOpen += tse.open || 0;
+        groupedByDate[snapshot.date].totalActionableSnoozed += snoozedForOnTrack;
         if (meetsOpen) groupedByDate[snapshot.date].onTrackOpen++;
         if (meetsSnoozed) groupedByDate[snapshot.date].onTrackSnoozed++;
         if (meetsOpen && meetsSnoozed) groupedByDate[snapshot.date].onTrackBoth++;
+      });
+      
+      // Store region averages for this date
+      groupedByDate[snapshot.date].regionAverages = {};
+      Object.keys(regionStats).forEach(region => {
+        const stats = regionStats[region];
+        groupedByDate[snapshot.date].regionAverages[region] = {
+          totalTSEs: stats.totalTSEs,
+          openOnTrack: stats.totalTSEs > 0 ? Math.round((stats.onTrackOpen / stats.totalTSEs) * 100) : 0,
+          snoozedOnTrack: stats.totalTSEs > 0 ? Math.round((stats.onTrackSnoozed / stats.totalTSEs) * 100) : 0,
+          overallOnTrack: stats.totalTSEs > 0 ? Math.round((stats.onTrackBoth / stats.totalTSEs) * 100) : 0
+        };
       });
 
       // Sort TSEs within each date
@@ -1718,6 +1988,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
             count5to10Min: metric.count5to10Min || (metric.count5PlusMin || 0) - (metric.count10PlusMin || 0),
             count10PlusMin: metric.count10PlusMin || 0,
             totalConversations: metric.totalConversations || 0,
+            totalClosed: metric.totalClosed || 0,
             percentage5PlusMin: metric.percentage5PlusMin || 0,
             percentage5to10Min: metric.percentage5to10Min || 0,
             percentage10PlusMin: metric.percentage10PlusMin || 0,
@@ -1743,6 +2014,10 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
             case 'totalConversations':
               aVal = a.totalConversations;
               bVal = b.totalConversations;
+              break;
+            case 'totalClosed':
+              aVal = a.totalClosed;
+              bVal = b.totalClosed;
               break;
             case 'count5PlusMin':
               aVal = a.count5PlusMin;
@@ -2336,44 +2611,6 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
 
         {(activeTab === 'on-track' || activeTab === 'response-time') && (
           <div className="filter-group tse-selector">
-            {/* My Team Only Toggle - Only for managers */}
-            {isManager && managerTeam && onToggleMyTeamOnly && (
-              <div style={{ marginBottom: '12px' }}>
-                <label 
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    padding: '8px 12px',
-                    backgroundColor: myTeamOnly 
-                      ? (isDarkMode ? 'rgba(103, 58, 183, 0.2)' : 'rgba(103, 58, 183, 0.1)')
-                      : (isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'),
-                    borderRadius: '8px',
-                    border: `1px solid ${myTeamOnly 
-                      ? (isDarkMode ? 'rgba(103, 58, 183, 0.4)' : 'rgba(103, 58, 183, 0.3)')
-                      : (isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)')}`,
-                    transition: 'all 0.2s ease',
-                    width: 'fit-content'
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={myTeamOnly}
-                    onChange={onToggleMyTeamOnly}
-                    style={{ cursor: 'pointer' }}
-                  />
-                  <span style={{ 
-                    fontWeight: '500',
-                    color: myTeamOnly 
-                      ? (isDarkMode ? '#b39ddb' : '#673ab7')
-                      : (isDarkMode ? '#aaa' : '#666')
-                  }}>
-                    My Team Only ({managerTeam.length} members)
-                  </span>
-                </label>
-              </div>
-            )}
             <label>Filter by TSE:</label>
             <div className="tse-checkboxes">
               <button onClick={selectAllTSEs} className="select-all-button">Select All</button>
@@ -2564,7 +2801,112 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
               }
             }
             
-            return insights.length > 0 ? (
+            // Format insight text function
+            const formatInsightText = (insight) => {
+              const text = insight.text;
+              const parts = [];
+              let lastIndex = 0;
+              
+              // Try to extract label if text starts with common labels
+              const labelMatch = text.match(/^(Excellent performance|Performance below target|Strong current streak|No current streak|Performance improving|Performance declining|Best streak achieved|Strong average performance|Average performance below target|Recent improvement|Recent decline|Overall improving trend|Overall declining trend|Strong performance at scale):/);
+              let label = null;
+              let textWithoutLabel = text;
+              
+              if (labelMatch) {
+                label = labelMatch[1];
+                textWithoutLabel = text.substring(label.length + 1).trim();
+              }
+              
+              // Match patterns like "XX%", "Strong", "moderate", "weak", etc.
+              const patterns = [
+                { regex: /\b(strongest|stronger|Strongest|Stronger)\b/g, color: '#fd8789' },
+                { regex: /\b(Strong|strong)\b/g, color: '#fd8789' },
+                { regex: /\b(moderate|Moderate)\b/g, color: '#fbbf24' },
+                { regex: /\b(weakest|weaker|Weakest|Weaker)\b/g, color: '#4cec8c' },
+                { regex: /\b(weak|Weak)\b/g, color: '#4cec8c' },
+                { regex: /([+-]?\d+\.?\d*)%/g, color: '#4cec8c' },
+              ];
+              
+              // Find all matches in text without label
+              const matches = [];
+              patterns.forEach(({ regex, color }) => {
+                let match;
+                regex.lastIndex = 0;
+                while ((match = regex.exec(textWithoutLabel)) !== null) {
+                  matches.push({
+                    index: match.index,
+                    length: match[0].length,
+                    text: match[0],
+                    color
+                  });
+                }
+              });
+              
+              // Sort matches by index
+              matches.sort((a, b) => a.index - b.index);
+              
+              // Build formatted parts
+              if (label) {
+                parts.push(<strong key="label">{label}:</strong>);
+                parts.push(' ');
+              }
+              
+              matches.forEach((match) => {
+                if (match.index > lastIndex) {
+                  parts.push(textWithoutLabel.substring(lastIndex, match.index));
+                }
+                parts.push(
+                  <strong key={`${match.index}-${match.text}`} style={{ color: match.color }}>
+                    {match.text}
+                  </strong>
+                );
+                lastIndex = match.index + match.length;
+              });
+              
+              if (lastIndex < textWithoutLabel.length) {
+                parts.push(textWithoutLabel.substring(lastIndex));
+              }
+              
+              // If no matches found but we have a label, return formatted label + text
+              if (matches.length === 0 && label) {
+                return (
+                  <>
+                    <strong>{label}:</strong> {textWithoutLabel}
+                  </>
+                );
+              }
+              
+              // If no matches and no label, return original text
+              if (matches.length === 0 && !label) {
+                return text;
+              }
+              
+              return <>{parts}</>;
+            };
+            
+            const dismissInsight = (insightId) => {
+              setDismissedInsights(prev => {
+                const updated = new Set([...prev, insightId]);
+                try {
+                  localStorage.setItem('dismissedAnalyticsInsights', JSON.stringify([...updated]));
+                } catch (e) {
+                  console.error('Failed to save dismissed insights:', e);
+                }
+                return updated;
+              });
+            };
+            
+            const isInsightDismissed = (insightId) => {
+              return dismissedInsights.has(insightId);
+            };
+            
+            // Add IDs to insights and filter dismissed ones
+            const insightsWithIds = insights.slice(0, 4).map((insight, idx) => ({
+              ...insight,
+              id: `on-track-${idx}-${insight.text}` // Use text as unique ID
+            })).filter(insight => !isInsightDismissed(insight.id));
+            
+            return insightsWithIds.length > 0 ? (
               <div style={{ 
                 backgroundColor: isDarkMode ? '#2a2a2a' : '#f8f9fa', 
                 border: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}`,
@@ -2581,9 +2923,9 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                   Key Insights
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {insights.slice(0, 4).map((insight, idx) => (
+                  {insightsWithIds.map((insight, idx) => (
                     <div
-                      key={idx}
+                      key={insight.id}
                       style={{
                         padding: '8px 12px',
                         borderRadius: '4px',
@@ -2593,10 +2935,35 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                         borderLeft: `3px solid ${insight.type === 'positive' ? '#4cec8c' : '#fd8789'}`,
                         fontSize: '13px',
                         color: isDarkMode ? '#e5e5e5' : '#292929',
-                        lineHeight: '1.5'
+                        lineHeight: '1.5',
+                        display: 'flex',
+                        justifyContent: 'flex-start',
+                        alignItems: 'center',
+                        gap: '8px'
                       }}
                     >
-                      {insight.text}
+                      <button
+                        onClick={() => dismissInsight(insight.id)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: isDarkMode ? '#999' : '#666',
+                          cursor: 'pointer',
+                          padding: '4px 8px',
+                          fontSize: '18px',
+                          lineHeight: '1',
+                          opacity: 0.7,
+                          transition: 'opacity 0.2s',
+                          flexShrink: 0
+                        }}
+                        onMouseEnter={(e) => e.target.style.opacity = '1'}
+                        onMouseLeave={(e) => e.target.style.opacity = '0.7'}
+                        aria-label="Dismiss insight"
+                        title="Dismiss"
+                      >
+                        ×
+                      </button>
+                      <span style={{ flex: 1 }}>{formatInsightText(insight)}</span>
                     </div>
                   ))}
                 </div>
@@ -3241,159 +3608,360 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
               </div>
             )}
 
-          {/* TSE Average On Track Chart */}
-          {tseAverageOnTrack.length > 0 && (
-            <div className="chart-container">
-              <h3 className="chart-title">TSE Average On Track</h3>
-              <p className="chart-subtitle">Average on-track percentage over selected date range</p>
-              <div className="tse-heatmap-container">
-                <div className="heatmap-legend">
-                  <div className="legend-controls">
-                    <button
-                      className="legend-control-button"
-                      onClick={() => setSelectedRanges(new Set(['80-100', '60-79', '40-59', '20-39', '0-19']))}
-                    >
-                      Select All
-                    </button>
-                    <button
-                      className="legend-control-button"
-                      onClick={() => setSelectedRanges(new Set())}
-                    >
-                      Unselect All
-                    </button>
-                  </div>
-                  {[
-                    { range: '80-100', color: '#4cec8c', label: '80-100%' },
-                    { range: '60-79', color: '#9dd866', label: '60-79%' },
-                    { range: '40-59', color: '#ffd93d', label: '40-59%' },
-                    { range: '20-39', color: '#ff9a74', label: '20-39%' },
-                    { range: '0-19', color: '#ff6b6b', label: '0-19%' }
-                  ].map(({ range, color, label }) => {
-                    const isSelected = selectedRanges.has(range);
-                    return (
-                      <div 
-                        key={range}
-                        className={`legend-item ${isSelected ? 'legend-item-selected' : ''}`}
-                        onClick={() => {
-                          const newRanges = new Set(selectedRanges);
-                          if (isSelected) {
-                            newRanges.delete(range);
-                          } else {
-                            newRanges.add(range);
-                          }
-                          setSelectedRanges(newRanges);
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            const newRanges = new Set(selectedRanges);
-                            if (e.target.checked) {
-                              newRanges.add(range);
-                            } else {
-                              newRanges.delete(range);
-                            }
-                            setSelectedRanges(newRanges);
-                          }}
-                          onClick={(e) => e.stopPropagation()} // Prevent parent onClick
-                          className="legend-checkbox"
-                        />
-                        <div className="legend-color" style={{ backgroundColor: color }}></div>
-                        <span>{label}</span>
-                      </div>
-                    );
-                  })}
-                  <div className="legend-separator"></div>
-                  {['UK', 'NY', 'SF', 'Other'].map(region => {
-                    const isSelected = selectedHeatmapRegions.has(region);
-                    const regionLabels = {
-                      'UK': 'UK',
-                      'NY': 'New York',
-                      'SF': 'San Francisco',
-                      'Other': 'Other'
-                    };
-                    // Use dark mode icon for NY when in dark mode
-                    let iconUrl = REGION_ICONS[region];
-                    if (region === 'NY' && isDarkMode) {
-                      iconUrl = 'https://res.cloudinary.com/doznvxtja/image/upload/v1768716963/3_150_x_150_px_16_ozl21j.svg';
-                    }
-                    
-                    return (
-                      <div 
-                        key={region}
-                        className={`legend-item ${isSelected ? 'legend-item-selected' : ''}`}
-                        onClick={() => {
-                          const newRegions = new Set(selectedHeatmapRegions);
-                          if (isSelected) {
-                            newRegions.delete(region);
-                          } else {
-                            newRegions.add(region);
-                          }
-                          setSelectedHeatmapRegions(newRegions);
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            const newRegions = new Set(selectedHeatmapRegions);
-                            if (e.target.checked) {
-                              newRegions.add(region);
-                            } else {
-                              newRegions.delete(region);
-                            }
-                            setSelectedHeatmapRegions(newRegions);
-                          }}
-                          onClick={(e) => e.stopPropagation()} // Prevent parent onClick
-                          className="legend-checkbox"
-                        />
-                        {iconUrl && (
-                          <img 
-                            src={iconUrl} 
-                            alt={region} 
-                            className="legend-region-icon"
-                          />
-                        )}
-                        <span>{regionLabels[region]}</span>
-                      </div>
-                    );
-                  })}
+          {/* Average Chats Visualization */}
+          {averageChatsData.daily.length > 0 && (
+            <div className="chart-container" style={{ marginBottom: '32px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
+                <div>
+                  <h3 className="chart-title" style={{ marginBottom: '4px' }}>Average Chats per TSE</h3>
+                  <p className="chart-subtitle">Open chats and actionable snoozed chats over time</p>
                 </div>
-                <div className="tse-heatmap-grid">
-                  {filteredTseAverageOnTrack.map((tse, index) => {
-                    const getColor = (value) => {
-                      if (value >= 80) return '#4cec8c'; // Green for 80%+
-                      if (value >= 60) return '#9dd866'; // Light green for 60-79%
-                      if (value >= 40) return '#ffd93d'; // Yellow for 40-59%
-                      if (value >= 20) return '#ff9a74'; // Orange for 20-39%
-                      return '#ff6b6b'; // Red for <20%
-                    };
-                    
-                    const getTextColor = (value) => {
-                      return value >= 40 ? '#292929' : '#ffffff';
-                    };
-
-                    return (
-                      <div key={tse.name} className="tse-heatmap-item">
-                        <div 
-                          className="heatmap-cell"
-                          style={{ 
-                            backgroundColor: getColor(tse.overallOnTrack),
-                            color: getTextColor(tse.overallOnTrack)
-                          }}
-                          title={`${tse.name}: Overall On Track ${tse.overallOnTrack}%`}
-                        >
-                          <div className="heatmap-tse-name">{tse.name}</div>
-                          <div className="heatmap-percentage">{tse.overallOnTrack}%</div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <label style={{ fontSize: '13px', color: isDarkMode ? '#e5e5e5' : '#666', fontWeight: 500 }}>Time Period:</label>
+                    <select
+                      value={timePeriod}
+                      onChange={(e) => setTimePeriod(e.target.value)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: `1px solid ${isDarkMode ? '#444' : '#ddd'}`,
+                        backgroundColor: isDarkMode ? '#2a2a2a' : 'white',
+                        color: isDarkMode ? '#ffffff' : '#292929',
+                        fontSize: '13px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <label style={{ fontSize: '13px', color: isDarkMode ? '#e5e5e5' : '#666', fontWeight: 500 }}>View:</label>
+                    <select
+                      value={viewType}
+                      onChange={(e) => setViewType(e.target.value)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: `1px solid ${isDarkMode ? '#444' : '#ddd'}`,
+                        backgroundColor: isDarkMode ? '#2a2a2a' : 'white',
+                        color: isDarkMode ? '#ffffff' : '#292929',
+                        fontSize: '13px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="all">All Teams</option>
+                      <option value="by-region">By Region</option>
+                      <option value="by-team">By Team</option>
+                      <option value="by-tse">By TSE</option>
+                    </select>
+                  </div>
                 </div>
               </div>
+
+              {/* All Teams View */}
+              {viewType === 'all' && (
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart 
+                    data={aggregateByTimePeriod(averageChatsData.daily, timePeriod)} 
+                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+                    <XAxis 
+                      dataKey="date" 
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      tickFormatter={formatDateForChart}
+                    />
+                    <YAxis 
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      label={{ value: 'Average Chats', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                        border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                        color: isDarkMode ? '#e5e5e5' : '#292929'
+                      }}
+                      labelFormatter={formatDateForTooltip}
+                      formatter={(value, name) => {
+                        const labels = {
+                          'avgOpen': 'Open Chats',
+                          'avgActionableSnoozed': 'Actionable Snoozed'
+                        };
+                        return [`${value.toFixed(1)}`, labels[name] || name];
+                      }}
+                    />
+                    <ReferenceLine 
+                      y={5} 
+                      stroke="#999" 
+                      strokeWidth={2}
+                      strokeDasharray="2 2"
+                      label={{ value: "Target (5)", position: "top", fill: isDarkMode ? '#999' : '#666', fontSize: 11, offset: 10 }}
+                    />
+                    <Legend 
+                      wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929', paddingTop: '20px' }}
+                      iconType="line"
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="avgOpen" 
+                      stroke="#35a1b4" 
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: '#35a1b4' }}
+                      activeDot={{ r: 6 }}
+                      name="Open Chats"
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="avgActionableSnoozed" 
+                      stroke="#ff9a74" 
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: '#ff9a74' }}
+                      activeDot={{ r: 6 }}
+                      name="Actionable Snoozed"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+
+              {/* By Region View */}
+              {viewType === 'by-region' && regionChartData.length > 0 && (
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart data={regionChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+                    <XAxis 
+                      dataKey="date" 
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      tickFormatter={formatDateForChart}
+                    />
+                    <YAxis 
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      label={{ value: 'Average Chats', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                        border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                        color: isDarkMode ? '#e5e5e5' : '#292929'
+                      }}
+                      labelFormatter={formatDateForTooltip}
+                      formatter={(value, name) => {
+                        if (!value) return [null, null];
+                        return [`${value.toFixed(1)}`, name.replace('_', ' - ')];
+                      }}
+                    />
+                    <ReferenceLine 
+                      y={5} 
+                      stroke="#999" 
+                      strokeWidth={2}
+                      strokeDasharray="2 2"
+                      label={{ value: "Target (5)", position: "top", fill: isDarkMode ? '#999' : '#666', fontSize: 11, offset: 10 }}
+                    />
+                    <Legend 
+                      wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929', paddingTop: '20px' }}
+                      iconType="line"
+                    />
+                    {Object.keys(averageChatsData.byRegion).map((region) => {
+                      const regionColors = {
+                        'UK': '#4cec8c',
+                        'NY': '#35a1b4',
+                        'SF': '#ff9a74',
+                        'Other': '#9dd866'
+                      };
+                      const color = regionColors[region] || '#35a1b4';
+                      return (
+                        <React.Fragment key={region}>
+                          <Line 
+                            type="monotone" 
+                            dataKey={`${region}_open`} 
+                            stroke={color} 
+                            strokeWidth={2.5}
+                            dot={{ r: 3 }}
+                            activeDot={{ r: 5 }}
+                            name={`${region} - Open`}
+                            connectNulls
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey={`${region}_snoozed`} 
+                            stroke={color} 
+                            strokeWidth={2.5}
+                            strokeDasharray="5 5"
+                            dot={{ r: 3 }}
+                            activeDot={{ r: 5 }}
+                            name={`${region} - Snoozed`}
+                            connectNulls
+                          />
+                        </React.Fragment>
+                      );
+                    })}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+
+              {/* By Team View */}
+              {viewType === 'by-team' && teamChartData.length > 0 && (
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart data={teamChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+                    <XAxis 
+                      dataKey="date" 
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      tickFormatter={formatDateForChart}
+                    />
+                    <YAxis 
+                      stroke={isDarkMode ? '#ffffff' : '#292929'}
+                      tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      label={{ value: 'Average Chats', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                        border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                        color: isDarkMode ? '#e5e5e5' : '#292929'
+                      }}
+                      labelFormatter={formatDateForTooltip}
+                      formatter={(value, name) => {
+                        if (!value) return [null, null];
+                        return [`${value.toFixed(1)}`, name.replace('_', ' - ')];
+                      }}
+                    />
+                    <ReferenceLine 
+                      y={5} 
+                      stroke="#999" 
+                      strokeWidth={2}
+                      strokeDasharray="2 2"
+                      label={{ value: "Target (5)", position: "top", fill: isDarkMode ? '#999' : '#666', fontSize: 11, offset: 10 }}
+                    />
+                    <Legend 
+                      wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929', paddingTop: '20px' }}
+                      iconType="line"
+                    />
+                    {Object.keys(averageChatsData.byTeam).map((team) => {
+                      return (
+                        <React.Fragment key={team}>
+                          <Line 
+                            type="monotone" 
+                            dataKey={`${team}_open`} 
+                            stroke="#35a1b4" 
+                            strokeWidth={2.5}
+                            dot={{ r: 3 }}
+                            activeDot={{ r: 5 }}
+                            name={`${team} - Open`}
+                            connectNulls
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey={`${team}_snoozed`} 
+                            stroke="#ff9a74" 
+                            strokeWidth={2.5}
+                            strokeDasharray="5 5"
+                            dot={{ r: 3 }}
+                            activeDot={{ r: 5 }}
+                            name={`${team} - Snoozed`}
+                            connectNulls
+                          />
+                        </React.Fragment>
+                      );
+                    })}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+
+              {/* By TSE View - Show top 10 TSEs */}
+              {viewType === 'by-tse' && tseChartData.length > 0 && (
+                <div>
+                  <ResponsiveContainer width="100%" height={500}>
+                    <LineChart data={tseChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#333' : '#e0e0e0'} />
+                      <XAxis 
+                        dataKey="date" 
+                        stroke={isDarkMode ? '#ffffff' : '#292929'}
+                        tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                        tickFormatter={formatDateForChart}
+                      />
+                      <YAxis 
+                        stroke={isDarkMode ? '#ffffff' : '#292929'}
+                        tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                        label={{ value: 'Average Chats', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
+                      />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: isDarkMode ? '#1e1e1e' : 'white', 
+                          border: `1px solid ${isDarkMode ? '#35a1b4' : '#35a1b4'}`, 
+                          borderRadius: '8px',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                          color: isDarkMode ? '#e5e5e5' : '#292929'
+                        }}
+                        labelFormatter={formatDateForTooltip}
+                        formatter={(value, name) => {
+                          if (!value) return [null, null];
+                          const parts = name.split('_');
+                          const tseId = parts[0];
+                          const metric = parts[1];
+                          const tseName = averageChatsData.byTSE[tseId]?.name || tseId;
+                          return [`${value.toFixed(1)}`, `${tseName} - ${metric === 'open' ? 'Open' : 'Snoozed'}`];
+                        }}
+                      />
+                      <ReferenceLine 
+                        y={5} 
+                        stroke="#999" 
+                        strokeWidth={2}
+                        strokeDasharray="2 2"
+                        label={{ value: "Target (5)", position: "top", fill: isDarkMode ? '#999' : '#666', fontSize: 11, offset: 10 }}
+                      />
+                      <Legend 
+                        wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929', paddingTop: '20px' }}
+                        iconType="line"
+                      />
+                      {Object.keys(averageChatsData.byTSE).slice(0, 10).map((tseId) => {
+                        const tseData = averageChatsData.byTSE[tseId];
+                        const colors = ['#35a1b4', '#ff9a74', '#4cec8c', '#9dd866', '#ffd93d', '#fd8789', '#ff6b6b', '#a855f7', '#ec4899', '#06b6d4'];
+                        const colorIdx = parseInt(tseId) % colors.length;
+                        const color = colors[colorIdx];
+                        return (
+                          <React.Fragment key={tseId}>
+                            <Line 
+                              type="monotone" 
+                              dataKey={`${tseId}_open`} 
+                              stroke={color} 
+                              strokeWidth={2}
+                              dot={false}
+                              activeDot={{ r: 4 }}
+                              name={`${tseData.name} - Open`}
+                              connectNulls
+                            />
+                            <Line 
+                              type="monotone" 
+                              dataKey={`${tseId}_snoozed`} 
+                              stroke={color} 
+                              strokeWidth={2}
+                              strokeDasharray="5 5"
+                              dot={false}
+                              activeDot={{ r: 4 }}
+                              name={`${tseData.name} - Snoozed`}
+                              connectNulls
+                            />
+                          </React.Fragment>
+                        );
+                      })}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           )}
 
@@ -3442,20 +4010,23 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                         </span>
                       )}
                     </th>
+                    <th>Avg Open Chats Per TSE</th>
                     <th 
                       className="sortable-header" 
                       onClick={() => handleOnTrackSort('snoozedOnTrack')}
                     >
-                      Snoozed On Track
+                      Actionable Snoozed On Track
                       {onTrackSortConfig.key === 'snoozedOnTrack' && (
                         <span className="sort-indicator">
                           {onTrackSortConfig.direction === 'asc' ? ' ↑' : ' ↓'}
                         </span>
                       )}
                     </th>
+                    <th>Avg Actionable Snoozed</th>
                     <th 
                       className="sortable-header" 
                       onClick={() => handleOnTrackSort('overallOnTrack')}
+                      title="Percentage of TSEs meeting BOTH criteria (open ≤ 5 AND actionable snoozed ≤ 5). This is not an average of the two percentages, but rather the intersection of TSEs meeting both requirements simultaneously."
                     >
                       Overall On Track
                       {onTrackSortConfig.key === 'overallOnTrack' && (
@@ -3478,6 +4049,12 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                     const overallOnTrackPct = dateGroup.totalTSEs > 0 
                       ? Math.round((dateGroup.onTrackBoth / dateGroup.totalTSEs) * 100) 
                       : 0;
+                    const avgOpenChats = dateGroup.totalTSEs > 0 
+                      ? Math.round((dateGroup.totalOpen / dateGroup.totalTSEs) * 10) / 10 
+                      : 0;
+                    const avgActionableSnoozed = dateGroup.totalTSEs > 0 
+                      ? Math.round((dateGroup.totalActionableSnoozed / dateGroup.totalTSEs) * 10) / 10 
+                      : 0;
 
                     return (
                       <React.Fragment key={dateGroup.date}>
@@ -3497,11 +4074,13 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                               {openOnTrackPct}%
                             </span>
                           </td>
+                          <td>{avgOpenChats.toFixed(1)}</td>
                           <td>
                             <span className={`on-track-percentage ${snoozedOnTrackPct === 100 ? 'on-track' : ''}`}>
                               {snoozedOnTrackPct}%
                             </span>
                           </td>
+                          <td>{avgActionableSnoozed.toFixed(1)}</td>
                           <td>
                             <span className={`on-track-percentage ${overallOnTrackPct === 100 ? 'on-track' : ''}`}>
                               {overallOnTrackPct}%
@@ -3510,8 +4089,71 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                         </tr>
                         {isExpanded && (
                           <>
+                            {/* Team Averages Row */}
+                            {dateGroup.regionAverages && Object.keys(dateGroup.regionAverages).length > 0 && (
+                              <tr className="team-averages-row">
+                                <td colSpan="6">
+                                  <div style={{ 
+                                    padding: '12px 16px', 
+                                    backgroundColor: isDarkMode ? '#2a2a2a' : '#f5f5f5',
+                                    borderTop: `1px solid ${isDarkMode ? '#444' : '#ddd'}`,
+                                    borderBottom: `1px solid ${isDarkMode ? '#444' : '#ddd'}`
+                                  }}>
+                                    <div style={{ 
+                                      fontWeight: 600, 
+                                      marginBottom: '12px', 
+                                      fontSize: '13px',
+                                      color: isDarkMode ? '#ffffff' : '#292929'
+                                    }}>
+                                      Team (Region) Averages
+                                    </div>
+                                    <div style={{ 
+                                      display: 'grid', 
+                                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                                      gap: '16px' 
+                                    }}>
+                                      {Object.keys(dateGroup.regionAverages).sort().map(region => {
+                                        const avg = dateGroup.regionAverages[region];
+                                        return (
+                                          <div key={region} style={{
+                                            padding: '8px 12px',
+                                            backgroundColor: isDarkMode ? '#1e1e1e' : 'white',
+                                            borderRadius: '6px',
+                                            border: `1px solid ${isDarkMode ? '#444' : '#ddd'}`
+                                          }}>
+                                            <div style={{ 
+                                              fontWeight: 600, 
+                                              fontSize: '12px', 
+                                              marginBottom: '6px',
+                                              color: isDarkMode ? '#ffffff' : '#292929'
+                                            }}>
+                                              {region}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: isDarkMode ? '#b0b0b0' : '#666', lineHeight: '1.6' }}>
+                                              <div>TSEs: {avg.totalTSEs}</div>
+                                              <div>Open On Track: <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>{avg.openOnTrack}%</strong></div>
+                                              <div>Snoozed On Track: <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>{avg.snoozedOnTrack}%</strong></div>
+                                              <div>Overall On Track: <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>{avg.overallOnTrack}%</strong></div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                    <div style={{ 
+                                      marginTop: '12px', 
+                                      fontSize: '11px', 
+                                      color: isDarkMode ? '#999' : '#666',
+                                      fontStyle: 'italic',
+                                      lineHeight: '1.5'
+                                    }}>
+                                      <strong>Note:</strong> Overall On Track is the percentage of TSEs meeting BOTH criteria simultaneously (open ≤ 5 AND actionable snoozed ≤ 5), not an average of the two percentages. This is why it can be lower than the individual percentages.
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
                             <tr className="tse-header-row">
-                              <td colSpan="6">
+                              <td colSpan="8">
                                 <table className="nested-tse-table">
                                   <thead>
                                     <tr>
@@ -3547,11 +4189,17 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                                           {(() => {
                                             const tooltipKey = `${dateGroup.date}-${tse.tseName}`;
                                             const isClicked = clickedTooltip === tooltipKey;
+                                            // Calculate snoozedForOnTrack for display
+                                            const snoozedForOnTrack = tse.snoozedForOnTrack !== undefined 
+                                              ? tse.snoozedForOnTrack 
+                                              : (tse.totalSnoozed || 0) - (tse.customerWaitSnoozed || 0);
+                                            const displaySnoozed = snoozedForOnTrack >= 0 ? snoozedForOnTrack : (tse.actionableSnoozed || 0);
+                                            
                                             const tooltipText = tse.exceedsTargets
-                                              ? `Outstanding - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Waiting on TSE: ${tse.actionableSnoozed || 0} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`
+                                              ? `Outstanding - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Snoozed (excl. customer): ${displaySnoozed} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`
                                               : tse.overallOnTrack
-                                              ? `On Track - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Waiting on TSE: ${tse.actionableSnoozed || 0} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`
-                                              : `Over Limit - Needs Attention - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Waiting on TSE: ${tse.actionableSnoozed || 0} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`;
+                                              ? `On Track - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Snoozed (excl. customer): ${displaySnoozed} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`
+                                              : `Over Limit - Needs Attention - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Snoozed (excl. customer): ${displaySnoozed} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`;
                                             
                                             return (
                                               <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -3598,7 +4246,12 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                                                           <strong>Open:</strong> {tse.open} (target: ≤{THRESHOLDS.MAX_OPEN_SOFT})
                                                         </div>
                                                         <div className="tooltip-metric">
-                                                          <strong>Waiting on TSE:</strong> {tse.actionableSnoozed || 0} (target: ≤{THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})
+                                                          <strong>Snoozed (excl. customer):</strong> {(() => {
+                                                            const snoozedForOnTrack = tse.snoozedForOnTrack !== undefined 
+                                                              ? tse.snoozedForOnTrack 
+                                                              : (tse.totalSnoozed || 0) - (tse.customerWaitSnoozed || 0);
+                                                            return snoozedForOnTrack >= 0 ? snoozedForOnTrack : (tse.actionableSnoozed || 0);
+                                                          })()} (target: ≤{THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})
                                                         </div>
                                                       </div>
                                                     </div>
@@ -3664,17 +4317,32 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
               {(() => {
                 const insights = [];
                 
-                // 10+ min breakdown (only threshold)
-                if (responseTimeSummary.avgPercentage10Plus > 10) {
+                // 10+ min breakdown
+                if (responseTimeSummary.avgPercentage10Plus > WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN) {
                   insights.push({
                     type: 'warning',
-                    text: `${responseTimeSummary.avgPercentage10Plus}% average 10+ min wait rate - exceeds target (target: ≤10%)`
+                    text: `${responseTimeSummary.avgPercentage10Plus}% average 10+ min wait rate - exceeds target (target: ${WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%)`
                   });
-                } else if (responseTimeSummary.avgPercentage10Plus > 0) {
+                } else if (responseTimeSummary.avgPercentage10Plus === WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN) {
                   insights.push({
                     type: 'positive',
-                    text: `${responseTimeSummary.avgPercentage10Plus}% average 10+ min wait rate - within target (target: ≤10%)`
+                    text: `${responseTimeSummary.avgPercentage10Plus}% average 10+ min wait rate - within target (target: ${WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%)`
                   });
+                }
+                
+                // 5-10 min breakdown
+                if (responseTimeSummary.avgPercentage5to10 !== undefined) {
+                  if (responseTimeSummary.avgPercentage5to10 > WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN) {
+                    insights.push({
+                      type: 'warning',
+                      text: `${responseTimeSummary.avgPercentage5to10.toFixed(1)}% average 5-10 min wait rate - exceeds target (target: ≤${WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%)`
+                    });
+                  } else {
+                    insights.push({
+                      type: 'positive',
+                      text: `${responseTimeSummary.avgPercentage5to10.toFixed(1)}% average 5-10 min wait rate - within target (target: ≤${WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%)`
+                    });
+                  }
                 }
                 
                 // Recent trend
@@ -3715,7 +4383,112 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                   }
                 }
                 
-                return insights.length > 0 ? (
+                // Format insight text function
+                const formatInsightText = (insight) => {
+                  const text = insight.text;
+                  const parts = [];
+                  let lastIndex = 0;
+                  
+                  // Try to extract label if text starts with common labels
+                  const labelMatch = text.match(/^(Excellent performance|Performance below target|Strong current streak|No current streak|Performance improving|Performance declining|Best streak achieved|Strong average performance|Average performance below target|Recent improvement|Recent decline|Overall improving trend|Overall declining trend|Strong performance at scale):/);
+                  let label = null;
+                  let textWithoutLabel = text;
+                  
+                  if (labelMatch) {
+                    label = labelMatch[1];
+                    textWithoutLabel = text.substring(label.length + 1).trim();
+                  }
+                  
+                  // Match patterns like "XX%", "Strong", "moderate", "weak", etc.
+                  const patterns = [
+                    { regex: /\b(strongest|stronger|Strongest|Stronger)\b/g, color: '#fd8789' },
+                    { regex: /\b(Strong|strong)\b/g, color: '#fd8789' },
+                    { regex: /\b(moderate|Moderate)\b/g, color: '#fbbf24' },
+                    { regex: /\b(weakest|weaker|Weakest|Weaker)\b/g, color: '#4cec8c' },
+                    { regex: /\b(weak|Weak)\b/g, color: '#4cec8c' },
+                    { regex: /([+-]?\d+\.?\d*)%/g, color: '#4cec8c' },
+                  ];
+                  
+                  // Find all matches in text without label
+                  const matches = [];
+                  patterns.forEach(({ regex, color }) => {
+                    let match;
+                    regex.lastIndex = 0;
+                    while ((match = regex.exec(textWithoutLabel)) !== null) {
+                      matches.push({
+                        index: match.index,
+                        length: match[0].length,
+                        text: match[0],
+                        color
+                      });
+                    }
+                  });
+                  
+                  // Sort matches by index
+                  matches.sort((a, b) => a.index - b.index);
+                  
+                  // Build formatted parts
+                  if (label) {
+                    parts.push(<strong key="label">{label}:</strong>);
+                    parts.push(' ');
+                  }
+                  
+                  matches.forEach((match) => {
+                    if (match.index > lastIndex) {
+                      parts.push(textWithoutLabel.substring(lastIndex, match.index));
+                    }
+                    parts.push(
+                      <strong key={`${match.index}-${match.text}`} style={{ color: match.color }}>
+                        {match.text}
+                      </strong>
+                    );
+                    lastIndex = match.index + match.length;
+                  });
+                  
+                  if (lastIndex < textWithoutLabel.length) {
+                    parts.push(textWithoutLabel.substring(lastIndex));
+                  }
+                  
+                  // If no matches found but we have a label, return formatted label + text
+                  if (matches.length === 0 && label) {
+                    return (
+                      <>
+                        <strong>{label}:</strong> {textWithoutLabel}
+                      </>
+                    );
+                  }
+                  
+                  // If no matches and no label, return original text
+                  if (matches.length === 0 && !label) {
+                    return text;
+                  }
+                  
+                  return <>{parts}</>;
+                };
+                
+                const dismissInsight = (insightId) => {
+                  setDismissedInsights(prev => {
+                    const updated = new Set([...prev, insightId]);
+                    try {
+                      localStorage.setItem('dismissedAnalyticsInsights', JSON.stringify([...updated]));
+                    } catch (e) {
+                      console.error('Failed to save dismissed insights:', e);
+                    }
+                    return updated;
+                  });
+                };
+                
+                const isInsightDismissed = (insightId) => {
+                  return dismissedInsights.has(insightId);
+                };
+                
+                // Add IDs to insights and filter dismissed ones
+                const insightsWithIds = insights.slice(0, 4).map((insight, idx) => ({
+                  ...insight,
+                  id: `response-time-${idx}-${insight.text}` // Use text as unique ID
+                })).filter(insight => !isInsightDismissed(insight.id));
+                
+                return insightsWithIds.length > 0 ? (
                   <div style={{ 
                     backgroundColor: isDarkMode ? '#2a2a2a' : '#f8f9fa', 
                     border: `1px solid ${isDarkMode ? '#444' : '#e0e0e0'}`,
@@ -3732,9 +4505,9 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                       Key Insights
                     </h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {insights.slice(0, 4).map((insight, idx) => (
+                      {insightsWithIds.map((insight, idx) => (
                         <div
-                          key={idx}
+                          key={insight.id}
                           style={{
                             padding: '8px 12px',
                             borderRadius: '4px',
@@ -3744,10 +4517,35 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                             borderLeft: `3px solid ${insight.type === 'positive' ? '#4cec8c' : '#fd8789'}`,
                             fontSize: '13px',
                             color: isDarkMode ? '#e5e5e5' : '#292929',
-                            lineHeight: '1.5'
+                            lineHeight: '1.5',
+                            display: 'flex',
+                            justifyContent: 'flex-start',
+                            alignItems: 'center',
+                            gap: '8px'
                           }}
                         >
-                          {insight.text}
+                          <button
+                            onClick={() => dismissInsight(insight.id)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: isDarkMode ? '#999' : '#666',
+                              cursor: 'pointer',
+                              padding: '4px 8px',
+                              fontSize: '18px',
+                              lineHeight: '1',
+                              opacity: 0.7,
+                              transition: 'opacity 0.2s',
+                              flexShrink: 0
+                            }}
+                            onMouseEnter={(e) => e.target.style.opacity = '1'}
+                            onMouseLeave={(e) => e.target.style.opacity = '0.7'}
+                            aria-label="Dismiss insight"
+                            title="Dismiss"
+                          >
+                            ×
+                          </button>
+                          <span style={{ flex: 1 }}>{formatInsightText(insight)}</span>
                         </div>
                       ))}
                     </div>
@@ -3911,7 +4709,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                           <li><strong>5-10 Min Wait %</strong> (orange, dashed): Percentage waiting 5-10 minutes</li>
                           <li><strong>10+ Min Wait %</strong> (red, dashed): Percentage waiting 10+ minutes</li>
                         </ul>
-                        <p><strong>Reference Line:</strong> The red dashed line at 10% represents the target threshold for 10+ Min Waits (≤10%). Values at or below this line indicate good performance.</p>
+                        <p><strong>Reference Lines:</strong> The red dashed line at {WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}% represents the target threshold for 10+ Min Waits ({WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}%). The orange dashed line at {WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}% represents the target threshold for 5-10 Min Waits (≤{WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}%). Values at or below these lines indicate good performance.</p>
                         <p><strong>How to use:</strong> Hover over data points to see exact values. Use the date range selector to analyze different time periods.</p>
                       </div>
                     }
@@ -3946,11 +4744,18 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                   }}
                     />
                     <ReferenceLine 
-                      y={10} 
+                      y={WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN} 
                       stroke="#fd8789" 
                       strokeDasharray="2 2" 
                       strokeWidth={2}
-                      label={{ value: "Target: ≤10% (10+ Min Waits)", position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                      label={{ value: `Target: ${WAIT_TIME_TARGETS.TARGET_10_PLUS_MIN}% (10+ Min Waits)`, position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
+                    />
+                    <ReferenceLine 
+                      y={WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN} 
+                      stroke="#ff9a74" 
+                      strokeDasharray="2 2" 
+                      strokeWidth={2}
+                      label={{ value: `Target: ≤${WAIT_TIME_TARGETS.TARGET_5_TO_10_MIN}% (5-10 Min Waits)`, position: "top", fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
                     />
                     <Line 
                       type="monotone" 
@@ -4449,6 +5254,17 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                         </th>
                         <th 
                           className="sortable-header" 
+                          onClick={() => handleResponseTimeSort('totalClosed')}
+                        >
+                          Total Closed
+                          {responseTimeSortConfig.key === 'totalClosed' && (
+                            <span className="sort-indicator">
+                              {responseTimeSortConfig.direction === 'asc' ? ' ↑' : ' ↓'}
+                            </span>
+                          )}
+                        </th>
+                        <th 
+                          className="sortable-header" 
                           onClick={() => handleResponseTimeSort('count5PlusMin')}
                         >
                           5+ Min Waits
@@ -4480,6 +5296,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                                 <strong>{formatDateUTC(row.date)}</strong>
                               </td>
                               <td>{row.totalConversations}</td>
+                              <td>{row.totalClosed}</td>
                               <td>
                                 {row.count5PlusMin}
                                 {row.percentage5PlusMin > 0 && (
@@ -4552,7 +5369,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                             </tr>
                             {isExpanded && (
                               <tr className="conversations-row">
-                                <td colSpan="5">
+                                <td colSpan="7">
                                   <div className="conversations-list">
                                     {/* Categorize conversations into 5-10 min and 10+ min buckets */}
                                     {(() => {
@@ -4697,6 +5514,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
 // Results View Component
 function ResultsView({ data, loading, dateRange, customStartDate, customEndDate }) {
   const { isDarkMode } = useTheme();
+  // Track dismissed insights with localStorage persistence
+  const [dismissedInsights, setDismissedInsights] = useState(() => {
+    try {
+      const stored = localStorage.getItem('dismissedImpactInsights');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch (e) {
+      return new Set();
+    }
+  });
+  
   if (loading) {
     return (
       <div className="results-view">
@@ -4756,77 +5583,143 @@ function ResultsView({ data, loading, dateRange, customStartDate, customEndDate 
         }}>
           Key Insights
         </h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div
-            style={{
-              padding: '8px 12px',
-              borderRadius: '4px',
+        {(() => {
+          // Build insights array
+          const insights = [
+            {
+              id: 'impact-overall-impact',
+              type: isGoodCorrelation(data.correlationDirection) ? 'positive' : 'warning',
+              label: 'Overall Impact',
               backgroundColor: isGoodCorrelation(data.correlationDirection) 
                 ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
                 : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
-              borderLeft: `3px solid ${isGoodCorrelation(data.correlationDirection) ? '#4cec8c' : '#fd8789'}`,
-              fontSize: '13px',
-              color: isDarkMode ? '#e5e5e5' : '#292929',
-              lineHeight: '1.5'
-            }}
-          >
-            <strong>Overall Impact:</strong> On-track performance has a <strong style={{ color: overallImpact === 'strong' ? '#fd8789' : overallImpact === 'moderate' ? '#fbbf24' : '#4cec8c' }}>{overallImpact}</strong> impact on response times
-            {isGoodCorrelation(data.correlationDirection) ? ' (higher on-track = lower wait times)' : ' (concerning pattern)'}
-          </div>
-          <div
-            style={{
-              padding: '8px 12px',
-              borderRadius: '4px',
-              backgroundColor: isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)',
-              borderLeft: '3px solid #4cec8c',
-              fontSize: '13px',
-              color: isDarkMode ? '#e5e5e5' : '#292929',
-              lineHeight: '1.5'
-            }}
-          >
-            <strong>Wait Time Sensitivity:</strong> {isStronger5to10 ? '5-10 min waits' : '10+ min waits'} are {isStronger5to10 ? 'more' : 'less'} correlated with on-track performance than {isStronger5to10 ? '10+ min waits' : '5-10 min waits'}
-          </div>
-          <div
-            style={{
-              padding: '8px 12px',
-              borderRadius: '4px',
+              borderColor: isGoodCorrelation(data.correlationDirection) ? '#4cec8c' : '#fd8789',
+              content: (
+                <>
+                  <strong>Overall Impact:</strong> On-track performance has a <strong style={{ color: overallImpact === 'strong' ? '#fd8789' : overallImpact === 'moderate' ? '#fbbf24' : '#4cec8c' }}>{overallImpact}</strong> impact on response times
+                  {isGoodCorrelation(data.correlationDirection) ? ' (higher on-track = lower wait times)' : ' (concerning pattern)'}
+                </>
+              )
+            },
+            {
+              id: 'impact-wait-time-sensitivity',
+              type: 'positive',
+              label: 'Wait Time Sensitivity',
+              content: (
+                <>
+                  <strong>Wait Time Sensitivity:</strong> {isStronger5to10 ? '5-10 min waits' : '10+ min waits'} are {isStronger5to10 ? 'more' : 'less'} correlated with on-track performance than {isStronger5to10 ? '10+ min waits' : '5-10 min waits'}
+                </>
+              )
+            },
+            {
+              id: 'impact-improvement-potential',
+              type: (data.improvementPotential5to10 > 0 && data.improvementPotential10Plus > 0) ? 'positive' : 'warning',
+              label: 'Improvement Potential',
               backgroundColor: (data.improvementPotential5to10 > 0 && data.improvementPotential10Plus > 0)
                 ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
                 : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
-              borderLeft: `3px solid ${(data.improvementPotential5to10 > 0 && data.improvementPotential10Plus > 0) ? '#4cec8c' : '#fd8789'}`,
-              fontSize: '13px',
-              color: isDarkMode ? '#e5e5e5' : '#292929',
-              lineHeight: '1.5'
-            }}
-          >
-            <strong>Improvement Potential:</strong> If all days matched High (80-100%) on-track performance, wait times could be{' '}
-            {data.improvementPotential5to10 > 0 ? 'reduced' : 'increased'} by{' '}
-            <strong style={{ color: data.improvementPotential5to10 > 0 ? '#4cec8c' : '#fd8789' }}>
-              {Math.abs(data.improvementPotential5to10).toFixed(2)}% for 5-10 min waits
-            </strong> and{' '}
-            {data.improvementPotential10Plus > 0 ? 'reduced' : 'increased'} by{' '}
-            <strong style={{ color: data.improvementPotential10Plus > 0 ? '#4cec8c' : '#fd8789' }}>
-              {Math.abs(data.improvementPotential10Plus).toFixed(2)}% for 10+ min waits
-            </strong>
-          </div>
-          <div
-            style={{
-              padding: '8px 12px',
-              borderRadius: '4px',
+              borderColor: (data.improvementPotential5to10 > 0 && data.improvementPotential10Plus > 0) ? '#4cec8c' : '#fd8789',
+              content: (
+                <>
+                  <strong>Improvement Potential:</strong> If all days matched High (80-100%) on-track performance, wait times could be{' '}
+                  {data.improvementPotential5to10 > 0 ? 'reduced' : 'increased'} by{' '}
+                  <strong style={{ color: data.improvementPotential5to10 > 0 ? '#4cec8c' : '#fd8789' }}>
+                    {Math.abs(data.improvementPotential5to10).toFixed(2)}% for 5-10 min waits
+                  </strong> and{' '}
+                  {data.improvementPotential10Plus > 0 ? 'reduced' : 'increased'} by{' '}
+                  <strong style={{ color: data.improvementPotential10Plus > 0 ? '#4cec8c' : '#fd8789' }}>
+                    {Math.abs(data.improvementPotential10Plus).toFixed(2)}% for 10+ min waits
+                  </strong>
+                </>
+              )
+            },
+            {
+              id: 'impact-correlation-strength',
+              type: Math.abs(strongestCorrelation.value) >= 0.7 ? 'positive' : Math.abs(strongestCorrelation.value) >= 0.3 ? 'warning' : 'warning',
+              label: 'Correlation Strength',
               backgroundColor: Math.abs(strongestCorrelation.value) >= 0.7
                 ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
                 : Math.abs(strongestCorrelation.value) >= 0.3
                 ? (isDarkMode ? 'rgba(251, 191, 36, 0.1)' : 'rgba(251, 191, 36, 0.1)')
                 : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)'),
-              borderLeft: `3px solid ${Math.abs(strongestCorrelation.value) >= 0.7 ? '#4cec8c' : Math.abs(strongestCorrelation.value) >= 0.3 ? '#fbbf24' : '#fd8789'}`,
-              fontSize: '13px',
-              color: isDarkMode ? '#e5e5e5' : '#292929',
-              lineHeight: '1.5'
-            }}
-          >
-            <strong>Correlation Strength:</strong> The {strongestCorrelation.bucket} wait time bucket shows the {Math.abs(strongestCorrelation.value) < 0.3 ? 'weakest' : Math.abs(strongestCorrelation.value) < 0.7 ? 'moderate' : 'strongest'} correlation ({strongestCorrelation.value > 0 ? '+' : ''}{strongestCorrelation.value.toFixed(2)})
-          </div>
-        </div>
+              borderColor: Math.abs(strongestCorrelation.value) >= 0.7 ? '#4cec8c' : Math.abs(strongestCorrelation.value) >= 0.3 ? '#fbbf24' : '#fd8789',
+              content: (
+                <>
+                  <strong>Correlation Strength:</strong> The {strongestCorrelation.bucket} wait time bucket shows the {Math.abs(strongestCorrelation.value) < 0.3 ? 'weakest' : Math.abs(strongestCorrelation.value) < 0.7 ? 'moderate' : 'strongest'} correlation ({strongestCorrelation.value > 0 ? '+' : ''}{strongestCorrelation.value.toFixed(2)})
+                </>
+              )
+            }
+          ];
+          
+          const dismissInsight = (insightId) => {
+            setDismissedInsights(prev => {
+              const updated = new Set([...prev, insightId]);
+              try {
+                localStorage.setItem('dismissedImpactInsights', JSON.stringify([...updated]));
+              } catch (e) {
+                console.error('Failed to save dismissed insights:', e);
+              }
+              return updated;
+            });
+          };
+          
+          const isInsightDismissed = (insightId) => {
+            return dismissedInsights.has(insightId);
+          };
+          
+          // Filter dismissed insights
+          const visibleInsights = insights.filter(insight => !isInsightDismissed(insight.id));
+          
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {visibleInsights.map((insight) => (
+                <div
+                  key={insight.id}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '4px',
+                    backgroundColor: insight.backgroundColor !== undefined 
+                      ? insight.backgroundColor
+                      : (insight.type === 'positive' 
+                        ? (isDarkMode ? 'rgba(76, 236, 140, 0.1)' : 'rgba(76, 236, 140, 0.1)')
+                        : (isDarkMode ? 'rgba(253, 135, 137, 0.1)' : 'rgba(253, 135, 137, 0.1)')),
+                    borderLeft: `3px solid ${insight.borderColor !== undefined ? insight.borderColor : (insight.type === 'positive' ? '#4cec8c' : '#fd8789')}`,
+                    fontSize: '13px',
+                    color: isDarkMode ? '#e5e5e5' : '#292929',
+                    lineHeight: '1.5',
+                    display: 'flex',
+                    justifyContent: 'flex-start',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <button
+                    onClick={() => dismissInsight(insight.id)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: isDarkMode ? '#999' : '#666',
+                      cursor: 'pointer',
+                      padding: '4px 8px',
+                      fontSize: '18px',
+                      lineHeight: '1',
+                      opacity: 0.7,
+                      transition: 'opacity 0.2s',
+                      flexShrink: 0
+                    }}
+                    onMouseEnter={(e) => e.target.style.opacity = '1'}
+                    onMouseLeave={(e) => e.target.style.opacity = '0.7'}
+                    aria-label="Dismiss insight"
+                    title="Dismiss"
+                  >
+                    ×
+                  </button>
+                  <span style={{ flex: 1 }}>{insight.content}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Key Insights */}
