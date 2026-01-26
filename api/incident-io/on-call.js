@@ -6,11 +6,14 @@ export const dynamic = 'force-dynamic';
 const INCIDENT_IO_API_KEY = process.env.INCIDENT_IO_API_KEY;
 const INCIDENT_IO_BASE_URL = 'https://api.incident.io';
 
-// Schedule IDs to fetch (we'll get these dynamically)
+// Schedule names to fetch
 const SCHEDULE_NAMES = [
   'TSE Manager - Escalations',
   'TSE Manager - Incidents'
 ];
+
+// Also try partial matches
+const SCHEDULE_KEYWORDS = ['escalation', 'incident', 'tse manager'];
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -69,10 +72,17 @@ export default async function handler(req, res) {
     
     console.log('[On-Call API] Found schedules:', schedules.map(s => ({ id: s.id, name: s.name })));
 
-    // Filter to our target schedules
-    const targetSchedules = schedules.filter(s => 
-      SCHEDULE_NAMES.some(name => s.name.toLowerCase().includes(name.toLowerCase()))
-    );
+    // Filter to our target schedules (exact match or keyword match)
+    const targetSchedules = schedules.filter(s => {
+      const nameLower = s.name.toLowerCase();
+      // Check exact match first
+      const exactMatch = SCHEDULE_NAMES.some(name => nameLower === name.toLowerCase());
+      // Check keyword match
+      const keywordMatch = SCHEDULE_KEYWORDS.some(keyword => nameLower.includes(keyword));
+      return exactMatch || keywordMatch;
+    });
+    
+    console.log('[On-Call API] Target schedules:', targetSchedules.map(s => s.name));
 
     if (targetSchedules.length === 0) {
       console.log('[On-Call API] No matching schedules found. Available:', schedules.map(s => s.name));
@@ -111,21 +121,18 @@ export default async function handler(req, res) {
         const entriesData = await entriesResponse.json();
         const finalEntries = entriesData.schedule_entries?.final || [];
         
-        // Get the currently on-call user(s)
-        const currentOnCall = finalEntries
-          .filter(entry => {
-            const start = new Date(entry.start_at);
-            const end = new Date(entry.end_at);
-            return now >= start && now <= end;
-          })
-          .map(entry => ({
-            name: entry.user?.name || 'Unknown',
-            email: entry.user?.email,
-            slackUserId: entry.user?.slack_user_id,
-            scheduleName: schedule.name,
-            scheduleType: schedule.name.includes('Escalation') ? 'escalations' : 'incidents',
-            endAt: entry.end_at
-          }));
+        console.log(`[On-Call API] ${schedule.name} raw entries:`, finalEntries.length);
+        
+        // Get the currently on-call user(s) - the API already filters by time window
+        // so we take all entries in 'final' as current
+        const currentOnCall = finalEntries.map(entry => ({
+          name: entry.user?.name || 'Unknown',
+          email: entry.user?.email,
+          slackUserId: entry.user?.slack_user_id,
+          scheduleName: schedule.name,
+          scheduleType: schedule.name.toLowerCase().includes('escalation') ? 'escalations' : 'incidents',
+          endAt: entry.end_at
+        }));
 
         onCallResults.push(...currentOnCall);
         
