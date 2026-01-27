@@ -9,8 +9,23 @@ if (!INTERCOM_TOKEN) {
 }
 
 /**
+ * Helper function to check if a conversation is unassigned
+ * Uses the same logic as Dashboard.jsx and open-team-5480079.js
+ */
+function isConversationUnassigned(conv) {
+  const hasAssigneeId = conv.admin_assignee_id && 
+                        conv.admin_assignee_id !== null && 
+                        conv.admin_assignee_id !== undefined &&
+                        conv.admin_assignee_id !== "";
+  const hasAssigneeObject = conv.admin_assignee && 
+                            (typeof conv.admin_assignee === "object" ? (conv.admin_assignee.id || conv.admin_assignee.name) : true);
+  return !hasAssigneeId && !hasAssigneeObject;
+}
+
+/**
  * Fetch only unassigned conversations for team 5480079
- * Lightweight endpoint - only returns minimal data needed for Reso Queue
+ * Now fetches full conversation details to accurately determine assignment status
+ * (matches the enrichment done by open-team-5480079.js)
  */
 async function fetchUnassignedConversations(authHeader) {
   const startTime = Date.now();
@@ -27,7 +42,7 @@ async function fetchUnassignedConversations(authHeader) {
     // 1. Open or snoozed (not closed)
     // 2. Assigned to team 5480079
     // Note: Intercom API doesn't support filtering by null admin_assignee_id directly,
-    // so we'll fetch all open/snoozed conversations and filter server-side
+    // so we'll fetch all open/snoozed conversations and filter server-side after enrichment
     const body = {
       query: {
         operator: "AND",
@@ -75,38 +90,113 @@ async function fetchUnassignedConversations(authHeader) {
 
     // Intercom search responses typically use `data` for items
     const items = data.data || data.conversations || [];
-    console.log(`[Unassigned API] Page ${pageCount + 1}: Found ${items.length} conversations, filtering for unassigned...`);
+    console.log(`[Unassigned API] Page ${pageCount + 1}: Found ${items.length} conversations, enriching and filtering for unassigned...`);
 
-    // Filter for unassigned conversations and extract only minimal data
-    const unassignedItems = items.filter(item => {
-      // Check if conversation is unassigned
+    // First, do a quick filter based on search results to reduce API calls
+    // Only fetch full details for conversations that MIGHT be unassigned
+    const potentiallyUnassigned = items.filter(item => {
       const hasAssigneeId = item.admin_assignee_id && 
                           item.admin_assignee_id !== null && 
                           item.admin_assignee_id !== undefined &&
                           item.admin_assignee_id !== "";
       const hasAssigneeObject = item.admin_assignee && 
                               (typeof item.admin_assignee === "object" ? (item.admin_assignee.id || item.admin_assignee.name) : true);
+      // If search API says it's assigned, trust it (false negatives are rare)
+      // But if it says unassigned, we need to verify with full details
       return !hasAssigneeId && !hasAssigneeObject;
     });
 
-    // Extract only the minimal data we need
-    const minimalData = unassignedItems.map(item => ({
-      id: item.id,
-      conversation_id: item.id,
-      created_at: item.created_at,
-      createdAt: item.created_at,
-      first_opened_at: item.first_opened_at,
-      admin_assignee_id: null,
-      admin_assignee: null,
-      state: item.state || "open"
-    }));
+    console.log(`[Unassigned API] Page ${pageCount + 1}: ${potentiallyUnassigned.length} potentially unassigned, fetching full details...`);
 
-    all = all.concat(minimalData);
-    console.log(`[Unassigned API] Page ${pageCount + 1}: Filtered to ${unassignedItems.length} unassigned conversations (total: ${all.length})`);
+    // Fetch full conversation details in batches to verify assignment status
+    const BATCH_SIZE = 25;
+    const enrichedUnassigned = [];
+    
+    for (let i = 0; i < potentiallyUnassigned.length; i += BATCH_SIZE) {
+      const batch = potentiallyUnassigned.slice(i, i + BATCH_SIZE);
+      const batchPromises = batch.map(async (item) => {
+        try {
+          // Fetch full conversation details
+          const convResp = await fetch(
+            `${INTERCOM_BASE_URL}/conversations/${item.id}`,
+            {
+              headers: {
+                "Authorization": authHeader,
+                "Accept": "application/json",
+                "Intercom-Version": "2.10"
+              }
+            }
+          );
+          
+          if (convResp.ok) {
+            const fullConv = await convResp.json();
+            
+            // Use admin_assignee from search result if available, otherwise from full conversation
+            const adminAssignee = item.admin_assignee || fullConv.admin_assignee;
+            const adminAssigneeId = item.admin_assignee_id || fullConv.admin_assignee_id;
+            
+            // Create enriched conversation object
+            const enrichedConv = {
+              ...item,
+              admin_assignee_id: adminAssigneeId,
+              admin_assignee: adminAssignee,
+              waiting_since: fullConv.waiting_since || item.waiting_since,
+              state: fullConv.state || item.state || "open"
+            };
+            
+            // Check if truly unassigned using enriched data
+            if (isConversationUnassigned(enrichedConv)) {
+              return {
+                id: item.id,
+                conversation_id: item.id,
+                created_at: item.created_at,
+                createdAt: item.created_at,
+                first_opened_at: item.first_opened_at,
+                waiting_since: fullConv.waiting_since || item.waiting_since,
+                admin_assignee_id: null,
+                admin_assignee: null,
+                state: enrichedConv.state
+              };
+            }
+          }
+        } catch (err) {
+          console.warn(`[Unassigned API] Failed to fetch details for conversation ${item.id}:`, err.message);
+          // On error, fall back to search result data
+          if (isConversationUnassigned(item)) {
+            return {
+              id: item.id,
+              conversation_id: item.id,
+              created_at: item.created_at,
+              createdAt: item.created_at,
+              first_opened_at: item.first_opened_at,
+              waiting_since: item.waiting_since,
+              admin_assignee_id: null,
+              admin_assignee: null,
+              state: item.state || "open"
+            };
+          }
+        }
+        return null;
+      });
+      
+      const batchResults = await Promise.allSettled(batchPromises);
+      const validResults = batchResults
+        .map(result => result.status === 'fulfilled' ? result.value : null)
+        .filter(result => result !== null);
+      enrichedUnassigned.push(...validResults);
+      
+      // Small delay between batches to avoid rate limits
+      if (i + BATCH_SIZE < potentiallyUnassigned.length) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
+
+    all = all.concat(enrichedUnassigned);
+    console.log(`[Unassigned API] Page ${pageCount + 1}: Confirmed ${enrichedUnassigned.length} unassigned after enrichment (total: ${all.length})`);
     pageCount += 1;
 
     const pageTotalTime = Date.now() - pageStartTime;
-    console.log(`[Unassigned API] Page ${pageCount}: fetched ${items.length} conversations (total: ${all.length}) in ${pageTotalTime}ms`);
+    console.log(`[Unassigned API] Page ${pageCount}: fetched ${items.length} conversations, ${enrichedUnassigned.length} confirmed unassigned in ${pageTotalTime}ms`);
 
     if (pageCount >= MAX_PAGES) {
       console.warn("[Unassigned API] Reached MAX_PAGES; stopping pagination");
