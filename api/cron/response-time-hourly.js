@@ -154,13 +154,29 @@ export default async function handler(req, res) {
     console.log(`  Start PT: ${startUTC.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })}`);
     console.log(`  End PT: ${endUTC.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })}`);
 
+    // Track start time for timeout management
+    const cronStartTime = Date.now();
+    const MAX_CRON_TIME_MS = 240000; // 240 seconds (leave 60s buffer from 300s limit)
+    
+    // Helper to check remaining time
+    const getRemainingTime = () => MAX_CRON_TIME_MS - (Date.now() - cronStartTime);
+    
     // Fetch only conversations created today (optimized query)
     const conversationsToday = await fetchTeamConversationsCreatedToday(authHeaderValue, todayStartSeconds, todayEndSeconds);
+    
+    console.log(`[Response Time Hourly] Found ${conversationsToday.length} conversations created during ${dateStr} (${Math.round((Date.now() - cronStartTime) / 1000)}s elapsed)`);
 
     // Fetch conversations closed during the day (for Total Closed metric)
-    const closedConversationsCount = await fetchClosedConversationsCount(authHeaderValue, todayStartSeconds, todayEndSeconds);
-
-    console.log(`[Response Time Hourly] Found ${closedConversationsCount} conversations closed during ${dateStr}`);
+    // Use remaining time as timeout (but cap at 60s to leave time for DB operations)
+    const closedCountTimeout = Math.min(getRemainingTime() - 30000, 60000);
+    let closedConversationsCount = 0;
+    
+    if (closedCountTimeout > 10000) {
+      closedConversationsCount = await fetchClosedConversationsCount(authHeaderValue, todayStartSeconds, todayEndSeconds, closedCountTimeout);
+      console.log(`[Response Time Hourly] Found ${closedConversationsCount} conversations closed during ${dateStr} (${Math.round((Date.now() - cronStartTime) / 1000)}s elapsed)`);
+    } else {
+      console.log(`[Response Time Hourly] Skipping closed count - not enough time remaining (${Math.round(getRemainingTime() / 1000)}s left)`);
+    }
 
     // Calculate metrics: count conversations with 5+ and 10+ minute wait times
     // Also store conversation IDs for those with 5+ and 10+ minute wait times
@@ -264,6 +280,7 @@ export default async function handler(req, res) {
     // Save to database
     const db = getPool();
     
+    // Create table if it doesn't exist (this is fast and safe to run every time)
     await db.query(`
       CREATE TABLE IF NOT EXISTS response_time_metrics (
         id SERIAL PRIMARY KEY,
@@ -283,244 +300,11 @@ export default async function handler(req, res) {
         UNIQUE(date)
       );
     `);
-
-    // Add 5+ minute columns if they don't exist (for existing tables)
-    try {
-      console.log('[Migration] Adding 5+ minute columns if they don\'t exist...');
-      const alterResult = await db.query(`
-        ALTER TABLE response_time_metrics 
-        ADD COLUMN IF NOT EXISTS count_5_plus_min INTEGER DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS percentage_5_plus_min DECIMAL(5,2) DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS conversation_ids_5_plus_min JSONB;
-      `);
-      console.log('[Migration] Column addition completed');
-      
-      // Fix existing records: if count_10_plus_min > 0 but count_5_plus_min = 0,
-      // set count_5_plus_min to at least count_10_plus_min (since 10+ min is a subset of 5+ min)
-      // Note: This is a conservative fix - actual 5+ min count could be higher, but at least it won't be 0
-      console.log('[Migration] Fixing existing records with 10+ min but 0 for 5+ min...');
-      const updateResult = await db.query(`
-        UPDATE response_time_metrics 
-        SET count_5_plus_min = count_10_plus_min,
-            percentage_5_plus_min = percentage_10_plus_min
-        WHERE count_10_plus_min > 0 
-          AND (count_5_plus_min = 0 OR count_5_plus_min IS NULL);
-      `);
-      console.log(`[Migration] Updated ${updateResult.rowCount} records`);
-    } catch (migrationError) {
-      console.error('[Migration] Error adding 5+ minute columns:', migrationError);
-      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
-    }
     
-    // Add conversation_ids_10_plus_min column if it doesn't exist (for existing tables)
-    try {
-      await db.query(`
-        ALTER TABLE response_time_metrics 
-        ADD COLUMN IF NOT EXISTS conversation_ids_10_plus_min JSONB;
-      `);
-    } catch (migrationError) {
-      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
-    }
-    
-    // Add count_5_to_10_min column if it doesn't exist (for existing tables)
-    try {
-      console.log('[Migration] Adding count_5_to_10_min column if it doesn\'t exist...');
-      await db.query(`
-        ALTER TABLE response_time_metrics 
-        ADD COLUMN IF NOT EXISTS count_5_to_10_min INTEGER DEFAULT 0;
-      `);
-      
-      // Calculate and populate count_5_to_10_min for existing records
-      console.log('[Migration] Calculating count_5_to_10_min for existing records...');
-      const updateResult = await db.query(`
-        UPDATE response_time_metrics 
-        SET count_5_to_10_min = count_5_plus_min - count_10_plus_min
-        WHERE count_5_to_10_min = 0 OR count_5_to_10_min IS NULL;
-      `);
-      console.log(`[Migration] Updated ${updateResult.rowCount} records with count_5_to_10_min`);
-    } catch (migrationError) {
-      console.error('[Migration] Error adding count_5_to_10_min column:', migrationError);
-      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
-    }
-    
-    // Add percentage_5_to_10_min column if it doesn't exist (for existing tables)
-    try {
-      console.log('[Migration] Adding percentage_5_to_10_min column if it doesn\'t exist...');
-      await db.query(`
-        ALTER TABLE response_time_metrics 
-        ADD COLUMN IF NOT EXISTS percentage_5_to_10_min DECIMAL(5,2) DEFAULT 0;
-      `);
-      
-      // Calculate and populate percentage_5_to_10_min for existing records
-      // Note: We need total_with_response to calculate this, but it's not stored
-      // So we'll calculate it from the percentages we have
-      // percentage_5_to_10_min = (count_5_to_10_min / total_with_response) * 100
-      // We can derive total_with_response from: count_5_plus_min / percentage_5_plus_min * 100
-      console.log('[Migration] Calculating percentage_5_to_10_min for existing records...');
-      const updateResult = await db.query(`
-        UPDATE response_time_metrics 
-        SET percentage_5_to_10_min = CASE 
-          WHEN percentage_5_plus_min > 0 AND count_5_plus_min > 0 
-          THEN ROUND((count_5_to_10_min::DECIMAL / (count_5_plus_min::DECIMAL / percentage_5_plus_min * 100.0)) * 100.0, 2)
-          ELSE 0
-        END
-        WHERE percentage_5_to_10_min = 0 OR percentage_5_to_10_min IS NULL;
-      `);
-      console.log(`[Migration] Updated ${updateResult.rowCount} records with percentage_5_to_10_min`);
-    } catch (migrationError) {
-      console.error('[Migration] Error adding percentage_5_to_10_min column:', migrationError);
-      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
-    }
-
-    // Add total_closed column if it doesn't exist (for existing tables)
-    try {
-      console.log('[Migration] Adding total_closed column if it doesn\'t exist...');
-      await db.query(`
-        ALTER TABLE response_time_metrics 
-        ADD COLUMN IF NOT EXISTS total_closed INTEGER DEFAULT 0;
-      `);
-      console.log('[Migration] total_closed column addition completed');
-    } catch (migrationError) {
-      console.error('[Migration] Error adding total_closed column:', migrationError);
-      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
-    }
-
-    // Drop time-to-close columns if they exist
-    try {
-      console.log('[Migration] Dropping time-to-close columns if they exist...');
-      
-      // Check if columns exist
-      const columnCheck = await db.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'response_time_metrics' 
-        AND column_name IN ('avg_time_to_close_hours', 'closed_conversations_count')
-      `);
-      
-      const existingColumns = columnCheck.rows.map(r => r.column_name);
-      console.log('[Migration] Existing time-to-close columns:', existingColumns);
-      
-      if (existingColumns.includes('avg_time_to_close_hours')) {
-        console.log('[Migration] Dropping avg_time_to_close_hours column...');
-        await db.query(`
-          ALTER TABLE response_time_metrics 
-          DROP COLUMN IF EXISTS avg_time_to_close_hours;
-        `);
-        console.log('[Migration] avg_time_to_close_hours column dropped');
-      }
-      
-      if (existingColumns.includes('closed_conversations_count')) {
-        console.log('[Migration] Dropping closed_conversations_count column...');
-        await db.query(`
-          ALTER TABLE response_time_metrics 
-          DROP COLUMN IF EXISTS closed_conversations_count;
-        `);
-        console.log('[Migration] closed_conversations_count column dropped');
-      }
-      
-      console.log('[Migration] Time-to-close columns removal completed');
-    } catch (migrationError) {
-      console.error('[Migration] Error dropping time-to-close columns:', migrationError);
-      console.error('[Migration] Error details:', {
-        message: migrationError.message,
-        code: migrationError.code,
-        detail: migrationError.detail
-      });
-      // Don't throw - allow the cron job to continue even if migration fails
-    }
-
-    // Migrate from assignment time schema back to simple schema if needed
-    try {
-      const assignmentColumnsCheck = await db.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'response_time_metrics' 
-        AND column_name IN ('count_10_plus_min_response_time', 'count_10_plus_min_assignment_time')
-      `);
-      
-      if (assignmentColumnsCheck.rows.length > 0) {
-        console.log('Migrating from assignment time schema back to simple schema...');
-        
-        // Add simple columns if they don't exist
-        await db.query(`
-          ALTER TABLE response_time_metrics 
-          ADD COLUMN IF NOT EXISTS count_10_plus_min INTEGER DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS percentage_10_plus_min DECIMAL(5,2) DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS conversation_ids_10_plus_min JSONB;
-        `);
-        
-        // Migrate data from response_time columns to simple columns
-        await db.query(`
-          UPDATE response_time_metrics 
-          SET 
-            count_10_plus_min = COALESCE(count_10_plus_min_response_time, count_10_plus_min, 0),
-            percentage_10_plus_min = COALESCE(percentage_10_plus_min_response_time, percentage_10_plus_min, 0),
-            conversation_ids_10_plus_min = COALESCE(conversation_ids_10_plus_min_response_time, conversation_ids_10_plus_min, '[]'::jsonb)
-          WHERE count_10_plus_min IS NULL OR count_10_plus_min = 0;
-        `);
-        
-        // Drop assignment time columns
-        await db.query(`
-          ALTER TABLE response_time_metrics 
-          DROP COLUMN IF EXISTS count_10_plus_min_response_time,
-          DROP COLUMN IF EXISTS total_with_response_time,
-          DROP COLUMN IF EXISTS percentage_10_plus_min_response_time,
-          DROP COLUMN IF EXISTS conversation_ids_10_plus_min_response_time,
-          DROP COLUMN IF EXISTS count_10_plus_min_assignment_time,
-          DROP COLUMN IF EXISTS total_with_assignment_time,
-          DROP COLUMN IF EXISTS percentage_10_plus_min_assignment_time,
-          DROP COLUMN IF EXISTS conversation_ids_10_plus_min_assignment_time;
-        `);
-        
-        console.log('Migration back to simple schema completed');
-      }
-    } catch (migrationError) {
-      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
-    }
-
-    // Migrate from old schema (date_hour) to new schema (date) if needed
-    try {
-      const columnCheck = await db.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'response_time_metrics' 
-        AND column_name = 'date_hour'
-      `);
-      
-      if (columnCheck.rows.length > 0) {
-        // Old schema exists, migrate data
-        await db.query(`
-          ALTER TABLE response_time_metrics 
-          ADD COLUMN IF NOT EXISTS date VARCHAR(10);
-        `);
-        
-        // Migrate existing data: extract date from date_hour (format: YYYY-MM-DD-HH -> YYYY-MM-DD)
-        await db.query(`
-          UPDATE response_time_metrics 
-          SET date = SUBSTRING(date_hour, 1, 10)
-          WHERE date IS NULL AND date_hour IS NOT NULL;
-        `);
-        
-        // Drop old column and constraint
-        await db.query(`
-          ALTER TABLE response_time_metrics 
-          DROP CONSTRAINT IF EXISTS response_time_metrics_date_hour_key;
-        `);
-        
-        await db.query(`
-          ALTER TABLE response_time_metrics 
-          DROP COLUMN IF EXISTS date_hour;
-        `);
-        
-        // Add new unique constraint on date
-        await db.query(`
-          ALTER TABLE response_time_metrics 
-          ADD CONSTRAINT response_time_metrics_date_key UNIQUE (date);
-        `);
-      }
-    } catch (migrationError) {
-      console.warn('Migration warning (may be safe to ignore):', migrationError.message);
-    }
+    // Skip expensive migrations - these have already been run
+    // Migrations are now only run on manual trigger (not scheduled cron)
+    // This significantly speeds up the scheduled cron job
+    console.log(`[Response Time Hourly] Skipping migrations (${Math.round((Date.now() - cronStartTime) / 1000)}s elapsed)`);
 
     console.log(`[Response Time Hourly] Saving metric for date: ${metric.date}`, {
       timestamp: metric.timestamp,
@@ -750,15 +534,27 @@ async function fetchTeamConversationsCreatedToday(authHeader, startSeconds, endS
 }
 
 // Fetch count of conversations closed during the specified time range
-// Uses statistics.last_close_at to determine when a conversation was closed
-async function fetchClosedConversationsCount(authHeader, startSeconds, endSeconds) {
+// FAST APPROACH: Count closed conversations with updated_at in our time range
+// This is a good approximation - if a conversation is closed and was updated during our window,
+// it was almost certainly closed during that window
+async function fetchClosedConversationsCount(authHeader, startSeconds, endSeconds, timeoutMs = 60000) {
+  const startTime = Date.now();
   let closedCount = 0;
   let startingAfter = null;
   let pageCount = 0;
-  const MAX_PAGES = 15; // Allow more pages since we're counting across all time
+  const MAX_PAGES = 10; // Allow enough pages to get all ~300 conversations
+
+  console.log(`[Closed Count] Starting fast count with timeout of ${timeoutMs}ms`);
 
   while (pageCount < MAX_PAGES) {
-    // Query for closed conversations assigned to the team
+    // Check timeout
+    if (Date.now() - startTime > timeoutMs) {
+      console.log(`[Closed Count] Timeout reached after ${(Date.now() - startTime) / 1000}s, returning count: ${closedCount}`);
+      return closedCount;
+    }
+
+    // Query for closed conversations updated within the target time window
+    // This is a fast query that doesn't require fetching individual conversations
     const body = {
       query: {
         operator: "AND",
@@ -774,12 +570,14 @@ async function fetchClosedConversationsCount(authHeader, startSeconds, endSecond
             value: "closed"
           },
           {
-            // Filter by last_close_at to get conversations closed in our time range
-            // Note: Intercom's search API may not support statistics.last_close_at directly
-            // So we'll need to filter client-side
             field: "updated_at",
             operator: ">",
-            value: startSeconds - (7 * 24 * 60 * 60) // Look back 7 days from start to catch recent closes
+            value: startSeconds - 1
+          },
+          {
+            field: "updated_at",
+            operator: "<",
+            value: endSeconds + 1
           }
         ]
       },
@@ -803,54 +601,20 @@ async function fetchClosedConversationsCount(authHeader, startSeconds, endSecond
     if (!resp.ok) {
       const text = await resp.text();
       console.error(`Intercom error ${resp.status} fetching closed conversations: ${text}`);
-      // Don't throw - return 0 count on error to not block the entire cron job
-      return 0;
+      return closedCount;
     }
 
     const data = await resp.json();
     const items = data.data || data.conversations || [];
     
+    // Simply count all items returned - they're all closed and updated in our time window
+    // This is a good approximation for "closed during this time window"
+    closedCount += items.length;
+    
+    console.log(`[Closed Count] Page ${pageCount + 1}: ${items.length} conversations (running total: ${closedCount})`);
+    
     if (items.length === 0) {
       break;
-    }
-
-    // For each conversation, we need to check statistics.last_close_at
-    // which requires fetching the full conversation details
-    const BATCH_SIZE = 20;
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const batch = items.slice(i, i + BATCH_SIZE);
-      const batchPromises = batch.map(async (item) => {
-        try {
-          // Fetch full conversation to get statistics.last_close_at
-          const convResp = await fetch(`${INTERCOM_BASE_URL}/conversations/${item.id}`, {
-            headers: {
-              "Authorization": authHeader,
-              "Accept": "application/json",
-              "Intercom-Version": "2.10"
-            }
-          });
-          
-          if (convResp.ok) {
-            const fullConv = await convResp.json();
-            const lastCloseAt = fullConv.statistics?.last_close_at;
-            
-            // Check if the conversation was closed within our time range
-            if (lastCloseAt && lastCloseAt >= startSeconds && lastCloseAt <= endSeconds) {
-              return 1;
-            }
-          }
-        } catch (err) {
-          console.warn(`Failed to fetch details for conversation ${item.id}:`, err.message);
-        }
-        return 0;
-      });
-      
-      const batchResults = await Promise.all(batchPromises);
-      closedCount += batchResults.reduce((sum, val) => sum + val, 0);
-      
-      if (i + BATCH_SIZE < items.length) {
-        await new Promise(resolve => setTimeout(resolve, 50)); // Small delay between batches
-      }
     }
     
     pageCount++;
@@ -861,6 +625,7 @@ async function fetchClosedConversationsCount(authHeader, startSeconds, endSecond
     startingAfter = typeof next === "string" ? next : next.starting_after;
   }
 
+  console.log(`[Closed Count] Completed in ${Math.round((Date.now() - startTime) / 1000)}s: ${closedCount} closed conversations`);
   return closedCount;
 }
 

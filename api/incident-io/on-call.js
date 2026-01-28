@@ -9,7 +9,10 @@ const INCIDENT_IO_BASE_URL = 'https://api.incident.io';
 // Schedule names to fetch (exact names from Incident.io)
 const SCHEDULE_NAMES = [
   'TSE Manager - Escalations',
-  'TSE Manager - Incidents'
+  'TSE Manager - Incidents',
+  '3 - Support On-Call Primary 24x7',
+  '4 - Support On-Call Backup 24x7',
+  'TSE - Tier 3'
 ];
 
 export default async function handler(req, res) {

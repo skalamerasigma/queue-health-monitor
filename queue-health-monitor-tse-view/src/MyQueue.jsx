@@ -4,9 +4,10 @@ import "./MyQueue.css";
 
 const THRESHOLDS = {
   MAX_OPEN_SOFT: 5,
-  MAX_WAITING_ON_TSE_SOFT: 5,
+  MAX_WAITING_ON_TSE_SOFT: 5, // Actionable Snoozed threshold
   MAX_OPEN_ALERT: 6,
-  MAX_WAITING_ON_TSE_ALERT: 7
+  MAX_WAITING_ON_TSE_ALERT: 7,
+  MAX_COMBINED: 10 // Combined threshold: open + actionable snoozed <= 10
 };
 
 const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
@@ -212,13 +213,27 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
       
       if (tseData) {
         const totalOpen = (tseData.open || 0);
-        const totalWaitingOnTSE = tseData.waitingOnTSE || tseData.actionableSnoozed || 0;
-        // Outstanding Performance: 0 open AND 0 waiting on TSE
-        const isOutstanding = totalOpen === 0 && totalWaitingOnTSE === 0;
+        // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
+        // Use snoozedForOnTrack first (new format), then actionableSnoozed, then calculate
+        let actionableSnoozed = tseData.snoozedForOnTrack;
+        if (actionableSnoozed === undefined) {
+          actionableSnoozed = tseData.actionableSnoozed;
+        }
+        if (actionableSnoozed === undefined) {
+          const totalSnoozed = tseData.totalSnoozed || 0;
+          const customerWaitSnoozed = tseData.customerWaitSnoozed || 0;
+          actionableSnoozed = Math.max(0, totalSnoozed - customerWaitSnoozed);
+        }
+        actionableSnoozed = actionableSnoozed || 0;
+        
+        // Outstanding Performance: 0 open AND 0 actionable snoozed
+        const isOutstanding = totalOpen === 0 && actionableSnoozed === 0;
         
         tsePerformanceDates.push({
           date: snapshot.date,
-          onTrack: isOutstanding
+          onTrack: isOutstanding,
+          open: totalOpen,
+          actionableSnoozed
         });
       }
     });
@@ -285,6 +300,8 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
     let waitingOnCustomer = 0;
     let totalSnoozed = 0;
 
+    let actionableSnoozed = 0; // All snoozed EXCEPT customer-waiting tags
+    
     myConversations.forEach(conv => {
       const isSnoozed = conv.state === "snoozed" || conv.snoozed_until;
       const tags = Array.isArray(conv.tags) ? conv.tags : [];
@@ -303,20 +320,28 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
         open++;
       } else if (isSnoozed) {
         totalSnoozed++;
+        if (hasWaitingOnCustomerTag) {
+          waitingOnCustomer++;
+        } else {
+          // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
+          // Includes: waiting-on-tse tagged, untagged snoozed, any other snoozed
+          actionableSnoozed++;
+        }
+        // Keep waitingOnTSE for backward compatibility display
         if (hasWaitingOnTSETag) {
           waitingOnTSE++;
-        } else if (hasWaitingOnCustomerTag) {
-          waitingOnCustomer++;
         }
       }
     });
 
     const meetsOpen = open <= THRESHOLDS.MAX_OPEN_SOFT;
-    const meetsWaitingOnTSE = waitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
-    const isOnTrack = meetsOpen && meetsWaitingOnTSE;
+    const meetsActionableSnoozed = actionableSnoozed <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+    const MAX_COMBINED_THRESHOLD = 10;
+    const combinedTotal = open + actionableSnoozed;
+    const isOnTrack = meetsOpen && meetsActionableSnoozed && combinedTotal <= MAX_COMBINED_THRESHOLD;
     
     let status = "on-track";
-    if (open >= THRESHOLDS.MAX_OPEN_ALERT || waitingOnTSE >= THRESHOLDS.MAX_WAITING_ON_TSE_ALERT) {
+    if (open >= THRESHOLDS.MAX_OPEN_ALERT || actionableSnoozed >= THRESHOLDS.MAX_WAITING_ON_TSE_ALERT) {
       status = "over-limit";
     } else if (!isOnTrack) {
       status = "over-limit";
@@ -324,13 +349,16 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, loadi
 
     return {
       open,
-      waitingOnTSE,
+      actionableSnoozed,
+      waitingOnTSE, // Legacy field for display
       waitingOnCustomer,
       totalSnoozed,
+      combinedTotal,
       status,
       isOnTrack,
       meetsOpen,
-      meetsWaitingOnTSE,
+      meetsActionableSnoozed,
+      meetsWaitingOnTSE: meetsActionableSnoozed, // Legacy field
       showAllMode: false
     };
   }, [myConversations, selectedTSEId]);

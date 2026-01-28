@@ -208,7 +208,8 @@ const createHolidayLabel = (data, isBarChart = false, dataKey = null) => (props)
 
 const THRESHOLDS = {
   MAX_OPEN_SOFT: 5,
-  MAX_ACTIONABLE_SNOOZED_SOFT: 5
+  MAX_ACTIONABLE_SNOOZED_SOFT: 5,
+  MAX_COMBINED: 10 // Combined threshold: open + actionable snoozed <= 10
 };
 
 // Info Icon Component with Tooltip
@@ -527,7 +528,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
     const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
     const ON_TRACK_THRESHOLDS = {
       MAX_OPEN_SOFT: 5,
-      MAX_WAITING_ON_TSE_SOFT: 5
+      MAX_WAITING_ON_TSE_SOFT: 5,
+      MAX_COMBINED: 10
     };
 
     // Create a map of date -> on-track data
@@ -546,22 +548,27 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
       tseData.forEach(tse => {
         totalCount++;
         const meetsOpen = tse.open <= ON_TRACK_THRESHOLDS.MAX_OPEN_SOFT;
-        // On-track uses: all snoozed conversations EXCEPT customer-waiting tags
+        // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
         // Use snoozedForOnTrack if available (new format), otherwise calculate from snapshot data
-        let snoozedForOnTrack = tse.snoozedForOnTrack;
-        if (snoozedForOnTrack === undefined) {
+        let actionableSnoozed = tse.snoozedForOnTrack;
+        if (actionableSnoozed === undefined) {
+          actionableSnoozed = tse.actionableSnoozed;
+        }
+        if (actionableSnoozed === undefined) {
           // Calculate from snapshot data: totalSnoozed - customerWaitSnoozed
           const totalSnoozed = tse.totalSnoozed || 0;
           const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
-          snoozedForOnTrack = totalSnoozed - customerWaitSnoozed;
-          // Fallback to old format if new calculation doesn't work
-          if (snoozedForOnTrack < 0) {
-            snoozedForOnTrack = tse.actionableSnoozed || 0;
-          }
+          actionableSnoozed = Math.max(0, totalSnoozed - customerWaitSnoozed);
         }
-        const meetsSnoozed = snoozedForOnTrack <= ON_TRACK_THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        actionableSnoozed = actionableSnoozed || 0;
         
-        if (meetsOpen && meetsSnoozed) {
+        const meetsSnoozed = actionableSnoozed <= ON_TRACK_THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        // Combined threshold: open + actionable snoozed <= 10
+        const combinedTotal = (tse.open || 0) + actionableSnoozed;
+        const meetsCombined = combinedTotal <= ON_TRACK_THRESHOLDS.MAX_COMBINED;
+        
+        // Overall on-track requires: open ≤ 5, actionable snoozed ≤ 5, AND combined ≤ 10
+        if (meetsOpen && meetsSnoozed && meetsCombined) {
           onTrackCount++;
         }
       });
@@ -1013,27 +1020,34 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
         tseData = tseData.filter(tse => managerTeamFilter.includes(tse.name));
       }
 
+      const MAX_COMBINED_THRESHOLD = 10;
+      
       tseData.forEach(tse => {
         dataByDate[date].totalTSEs++;
         const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        // On-track uses: all snoozed conversations EXCEPT customer-waiting tags
+        // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
         // Use snoozedForOnTrack if available (new format), otherwise calculate from snapshot data
-        let snoozedForOnTrack = tse.snoozedForOnTrack;
-        if (snoozedForOnTrack === undefined) {
+        let actionableSnoozed = tse.snoozedForOnTrack;
+        if (actionableSnoozed === undefined) {
+          actionableSnoozed = tse.actionableSnoozed;
+        }
+        if (actionableSnoozed === undefined) {
           // Calculate from snapshot data: totalSnoozed - customerWaitSnoozed
           const totalSnoozed = tse.totalSnoozed || 0;
           const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
-          snoozedForOnTrack = totalSnoozed - customerWaitSnoozed;
-          // Fallback to old format if new calculation doesn't work
-          if (snoozedForOnTrack < 0) {
-            snoozedForOnTrack = tse.actionableSnoozed || 0;
-          }
+          actionableSnoozed = Math.max(0, totalSnoozed - customerWaitSnoozed);
         }
-        const meetsSnoozed = snoozedForOnTrack <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        actionableSnoozed = actionableSnoozed || 0;
+        
+        const meetsSnoozed = actionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        // Combined threshold: open + actionable snoozed <= 10
+        const combinedTotal = (tse.open || 0) + actionableSnoozed;
+        const meetsCombined = combinedTotal <= MAX_COMBINED_THRESHOLD;
         
         if (meetsOpen) dataByDate[date].onTrackOpen++;
         if (meetsSnoozed) dataByDate[date].onTrackSnoozed++;
-        if (meetsOpen && meetsSnoozed) dataByDate[date].onTrackBoth++;
+        // Overall on-track requires: open ≤ 5, actionable snoozed ≤ 5, AND combined ≤ 10
+        if (meetsOpen && meetsSnoozed && meetsCombined) dataByDate[date].onTrackBoth++;
       });
     });
 
@@ -1138,26 +1152,33 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
       
       const regionOnTrack = { 'UK': { total: 0, onTrack: 0 }, 'NY': { total: 0, onTrack: 0 }, 'SF': { total: 0, onTrack: 0 }, 'Other': { total: 0, onTrack: 0 } };
       
+      const MAX_COMBINED_THRESHOLD = 10;
+      
       tseData.forEach(tse => {
         const region = getTSERegion(tse.name);
         const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-        // On-track uses: all snoozed conversations EXCEPT customer-waiting tags
+        // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
         // Use snoozedForOnTrack if available (new format), otherwise calculate from snapshot data
-        let snoozedForOnTrack = tse.snoozedForOnTrack;
-        if (snoozedForOnTrack === undefined) {
+        let actionableSnoozed = tse.snoozedForOnTrack;
+        if (actionableSnoozed === undefined) {
+          actionableSnoozed = tse.actionableSnoozed;
+        }
+        if (actionableSnoozed === undefined) {
           // Calculate from snapshot data: totalSnoozed - customerWaitSnoozed
           const totalSnoozed = tse.totalSnoozed || 0;
           const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
-          snoozedForOnTrack = totalSnoozed - customerWaitSnoozed;
-          // Fallback to old format if new calculation doesn't work
-          if (snoozedForOnTrack < 0) {
-            snoozedForOnTrack = tse.actionableSnoozed || 0;
-          }
+          actionableSnoozed = Math.max(0, totalSnoozed - customerWaitSnoozed);
         }
-        const meetsSnoozed = snoozedForOnTrack <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        actionableSnoozed = actionableSnoozed || 0;
+        
+        const meetsSnoozed = actionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+        // Combined threshold: open + actionable snoozed <= 10
+        const combinedTotal = (tse.open || 0) + actionableSnoozed;
+        const meetsCombined = combinedTotal <= MAX_COMBINED_THRESHOLD;
         
         regionOnTrack[region].total++;
-        if (meetsOpen && meetsSnoozed) regionOnTrack[region].onTrack++;
+        // Overall on-track requires: open ≤ 5, actionable snoozed ≤ 5, AND combined ≤ 10
+        if (meetsOpen && meetsSnoozed && meetsCombined) regionOnTrack[region].onTrack++;
       });
       
       Object.keys(regionOnTrack).forEach(region => {

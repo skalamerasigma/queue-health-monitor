@@ -491,8 +491,9 @@ const THRESHOLDS = {
   MAX_OPEN_IDEAL: 0,
   MAX_OPEN_SOFT: 5,
   MAX_OPEN_ALERT: 6,
-  MAX_WAITING_ON_TSE_SOFT: 5,
-  MAX_WAITING_ON_TSE_ALERT: 7
+  MAX_WAITING_ON_TSE_SOFT: 5, // Actionable Snoozed threshold
+  MAX_WAITING_ON_TSE_ALERT: 7,
+  MAX_COMBINED: 10 // Combined threshold: open + actionable snoozed <= 10
 };
 
 function Dashboard(props) {
@@ -1090,21 +1091,18 @@ function Dashboard(props) {
       }
 
       if (isSnoozed) {
-        if (hasWaitingOnTSETag) {
-          byTSE[tseId].waitingOnTSE++;
-          waitingOnTSEConvs.push(conv);
-        } else if (hasWaitingOnCustomerTag) {
+        if (hasWaitingOnCustomerTag) {
           byTSE[tseId].waitingOnCustomer++;
           waitingOnCustomerConvs.push(conv);
-        }
-        // Note: Snoozed conversations without specific tags are only counted in totalSnoozed
-        
-        // For "snoozed on track" metric: count all snoozed EXCEPT customer-waiting tags
-        // This includes: waiting-on-tse tagged, and snoozed without tags
-        // Excludes: waiting-on-customer-resolved and waiting-on-customer-unresolved
-        if (!hasWaitingOnCustomerTag) {
-          // Count all snoozed conversations that don't have customer-waiting tags
+        } else {
+          // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
+          // This includes: waiting-on-tse tagged, untagged snoozed, any other non-customer-waiting snoozed
           byTSE[tseId].snoozedForOnTrack = (byTSE[tseId].snoozedForOnTrack || 0) + 1;
+          // Track waiting-on-tse separately for display purposes
+          if (hasWaitingOnTSETag) {
+            byTSE[tseId].waitingOnTSE++;
+            waitingOnTSEConvs.push(conv);
+          }
         }
       }
 
@@ -1120,7 +1118,9 @@ function Dashboard(props) {
       }
       
       const totalOpen = tse.open;
-      const totalWaitingOnTSE = tse.waitingOnTSE;
+      // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
+      const actionableSnoozed = tse.snoozedForOnTrack || 0;
+      const combinedTotal = totalOpen + actionableSnoozed;
       
       if (totalOpen >= THRESHOLDS.MAX_OPEN_ALERT) {
         // Determine severity based on how far above threshold
@@ -1138,19 +1138,34 @@ function Dashboard(props) {
         });
       }
       
-      if (totalWaitingOnTSE >= THRESHOLDS.MAX_WAITING_ON_TSE_ALERT) {
+      if (actionableSnoozed >= THRESHOLDS.MAX_WAITING_ON_TSE_ALERT) {
         // Determine severity based on how far above threshold
         // Medium (🟡): threshold to threshold + 2 (7-9)
         // High (🔴): threshold + 3 or more (10+)
-        const severity = totalWaitingOnTSE >= THRESHOLDS.MAX_WAITING_ON_TSE_ALERT + 3 ? "high" : "medium";
+        const severity = actionableSnoozed >= THRESHOLDS.MAX_WAITING_ON_TSE_ALERT + 3 ? "high" : "medium";
         alerts.push({
-          type: "waiting_on_tse_threshold",
+          type: "actionable_snoozed_threshold",
           severity: severity,
           tseId: tse.id,
           tseName: tse.name,
-          message: `${tse.name}: ${totalWaitingOnTSE} waiting on TSE (threshold: ${THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+)`,
-          count: totalWaitingOnTSE,
-          id: `alert-${tse.id}-snoozed-${totalWaitingOnTSE}` // Unique ID for dismiss functionality
+          message: `${tse.name}: ${actionableSnoozed} actionable snoozed (threshold: ${THRESHOLDS.MAX_WAITING_ON_TSE_ALERT}+)`,
+          count: actionableSnoozed,
+          id: `alert-${tse.id}-snoozed-${actionableSnoozed}` // Unique ID for dismiss functionality
+        });
+      }
+      
+      // Alert for combined threshold (> 10)
+      const MAX_COMBINED_THRESHOLD = 10;
+      if (combinedTotal > MAX_COMBINED_THRESHOLD) {
+        const severity = combinedTotal >= MAX_COMBINED_THRESHOLD + 3 ? "high" : "medium";
+        alerts.push({
+          type: "combined_threshold",
+          severity: severity,
+          tseId: tse.id,
+          tseName: tse.name,
+          message: `${tse.name}: ${combinedTotal} combined backlog (open + actionable snoozed > ${MAX_COMBINED_THRESHOLD})`,
+          count: combinedTotal,
+          id: `alert-${tse.id}-combined-${combinedTotal}` // Unique ID for dismiss functionality
         });
       }
     });
@@ -1197,15 +1212,19 @@ function Dashboard(props) {
     let onTrackBoth = 0;
     let onTrackOpen = 0; // TSEs meeting open requirement (regardless of snoozed)
     let onTrackSnoozed = 0; // TSEs meeting snoozed requirement (regardless of open)
+    const MAX_COMBINED_THRESHOLD = 10;
     
     filteredByTSE.forEach(tse => {
       const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
-      // For "snoozed on track": count all snoozed EXCEPT customer-waiting tags
-      // This includes: waiting-on-tse tagged, and snoozed without tags
-      const snoozedForOnTrack = tse.snoozedForOnTrack || tse.waitingOnTSE || 0; // Fallback to waitingOnTSE for backward compatibility
-      const meetsWaitingOnTSE = snoozedForOnTrack <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+      // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
+      const actionableSnoozed = tse.snoozedForOnTrack || 0;
+      const meetsActionableSnoozed = actionableSnoozed <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+      // Combined threshold: open + actionable snoozed <= 10
+      const combinedTotal = tse.open + actionableSnoozed;
+      const meetsCombined = combinedTotal <= MAX_COMBINED_THRESHOLD;
       
-      if (meetsOpen && meetsWaitingOnTSE) {
+      // Overall on-track requires: open ≤ 5, actionable snoozed ≤ 5, AND combined ≤ 10
+      if (meetsOpen && meetsActionableSnoozed && meetsCombined) {
         onTrackBoth++;
       }
       
@@ -1213,7 +1232,7 @@ function Dashboard(props) {
       if (meetsOpen) {
         onTrackOpen++;
       }
-      if (meetsWaitingOnTSE) {
+      if (meetsActionableSnoozed) {
         onTrackSnoozed++;
       }
     });
@@ -1270,15 +1289,24 @@ function Dashboard(props) {
     
     // Calculate on-track status for current user
     const meetsOpen = (tseData.open || 0) <= THRESHOLDS.MAX_OPEN_SOFT;
-    const totalWaitingOnTSE = tseData.waitingOnTSE || tseData.actionableSnoozed || 0;
-    const meetsWaitingOnTSE = totalWaitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
-    const isOnTrack = meetsOpen && meetsWaitingOnTSE;
+    // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
+    const actionableSnoozed = tseData.snoozedForOnTrack || 0;
+    const meetsActionableSnoozed = actionableSnoozed <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+    // Combined threshold: open + actionable snoozed <= 10
+    const combinedTotal = (tseData.open || 0) + actionableSnoozed;
+    const MAX_COMBINED_THRESHOLD = 10;
+    const meetsCombined = combinedTotal <= MAX_COMBINED_THRESHOLD;
+    const isOnTrack = meetsOpen && meetsActionableSnoozed && meetsCombined;
     
     return {
       ...tseData,
+      actionableSnoozed,
+      combinedTotal,
       isOnTrack,
       meetsOpen,
-      meetsWaitingOnTSE
+      meetsActionableSnoozed,
+      meetsCombined,
+      meetsWaitingOnTSE: meetsActionableSnoozed // Legacy field for backward compatibility
     };
   }, [effectiveTSE, currentTSE, metrics.byTSE]);
 
@@ -1320,13 +1348,26 @@ function Dashboard(props) {
         }
         
         const totalOpen = (tse.open || 0);
-        const totalWaitingOnTSE = tse.waitingOnTSE || tse.actionableSnoozed || 0;
-        // Outstanding Performance: 0 open AND 0 waiting on TSE
-        const isOutstanding = totalOpen === 0 && totalWaitingOnTSE === 0;
+        // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
+        let actionableSnoozed = tse.snoozedForOnTrack;
+        if (actionableSnoozed === undefined) {
+          actionableSnoozed = tse.actionableSnoozed;
+        }
+        if (actionableSnoozed === undefined) {
+          const totalSnoozed = tse.totalSnoozed || 0;
+          const customerWaitSnoozed = tse.customerWaitSnoozed || 0;
+          actionableSnoozed = Math.max(0, totalSnoozed - customerWaitSnoozed);
+        }
+        actionableSnoozed = actionableSnoozed || 0;
+        
+        // Outstanding Performance: 0 open AND 0 actionable snoozed
+        const isOutstanding = totalOpen === 0 && actionableSnoozed === 0;
         
         tsePerformanceByDate[tseId].dates.push({
           date: snapshot.date,
-          onTrack: isOutstanding
+          onTrack: isOutstanding,
+          open: totalOpen,
+          actionableSnoozed
         });
       });
     });

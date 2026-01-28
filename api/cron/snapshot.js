@@ -149,17 +149,15 @@ export default async function handler(req, res) {
 
       if (isSnoozed) {
         byTSE[tseId].totalSnoozed = (byTSE[tseId].totalSnoozed || 0) + 1;
-        if (hasWaitingOnTSETag) {
-          byTSE[tseId].actionableSnoozed++; // This field represents "Waiting On TSE" (for backward compatibility)
-        } else if (hasWaitingOnCustomerTag) {
+        if (hasWaitingOnCustomerTag) {
           byTSE[tseId].customerWaitSnoozed++; // This field represents "Waiting On Customer"
         }
-        // Snoozed conversations without specific tags are only counted in totalSnoozed
         
-        // For "snoozed on track" metric: count all snoozed EXCEPT customer-waiting tags
-        // This includes: waiting-on-tse tagged, and snoozed without tags
-        // Excludes: waiting-on-customer-resolved and waiting-on-customer-unresolved
+        // "Actionable Snoozed" now means: ALL snoozed conversations EXCEPT those with customer-waiting tags
+        // This includes: waiting-on-tse tagged, untagged snoozed, and any other non-customer-waiting snoozed
+        // Excludes: snooze.waiting-on-customer-resolved and snooze.waiting-on-customer-unresolved
         if (!hasWaitingOnCustomerTag) {
+          byTSE[tseId].actionableSnoozed++;
           byTSE[tseId].snoozedForOnTrack = (byTSE[tseId].snoozedForOnTrack || 0) + 1;
         }
       }

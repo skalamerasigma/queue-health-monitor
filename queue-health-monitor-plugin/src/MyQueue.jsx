@@ -49,9 +49,10 @@ const FOOTER_CONTROLS_USERS = ['Stephen Skalamera'];
 
 const THRESHOLDS = {
   MAX_OPEN_SOFT: 5,
-  MAX_WAITING_ON_TSE_SOFT: 5,
+  MAX_WAITING_ON_TSE_SOFT: 5, // Actionable Snoozed threshold
   MAX_OPEN_ALERT: 6,
-  MAX_WAITING_ON_TSE_ALERT: 7
+  MAX_WAITING_ON_TSE_ALERT: 7,
+  MAX_COMBINED: 10 // Combined threshold: open + actionable snoozed <= 10
 };
 
 const INTERCOM_BASE_URL = "https://app.intercom.com/a/inbox/gu1e0q0t/inbox/admin/9110812/conversation/";
@@ -868,19 +869,32 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
         if (!tseEntry) return null;
 
         const open = tseEntry.open || 0;
-        const waitingOnTSE = tseEntry.waitingOnTSE || tseEntry.actionableSnoozed || 0;
+        // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
+        // Use snoozedForOnTrack first (new format), then actionableSnoozed, then calculate from totalSnoozed - customerWaitSnoozed
+        let actionableSnoozed = tseEntry.snoozedForOnTrack;
+        if (actionableSnoozed === undefined) {
+          actionableSnoozed = tseEntry.actionableSnoozed;
+        }
+        if (actionableSnoozed === undefined) {
+          const totalSnoozed = tseEntry.totalSnoozed || 0;
+          const customerWaitSnoozed = tseEntry.customerWaitSnoozed || 0;
+          actionableSnoozed = Math.max(0, totalSnoozed - customerWaitSnoozed);
+        }
+        actionableSnoozed = actionableSnoozed || 0;
+        
+        // Daily on-track status (for individual day evaluation)
         const meetsOpen = open <= THRESHOLDS.MAX_OPEN_SOFT;
-        const meetsWaitingOnTSE = waitingOnTSE <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
-        const isOnTrack = meetsOpen && meetsWaitingOnTSE;
+        const meetsActionableSnoozed = actionableSnoozed <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        const isOnTrackDaily = meetsOpen && meetsActionableSnoozed;
 
         return {
           date: snapshot.date,
           open,
-          waitingOnTSE,
+          actionableSnoozed,
           totalSnoozed: tseEntry.snoozed || tseEntry.totalSnoozed || 0,
-          isOnTrack,
+          isOnTrackDaily,
           meetsOpen,
-          meetsWaitingOnTSE
+          meetsActionableSnoozed
         };
       })
       .filter(item => item !== null)
@@ -890,35 +904,57 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
       return { insights: [] };
     }
 
-    // Calculate averages
+    // Calculate averages for determining on-track status over the time period
     const avgOpen = tseHistory.reduce((sum, d) => sum + d.open, 0) / tseHistory.length;
-    const avgWaitingOnTSE = tseHistory.reduce((sum, d) => sum + d.waitingOnTSE, 0) / tseHistory.length;
-    const onTrackDays = tseHistory.filter(d => d.isOnTrack).length;
-    const onTrackPercentage = (onTrackDays / tseHistory.length) * 100;
+    const avgActionableSnoozed = tseHistory.reduce((sum, d) => sum + d.actionableSnoozed, 0) / tseHistory.length;
+    
+    // NEW: Determine on-track status based on averages (not days on-track)
+    // Open On-Track: avgOpen ≤ 5
+    // Actionable Snoozed On-Track: avgActionableSnoozed ≤ 5
+    // Overall On-Track: (avgOpen + avgActionableSnoozed) ≤ 10
+    const isOpenOnTrack = avgOpen <= THRESHOLDS.MAX_OPEN_SOFT;
+    const isActionableSnoozedOnTrack = avgActionableSnoozed <= THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+    const combinedAverage = avgOpen + avgActionableSnoozed;
+    const MAX_COMBINED_THRESHOLD = 10;
+    const isOverallOnTrack = combinedAverage <= MAX_COMBINED_THRESHOLD;
+    
+    // Calculate an "on-track score" for display (0-100%)
+    // Based on how well averages meet thresholds
+    let onTrackScore = 0;
+    if (isOverallOnTrack) {
+      onTrackScore = 100;
+    } else {
+      // Partial score based on how close to thresholds
+      const openScore = Math.min(100, (THRESHOLDS.MAX_OPEN_SOFT / Math.max(avgOpen, 0.1)) * 100);
+      const snoozedScore = Math.min(100, (THRESHOLDS.MAX_WAITING_ON_TSE_SOFT / Math.max(avgActionableSnoozed, 0.1)) * 100);
+      const combinedScore = Math.min(100, (MAX_COMBINED_THRESHOLD / Math.max(combinedAverage, 0.1)) * 100);
+      onTrackScore = Math.round((openScore + snoozedScore + combinedScore) / 3);
+    }
 
-    // Calculate trends (last 7 days vs previous 7 days, or last half vs first half)
+    // Calculate trends (comparing averages between periods)
     let trend;
     if (tseHistory.length >= 14) {
       const last7 = tseHistory.slice(-7);
       const previous7 = tseHistory.slice(-14, -7);
-      const last7OnTrack = last7.filter(d => d.isOnTrack).length / 7;
-      const previous7OnTrack = previous7.filter(d => d.isOnTrack).length / 7;
-      const change = (last7OnTrack - previous7OnTrack) * 100;
+      const last7AvgCombined = (last7.reduce((sum, d) => sum + d.open + d.actionableSnoozed, 0) / 7);
+      const previous7AvgCombined = (previous7.reduce((sum, d) => sum + d.open + d.actionableSnoozed, 0) / 7);
+      // Negative change is good (lower backlog)
+      const change = previous7AvgCombined - last7AvgCombined;
       trend = {
         period: 'Last 7 days vs previous 7 days',
         change: change,
-        direction: change > 2 ? 'improving' : change < -2 ? 'worsening' : 'stable'
+        direction: change > 0.5 ? 'improving' : change < -0.5 ? 'worsening' : 'stable'
       };
     } else if (tseHistory.length >= 2) {
       const lastHalf = tseHistory.slice(Math.floor(tseHistory.length / 2));
       const firstHalf = tseHistory.slice(0, Math.floor(tseHistory.length / 2));
-      const lastHalfOnTrack = lastHalf.filter(d => d.isOnTrack).length / lastHalf.length;
-      const firstHalfOnTrack = firstHalf.filter(d => d.isOnTrack).length / firstHalf.length;
-      const change = (lastHalfOnTrack - firstHalfOnTrack) * 100;
+      const lastHalfAvgCombined = lastHalf.reduce((sum, d) => sum + d.open + d.actionableSnoozed, 0) / lastHalf.length;
+      const firstHalfAvgCombined = firstHalf.reduce((sum, d) => sum + d.open + d.actionableSnoozed, 0) / firstHalf.length;
+      const change = firstHalfAvgCombined - lastHalfAvgCombined;
       trend = {
         period: 'Recent vs earlier period',
         change: change,
-        direction: change > 2 ? 'improving' : change < -2 ? 'worsening' : 'stable'
+        direction: change > 0.5 ? 'improving' : change < -0.5 ? 'worsening' : 'stable'
       };
     } else {
       trend = {
@@ -928,43 +964,43 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
       };
     }
 
-    // Generate key insights
+    // Generate key insights based on average-based on-track evaluation
     const insights = [];
     
-    if (onTrackPercentage >= 80) {
+    if (isOverallOnTrack) {
       insights.push({
         type: 'positive',
-        text: `Excellent performance: ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`,
-        id: `myqueue-excellent-performance-${onTrackPercentage.toFixed(0)}`,
-        percentage: onTrackPercentage,
+        text: `On Track: Avg combined backlog (${combinedAverage.toFixed(1)}) ≤ ${MAX_COMBINED_THRESHOLD} over ${tseHistory.length} days`,
+        id: `myqueue-overall-on-track-${combinedAverage.toFixed(1)}`,
+        avgCombined: combinedAverage,
         days: tseHistory.length
       });
-    } else if (onTrackPercentage < 60) {
+    } else {
       insights.push({
         type: 'warning',
-        text: `Only ${onTrackPercentage.toFixed(0)}% on-track over ${tseHistory.length} days`,
-        id: `myqueue-low-performance-${onTrackPercentage.toFixed(0)}`,
-        percentage: onTrackPercentage,
+        text: `Over Limit: Avg combined backlog (${combinedAverage.toFixed(1)}) > ${MAX_COMBINED_THRESHOLD} over ${tseHistory.length} days`,
+        id: `myqueue-overall-over-limit-${combinedAverage.toFixed(1)}`,
+        avgCombined: combinedAverage,
         days: tseHistory.length
       });
     }
 
-    if (avgOpen > THRESHOLDS.MAX_OPEN_SOFT) {
+    if (!isOpenOnTrack) {
       insights.push({
         type: 'warning',
-        text: `Average open chats (${avgOpen.toFixed(1)}) exceeds target (≤${THRESHOLDS.MAX_OPEN_SOFT})`,
-        id: `myqueue-avg-open-${avgOpen.toFixed(1)}`,
+        text: `Open Chats Over Limit: Avg (${avgOpen.toFixed(1)}) > ${THRESHOLDS.MAX_OPEN_SOFT}`,
+        id: `myqueue-avg-open-over-${avgOpen.toFixed(1)}`,
         avgOpen: avgOpen,
         target: THRESHOLDS.MAX_OPEN_SOFT
       });
     }
 
-    if (avgWaitingOnTSE > THRESHOLDS.MAX_WAITING_ON_TSE_SOFT) {
+    if (!isActionableSnoozedOnTrack) {
       insights.push({
         type: 'warning',
-        text: `Average waiting on TSE (${avgWaitingOnTSE.toFixed(1)}) exceeds target (≤${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT})`,
-        id: `myqueue-avg-waiting-${avgWaitingOnTSE.toFixed(1)}`,
-        avgWaiting: avgWaitingOnTSE,
+        text: `Actionable Snoozed Over Limit: Avg (${avgActionableSnoozed.toFixed(1)}) > ${THRESHOLDS.MAX_WAITING_ON_TSE_SOFT}`,
+        id: `myqueue-avg-snoozed-over-${avgActionableSnoozed.toFixed(1)}`,
+        avgSnoozed: avgActionableSnoozed,
         target: THRESHOLDS.MAX_WAITING_ON_TSE_SOFT
       });
     }
@@ -972,7 +1008,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
     if (trend.direction === 'improving') {
       insights.push({
         type: 'positive',
-        text: `Performance improving: ${trend.change > 0 ? '+' : ''}${trend.change.toFixed(1)}% on-track ${trend.period}`,
+        text: `Improving: Avg backlog decreased by ${Math.abs(trend.change).toFixed(1)} chats (${trend.period})`,
         id: `myqueue-improving-${trend.period}-${trend.change.toFixed(1)}`,
         change: trend.change,
         period: trend.period
@@ -980,7 +1016,7 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
     } else if (trend.direction === 'worsening') {
       insights.push({
         type: 'warning',
-        text: `${trend.change.toFixed(1)}% on-track ${trend.period}`,
+        text: `Worsening: Avg backlog increased by ${Math.abs(trend.change).toFixed(1)} chats (${trend.period})`,
         id: `myqueue-worsening-${trend.period}-${trend.change.toFixed(1)}`,
         change: trend.change,
         period: trend.period
@@ -993,9 +1029,17 @@ function MyQueue({ conversations = [], teamMembers = [], currentUserEmail, simul
     return { 
       insights: filteredInsights,
       totalDays: tseHistory.length,
-      onTrackPercentage: Math.round(onTrackPercentage),
+      // New average-based on-track status
+      isOverallOnTrack,
+      isOpenOnTrack,
+      isActionableSnoozedOnTrack,
+      onTrackScore, // 0-100 score for display
       avgOpen: Math.round(avgOpen * 10) / 10,
-      avgWaitingOnTSE: Math.round(avgWaitingOnTSE * 10) / 10,
+      avgActionableSnoozed: Math.round(avgActionableSnoozed * 10) / 10,
+      avgCombined: Math.round(combinedAverage * 10) / 10,
+      // Legacy field for backward compatibility
+      avgWaitingOnTSE: Math.round(avgActionableSnoozed * 10) / 10,
+      onTrackPercentage: onTrackScore, // Using score as percentage for backward compat
       trend,
       history: tseHistory
     };
