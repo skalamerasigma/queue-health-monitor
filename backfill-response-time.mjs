@@ -303,12 +303,37 @@ async function calculateMetricsForDay(authHeader, dateStr) {
   };
 }
 
+// Save metric to database via API
+async function saveMetricToDatabase(metric) {
+  const apiUrl = 'https://queue-health-monitor.vercel.app/api/response-time-metrics/save';
+  
+  try {
+    const resp = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(metric)
+    });
+    
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`API error ${resp.status}: ${text}`);
+    }
+    
+    return await resp.json();
+  } catch (error) {
+    console.error(`  Failed to save to database: ${error.message}`);
+    return null;
+  }
+}
+
 // Main function
 async function main() {
   const INTERCOM_TOKEN = process.env.INTERCOM_TOKEN;
   if (!INTERCOM_TOKEN) {
     console.error("Error: INTERCOM_TOKEN environment variable is required");
-    console.error("Usage: INTERCOM_TOKEN=your_token node backfill-response-time.js");
+    console.error("Usage: INTERCOM_TOKEN=your_token node backfill-response-time.mjs");
     process.exit(1);
   }
 
@@ -316,33 +341,58 @@ async function main() {
     ? INTERCOM_TOKEN
     : `Bearer ${INTERCOM_TOKEN}`;
 
-  const now = new Date();
   const results = [];
 
-  // Process the previous 10 UTC days
-  console.log("Processing previous 10 UTC days...\n");
+  // Configure date range - backfill from START_DATE to yesterday
+  const START_DATE = '2026-01-14';
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  yesterday.setUTCHours(0, 0, 0, 0);
   
-  for (let i = 1; i <= 10; i++) {
-    const prevUTCDay = new Date(now);
-    prevUTCDay.setUTCDate(prevUTCDay.getUTCDate() - i);
-    prevUTCDay.setUTCHours(0, 0, 0, 0);
-    
-    const year = prevUTCDay.getUTCFullYear();
-    const month = String(prevUTCDay.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(prevUTCDay.getUTCDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
+  const endDate = `${yesterday.getUTCFullYear()}-${String(yesterday.getUTCMonth() + 1).padStart(2, '0')}-${String(yesterday.getUTCDate()).padStart(2, '0')}`;
+  
+  // Generate list of dates to process
+  const datesToProcess = [];
+  const startDateObj = new Date(START_DATE + 'T00:00:00Z');
+  const endDateObj = new Date(endDate + 'T00:00:00Z');
+  
+  for (let d = new Date(startDateObj); d <= endDateObj; d.setUTCDate(d.getUTCDate() + 1)) {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    datesToProcess.push(`${year}-${month}-${day}`);
+  }
+  
+  console.log(`\nBackfilling response time metrics from ${START_DATE} to ${endDate}`);
+  console.log(`Total days to process: ${datesToProcess.length}\n`);
+  
+  let successCount = 0;
+  let errorCount = 0;
+  
+  for (let i = 0; i < datesToProcess.length; i++) {
+    const dateStr = datesToProcess[i];
     
     try {
       const metric = await calculateMetricsForDay(authHeaderValue, dateStr);
-      results.push(metric);
-      console.log(`[${dateStr}] ✓ Completed: ${metric.totalConversations} conversations, ${metric.count5PlusMin} with 5+ min wait (${metric.count5to10Min} waited 5-10 min, ${metric.count10PlusMin} waited 10+ min)`);
       
-      // Add a small delay between days to avoid rate limiting
-      if (i < 10) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      // Add totalClosed as 0 for historical data (can't easily backfill this)
+      metric.totalClosed = 0;
+      
+      // Save to database
+      const saveResult = await saveMetricToDatabase(metric);
+      
+      results.push(metric);
+      successCount++;
+      console.log(`[${dateStr}] ✓ Completed: ${metric.totalConversations} conversations, ${metric.count5PlusMin} with 5+ min wait (${metric.count5to10Min} waited 5-10 min, ${metric.count10PlusMin} waited 10+ min) ${saveResult ? '- SAVED' : '- CSV ONLY'}`);
+      
+      // Add a delay between days to avoid rate limiting
+      if (i < datesToProcess.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     } catch (error) {
       console.error(`[${dateStr}] ✗ Error:`, error.message);
+      errorCount++;
       // Continue with next day even if one fails
     }
   }
@@ -391,7 +441,8 @@ async function main() {
   const outputFile = `response-time-metrics-${new Date().toISOString().split('T')[0]}.csv`;
   fs.writeFileSync(outputFile, csvContent, 'utf8');
 
-  console.log(`\n✓ Successfully processed ${results.length} days`);
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`✓ Successfully processed ${successCount} days, ${errorCount} errors`);
   console.log(`✓ CSV file written: ${outputFile}`);
   console.log(`\nSummary:`);
   const totalConversations = results.reduce((sum, r) => sum + r.totalConversations, 0);
@@ -401,6 +452,7 @@ async function main() {
   console.log(`  Total days processed: ${results.length}`);
   console.log(`  Total conversations: ${totalConversations}`);
   console.log(`  Total 5+ min waits: ${total5PlusMin} (${total5to10Min} waited 5-10 min, ${total10PlusMin} waited 10+ min)`);
+  console.log(`${'='.repeat(60)}`);
 }
 
 // Run the script

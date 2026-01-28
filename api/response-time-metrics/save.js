@@ -82,6 +82,28 @@ export default async function handler(req, res) {
 
       const metric = req.body;
       
+      // Handle partial update for total_closed only
+      if (metric.updateTotalClosedOnly && metric.date && metric.totalClosed !== undefined) {
+        const db = getPool();
+        
+        const result = await db.query(`
+          UPDATE response_time_metrics 
+          SET total_closed = $1
+          WHERE date = $2
+          RETURNING id, date, total_closed;
+        `, [metric.totalClosed, metric.date]);
+        
+        if (result.rowCount === 0) {
+          return res.status(404).json({ error: `No record found for date ${metric.date}` });
+        }
+        
+        return res.status(200).json({ 
+          success: true, 
+          message: "Total closed updated",
+          updated: result.rows[0]
+        });
+      }
+      
       if (!metric.timestamp || !metric.date || metric.count10PlusMin === undefined) {
         return res.status(400).json({ error: "Invalid metric data: timestamp, date, and count10PlusMin are required" });
       }

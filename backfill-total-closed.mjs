@@ -1,65 +1,16 @@
 #!/usr/bin/env node
 
 /**
- * Backfill script to populate total_closed for existing response_time_metrics records
+ * Backfill script for total_closed counts in response_time_metrics table
+ * Updates existing records with the count of closed conversations for each day
  * 
  * Usage:
- *   node backfill-total-closed.mjs
- * 
- * Environment variables required:
- *   INTERCOM_TOKEN - Intercom API access token
- *   POSTGRES_URL or POSTGRES_URL_NON_POOLING - Database connection string
+ *   INTERCOM_TOKEN=your_token node backfill-total-closed.mjs
  */
 
 import fetch from "node-fetch";
-import pkg from 'pg';
-const { Pool } = pkg;
 
 const INTERCOM_BASE_URL = "https://api.intercom.io";
-
-// Disable TLS certificate verification for Supabase
-if (process.env.POSTGRES_URL?.includes('supabase.co') || 
-    process.env.POSTGRES_URL_NON_POOLING?.includes('supabase.co')) {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-}
-
-// Create a connection pool
-let pool = null;
-
-function getPool() {
-  if (!pool) {
-    let connectionString = process.env.POSTGRES_URL || 
-                          process.env.POSTGRES_URL_NON_POOLING || 
-                          process.env.POSTGRES_PRISMA_URL;
-    
-    if (!connectionString) {
-      throw new Error('No Postgres connection string found');
-    }
-    
-    const isSupabase = connectionString.includes('supabase.co');
-    
-    if (isSupabase) {
-      if (connectionString.includes('sslmode=')) {
-        connectionString = connectionString.replace(/sslmode=[^&]*/, 'sslmode=require');
-      } else {
-        connectionString += (connectionString.includes('?') ? '&' : '?') + 'sslmode=require';
-      }
-    }
-    
-    const sslConfig = isSupabase ? {
-      rejectUnauthorized: false
-    } : undefined;
-    
-    pool = new Pool({
-      connectionString,
-      ssl: sslConfig,
-      max: 1,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000
-    });
-  }
-  return pool;
-}
 
 // Helper: find UTC timestamp that represents a given PT time
 function ptTimeToUTC(ptYear, ptMonth, ptDay, ptHour, ptMinute, ptSecond) {
@@ -74,10 +25,8 @@ function ptTimeToUTC(ptYear, ptMonth, ptDay, ptHour, ptMinute, ptSecond) {
     hour12: false
   });
   
-  // Start with estimate: PT is UTC-8 (PST) or UTC-7 (PDT)
   let utcCandidate = new Date(Date.UTC(ptYear, ptMonth - 1, ptDay, ptHour + 8, ptMinute, ptSecond));
   
-  // Verify and adjust if needed
   for (let i = 0; i < 3; i++) {
     const parts = ptFormatter.formatToParts(utcCandidate);
     const actualYear = parseInt(parts.find(p => p.type === 'year').value);
@@ -100,12 +49,12 @@ function ptTimeToUTC(ptYear, ptMonth, ptDay, ptHour, ptMinute, ptSecond) {
   return utcCandidate;
 }
 
-// Fetch count of conversations closed during the specified time range
+// Fast count of closed conversations for a time range
 async function fetchClosedConversationsCount(authHeader, startSeconds, endSeconds) {
   let closedCount = 0;
   let startingAfter = null;
   let pageCount = 0;
-  const MAX_PAGES = 15;
+  const MAX_PAGES = 10;
 
   while (pageCount < MAX_PAGES) {
     const body = {
@@ -125,7 +74,12 @@ async function fetchClosedConversationsCount(authHeader, startSeconds, endSecond
           {
             field: "updated_at",
             operator: ">",
-            value: startSeconds - (7 * 24 * 60 * 60)
+            value: startSeconds - 1
+          },
+          {
+            field: "updated_at",
+            operator: "<",
+            value: endSeconds + 1
           }
         ]
       },
@@ -148,51 +102,17 @@ async function fetchClosedConversationsCount(authHeader, startSeconds, endSecond
 
     if (!resp.ok) {
       const text = await resp.text();
-      console.error(`Intercom error ${resp.status} fetching closed conversations: ${text}`);
-      return 0;
+      console.error(`Intercom error ${resp.status}: ${text}`);
+      return closedCount;
     }
 
     const data = await resp.json();
     const items = data.data || data.conversations || [];
     
+    closedCount += items.length;
+    
     if (items.length === 0) {
       break;
-    }
-
-    // Fetch full conversation details to check statistics.last_close_at
-    const BATCH_SIZE = 20;
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const batch = items.slice(i, i + BATCH_SIZE);
-      const batchPromises = batch.map(async (item) => {
-        try {
-          const convResp = await fetch(`${INTERCOM_BASE_URL}/conversations/${item.id}`, {
-            headers: {
-              "Authorization": authHeader,
-              "Accept": "application/json",
-              "Intercom-Version": "2.10"
-            }
-          });
-          
-          if (convResp.ok) {
-            const fullConv = await convResp.json();
-            const lastCloseAt = fullConv.statistics?.last_close_at;
-            
-            if (lastCloseAt && lastCloseAt >= startSeconds && lastCloseAt <= endSeconds) {
-              return 1;
-            }
-          }
-        } catch (err) {
-          console.warn(`Failed to fetch details for conversation ${item.id}:`, err.message);
-        }
-        return 0;
-      });
-      
-      const batchResults = await Promise.all(batchPromises);
-      closedCount += batchResults.reduce((sum, val) => sum + val, 0);
-      
-      if (i + BATCH_SIZE < items.length) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
     }
     
     pageCount++;
@@ -206,23 +126,35 @@ async function fetchClosedConversationsCount(authHeader, startSeconds, endSecond
   return closedCount;
 }
 
-// Calculate closed count for a single day
-async function calculateClosedForDay(authHeader, dateStr) {
-  const [year, month, day] = dateStr.split('-').map(Number);
+// Update total_closed in database via API
+async function updateTotalClosed(date, totalClosed) {
+  const apiUrl = 'https://queue-health-monitor.vercel.app/api/response-time-metrics/save';
   
-  // Convert 2 AM - 6 PM PT for this date to UTC timestamps
-  const startUTC = ptTimeToUTC(year, month, day, 2, 0, 0);
-  const endUTC = ptTimeToUTC(year, month, day, 18, 0, 0);
-  
-  const startSeconds = Math.floor(startUTC.getTime() / 1000);
-  const endSeconds = Math.floor(endUTC.getTime() / 1000);
-  
-  console.log(`  Fetching closed conversations for ${dateStr}...`);
-  console.log(`    Time range: ${startUTC.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })} PT to ${endUTC.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })} PT`);
-
-  const closedCount = await fetchClosedConversationsCount(authHeader, startSeconds, endSeconds);
-  
-  return closedCount;
+  try {
+    // We'll use a minimal update - just send date and totalClosed
+    const resp = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        date,
+        totalClosed,
+        // These fields are required by the API but we'll set them to trigger an UPDATE only
+        updateTotalClosedOnly: true
+      })
+    });
+    
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`API error ${resp.status}: ${text}`);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(`  Failed to update database: ${error.message}`);
+    return false;
+  }
 }
 
 // Main function
@@ -230,7 +162,7 @@ async function main() {
   const INTERCOM_TOKEN = process.env.INTERCOM_TOKEN;
   if (!INTERCOM_TOKEN) {
     console.error("Error: INTERCOM_TOKEN environment variable is required");
-    console.error("Usage: INTERCOM_TOKEN=your_token POSTGRES_URL=your_db_url node backfill-total-closed.mjs");
+    console.error("Usage: INTERCOM_TOKEN=your_token node backfill-total-closed.mjs");
     process.exit(1);
   }
 
@@ -238,83 +170,68 @@ async function main() {
     ? INTERCOM_TOKEN
     : `Bearer ${INTERCOM_TOKEN}`;
 
-  console.log("Connecting to database...");
-  const db = getPool();
+  // Configure date range
+  const START_DATE = '2026-01-14';
+  const END_DATE = '2026-01-27';
   
-  // Add total_closed column if it doesn't exist
-  try {
-    await db.query(`
-      ALTER TABLE response_time_metrics 
-      ADD COLUMN IF NOT EXISTS total_closed INTEGER DEFAULT 0;
-    `);
-    console.log("✓ Ensured total_closed column exists");
-  } catch (err) {
-    console.error("Error adding total_closed column:", err.message);
+  // Generate list of dates to process
+  const datesToProcess = [];
+  const startDateObj = new Date(START_DATE + 'T00:00:00Z');
+  const endDateObj = new Date(END_DATE + 'T00:00:00Z');
+  
+  for (let d = new Date(startDateObj); d <= endDateObj; d.setUTCDate(d.getUTCDate() + 1)) {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    datesToProcess.push(`${year}-${month}-${day}`);
   }
-
-  // Get all existing dates from the response_time_metrics table
-  const result = await db.query(`
-    SELECT date, total_closed
-    FROM response_time_metrics
-    ORDER BY date DESC
-  `);
   
-  const existingDates = result.rows;
-  console.log(`\nFound ${existingDates.length} existing records to backfill\n`);
+  console.log(`\nBackfilling total_closed for ${START_DATE} to ${END_DATE}`);
+  console.log(`Total days to process: ${datesToProcess.length}\n`);
   
-  if (existingDates.length === 0) {
-    console.log("No records to backfill. Exiting.");
-    await pool.end();
-    return;
-  }
-
-  let updatedCount = 0;
-  let skippedCount = 0;
-  let errorCount = 0;
-
-  for (const row of existingDates) {
-    const dateStr = row.date;
-    const currentTotalClosed = parseInt(row.total_closed) || 0;
+  const results = [];
+  
+  for (let i = 0; i < datesToProcess.length; i++) {
+    const dateStr = datesToProcess[i];
+    const [year, month, day] = dateStr.split('-').map(Number);
     
-    // Skip if already has a non-zero total_closed value
-    if (currentTotalClosed > 0) {
-      console.log(`[${dateStr}] Skipping - already has total_closed: ${currentTotalClosed}`);
-      skippedCount++;
-      continue;
-    }
+    // Convert 2 AM - 6 PM PT for this date to UTC timestamps
+    const startUTC = ptTimeToUTC(year, month, day, 2, 0, 0);
+    const endUTC = ptTimeToUTC(year, month, day, 18, 0, 0);
+    
+    const startSeconds = Math.floor(startUTC.getTime() / 1000);
+    const endSeconds = Math.floor(endUTC.getTime() / 1000);
+    
+    console.log(`[${dateStr}] Counting closed conversations...`);
     
     try {
-      console.log(`[${dateStr}] Processing...`);
-      const closedCount = await calculateClosedForDay(authHeaderValue, dateStr);
+      const closedCount = await fetchClosedConversationsCount(authHeaderValue, startSeconds, endSeconds);
       
-      // Update the database record
-      await db.query(`
-        UPDATE response_time_metrics
-        SET total_closed = $1
-        WHERE date = $2
-      `, [closedCount, dateStr]);
+      // Update the database
+      const updated = await updateTotalClosed(dateStr, closedCount);
       
-      console.log(`[${dateStr}] ✓ Updated total_closed: ${closedCount}`);
-      updatedCount++;
+      results.push({ date: dateStr, totalClosed: closedCount, updated });
+      console.log(`[${dateStr}] ✓ ${closedCount} closed conversations ${updated ? '- UPDATED' : '- FAILED TO UPDATE'}`);
       
-      // Add delay between dates to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      // Small delay between days
+      if (i < datesToProcess.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     } catch (error) {
       console.error(`[${dateStr}] ✗ Error:`, error.message);
-      errorCount++;
+      results.push({ date: dateStr, totalClosed: 0, updated: false, error: error.message });
     }
   }
-
-  console.log(`\n========================================`);
-  console.log(`Backfill Complete!`);
-  console.log(`========================================`);
-  console.log(`  Records updated: ${updatedCount}`);
-  console.log(`  Records skipped: ${skippedCount}`);
-  console.log(`  Errors: ${errorCount}`);
-  console.log(`========================================\n`);
-
-  await pool.end();
+  
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`Summary:`);
+  const successCount = results.filter(r => r.updated).length;
+  const totalClosed = results.reduce((sum, r) => sum + r.totalClosed, 0);
+  console.log(`  Days processed: ${results.length}`);
+  console.log(`  Successfully updated: ${successCount}`);
+  console.log(`  Total closed conversations: ${totalClosed}`);
+  console.log(`  Average per day: ${Math.round(totalClosed / results.length)}`);
+  console.log(`${'='.repeat(60)}`);
 }
 
 // Run the script
