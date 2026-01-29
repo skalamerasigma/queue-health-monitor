@@ -528,7 +528,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
     const EXCLUDED_TSE_NAMES = ["Prerit Sachdeva"];
     const ON_TRACK_THRESHOLDS = {
       MAX_OPEN_SOFT: 5,
-      MAX_WAITING_ON_TSE_SOFT: 5,
+      MAX_ACTIONABLE_SNOOZED_SOFT: 5,
       MAX_COMBINED: 10
     };
 
@@ -562,7 +562,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
         }
         actionableSnoozed = actionableSnoozed || 0;
         
-        const meetsSnoozed = actionableSnoozed <= ON_TRACK_THRESHOLDS.MAX_WAITING_ON_TSE_SOFT;
+        const meetsSnoozed = actionableSnoozed <= ON_TRACK_THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
         // Combined threshold: open + actionable snoozed <= 10
         const combinedTotal = (tse.open || 0) + actionableSnoozed;
         const meetsCombined = combinedTotal <= ON_TRACK_THRESHOLDS.MAX_COMBINED;
@@ -2732,11 +2732,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
             <span className="cron-info-text">
               <span className="cron-info-line">
                 <span className="emoji-spacer">✅</span>
-                <span><strong>"On Track"</strong> means a TSE meets both criteria on a given day: (1) open conversations ≤ 5, and (2) snoozed conversations with "waiting-on-tse" tag ≤ 5.</span>
+                <span><strong>"On Track"</strong> means a TSE meets all three criteria on a given day: (1) Open conversations ≤ 5, (2) Actionable Snoozed ≤ 5, and (3) Combined (Open + Actionable Snoozed) ≤ 10.</span>
               </span>
               <span className="cron-info-line">
-                <span className="emoji-spacer">📊</span>
-                <span><strong>For an individual TSE over time:</strong> The percentage is calculated as <strong>(number of days the TSE was on track) ÷ (total days in the selected date range)</strong>.</span>
+                <span className="emoji-spacer">📋</span>
+                <span><strong>"Actionable Snoozed"</strong> includes all snoozed conversations that do NOT have customer-waiting tags (snooze.waiting-on-customer-resolved or snooze.waiting-on-customer-unresolved).</span>
               </span>
               <span className="cron-info-line">
                 <span className="emoji-spacer">👥</span>
@@ -3226,16 +3226,16 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                   dot={false}
                   name="Open 3-Day Avg"
                 />
-                {/* Snoozed On Track Line */}
+                {/* Actionable Snoozed On Track Line */}
                 <Line 
                   type="monotone" 
                   dataKey="snoozedOnTrack" 
                   stroke="#ff9a74" 
                   strokeWidth={2}
                   dot={{ fill: '#ff9a74', r: 3 }}
-                  name="Snoozed On Track"
+                  name="Actionable Snoozed On Track"
                 />
-                {/* Snoozed Moving Average */}
+                {/* Actionable Snoozed Moving Average */}
                 <Line 
                   type="monotone" 
                   dataKey="movingAvgSnoozed" 
@@ -3243,7 +3243,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                   strokeWidth={1.5}
                   strokeDasharray="5 5"
                   dot={false}
-                  name="Snoozed 3-Day Avg"
+                  name="Actionable Snoozed 3-Day Avg"
                 />
                 <Legend 
                   wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }}
@@ -3456,7 +3456,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                         const labelMap = {
                           'overallOnTrack': 'Overall On Track',
                           'openOnTrack': 'Open On Track',
-                          'snoozedOnTrack': 'Snoozed On Track'
+                          'snoozedOnTrack': 'Actionable Snoozed On Track'
                         };
                         return [`${value}%`, labelMap[name] || name];
                       }}
@@ -3464,7 +3464,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                     <Legend wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }} />
                     <Bar dataKey="overallOnTrack" fill="#4cec8c" name="Overall On Track" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="openOnTrack" fill="#35a1b4" name="Open On Track" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="snoozedOnTrack" fill="#ff9a74" name="Snoozed On Track" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="snoozedOnTrack" fill="#ff9a74" name="Actionable Snoozed On Track" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -4047,7 +4047,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                     <th 
                       className="sortable-header" 
                       onClick={() => handleOnTrackSort('overallOnTrack')}
-                      title="Percentage of TSEs meeting BOTH criteria (open ≤ 5 AND actionable snoozed ≤ 5). This is not an average of the two percentages, but rather the intersection of TSEs meeting both requirements simultaneously."
+                      title="Percentage of TSEs meeting ALL THREE criteria: (1) Open ≤ 5, (2) Actionable Snoozed ≤ 5, AND (3) Combined (Open + Actionable Snoozed) ≤ 10. This is not an average of the percentages, but rather the intersection of TSEs meeting all requirements simultaneously."
                     >
                       Overall On Track
                       {onTrackSortConfig.key === 'overallOnTrack' && (
@@ -4153,7 +4153,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                                             <div style={{ fontSize: '11px', color: isDarkMode ? '#b0b0b0' : '#666', lineHeight: '1.6' }}>
                                               <div>TSEs: {avg.totalTSEs}</div>
                                               <div>Open On Track: <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>{avg.openOnTrack}%</strong></div>
-                                              <div>Snoozed On Track: <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>{avg.snoozedOnTrack}%</strong></div>
+                                              <div>Actionable Snoozed On Track: <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>{avg.snoozedOnTrack}%</strong></div>
                                               <div>Overall On Track: <strong style={{ color: isDarkMode ? '#ffffff' : '#292929' }}>{avg.overallOnTrack}%</strong></div>
                                             </div>
                                           </div>
@@ -4167,7 +4167,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                                       fontStyle: 'italic',
                                       lineHeight: '1.5'
                                     }}>
-                                      <strong>Note:</strong> Overall On Track is the percentage of TSEs meeting BOTH criteria simultaneously (open ≤ 5 AND actionable snoozed ≤ 5), not an average of the two percentages. This is why it can be lower than the individual percentages.
+                                      <strong>Note:</strong> Overall On Track is the percentage of TSEs meeting ALL THREE criteria simultaneously: (1) Open ≤ 5, (2) Actionable Snoozed ≤ 5, AND (3) Combined (Open + Actionable Snoozed) ≤ 10. This is why it can be lower than the individual percentages.
                                     </div>
                                   </div>
                                 </td>
@@ -4180,11 +4180,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                                     <tr>
                                       <th>TSE</th>
                                       <th>Open</th>
-                                      <th>Snoozed - Waiting On TSE</th>
-                                      <th>Snoozed - Waiting On Customer</th>
+                                      <th>Actionable Snoozed</th>
+                                      <th>Waiting On Customer</th>
                                       <th>Total Snoozed</th>
                                       <th>Open On Track</th>
-                                      <th>Snoozed On Track</th>
+                                      <th>Actionable Snoozed On Track</th>
                                       <th>Overall On Track</th>
                                     </tr>
                                   </thead>
@@ -4216,11 +4216,12 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                                               : (tse.totalSnoozed || 0) - (tse.customerWaitSnoozed || 0);
                                             const displaySnoozed = snoozedForOnTrack >= 0 ? snoozedForOnTrack : (tse.actionableSnoozed || 0);
                                             
+                                            const combinedTotal = tse.open + displaySnoozed;
                                             const tooltipText = tse.exceedsTargets
-                                              ? `Outstanding - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Snoozed (excl. customer): ${displaySnoozed} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`
+                                              ? `Outstanding - Open: ${tse.open} (≤${THRESHOLDS.MAX_OPEN_SOFT}), Actionable Snoozed: ${displaySnoozed} (≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT}), Combined: ${combinedTotal} (≤${THRESHOLDS.MAX_COMBINED})`
                                               : tse.overallOnTrack
-                                              ? `On Track - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Snoozed (excl. customer): ${displaySnoozed} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`
-                                              : `Over Limit - Needs Attention - Open: ${tse.open} (target: ≤${THRESHOLDS.MAX_OPEN_SOFT}), Snoozed (excl. customer): ${displaySnoozed} (target: ≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT})`;
+                                              ? `On Track - Open: ${tse.open} (≤${THRESHOLDS.MAX_OPEN_SOFT}), Actionable Snoozed: ${displaySnoozed} (≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT}), Combined: ${combinedTotal} (≤${THRESHOLDS.MAX_COMBINED})`
+                                              : `Over Limit - Open: ${tse.open} (≤${THRESHOLDS.MAX_OPEN_SOFT}), Actionable Snoozed: ${displaySnoozed} (≤${THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT}), Combined: ${combinedTotal} (≤${THRESHOLDS.MAX_COMBINED})`;
                                             
                                             return (
                                               <div style={{ position: 'relative', display: 'inline-block' }}>
