@@ -1001,9 +1001,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
         dataByDate[date] = {
           date,
           totalTSEs: 0,
-          onTrackOpen: 0,
-          onTrackSnoozed: 0,
-          onTrackBoth: 0
+          totalOpen: 0,
+          totalActionableSnoozed: 0
         };
       }
 
@@ -1019,12 +1018,11 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
       if (managerTeamFilter) {
         tseData = tseData.filter(tse => managerTeamFilter.includes(tse.name));
       }
-
-      const MAX_COMBINED_THRESHOLD = 10;
       
       tseData.forEach(tse => {
         dataByDate[date].totalTSEs++;
-        const meetsOpen = tse.open <= THRESHOLDS.MAX_OPEN_SOFT;
+        dataByDate[date].totalOpen += (tse.open || 0);
+        
         // Actionable Snoozed = all snoozed EXCEPT customer-waiting tags
         // Use snoozedForOnTrack if available (new format), otherwise calculate from snapshot data
         let actionableSnoozed = tse.snoozedForOnTrack;
@@ -1039,38 +1037,41 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
         }
         actionableSnoozed = actionableSnoozed || 0;
         
-        const meetsSnoozed = actionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
-        // Combined threshold: open + actionable snoozed <= 10
-        const combinedTotal = (tse.open || 0) + actionableSnoozed;
-        const meetsCombined = combinedTotal <= MAX_COMBINED_THRESHOLD;
-        
-        if (meetsOpen) dataByDate[date].onTrackOpen++;
-        if (meetsSnoozed) dataByDate[date].onTrackSnoozed++;
-        // Overall on-track requires: open ≤ 5, actionable snoozed ≤ 5, AND combined ≤ 10
-        if (meetsOpen && meetsSnoozed && meetsCombined) dataByDate[date].onTrackBoth++;
+        dataByDate[date].totalActionableSnoozed += actionableSnoozed;
       });
     });
 
+    // Calculate daily averages
     return Object.values(dataByDate)
-      .map(d => ({
-        ...d,
-        openOnTrack: d.totalTSEs > 0 ? Math.round((d.onTrackOpen / d.totalTSEs) * 100) : 0,
-        snoozedOnTrack: d.totalTSEs > 0 ? Math.round((d.onTrackSnoozed / d.totalTSEs) * 100) : 0,
-        overallOnTrack: d.totalTSEs > 0 ? Math.round((d.onTrackBoth / d.totalTSEs) * 100) : 0
-      }))
+      .map(d => {
+        const avgOpen = d.totalTSEs > 0 ? Math.round((d.totalOpen / d.totalTSEs) * 10) / 10 : 0;
+        const avgActionableSnoozed = d.totalTSEs > 0 ? Math.round((d.totalActionableSnoozed / d.totalTSEs) * 10) / 10 : 0;
+        const avgCombined = avgOpen + avgActionableSnoozed;
+        
+        return {
+          ...d,
+          avgOpen,
+          avgActionableSnoozed,
+          avgCombined,
+          // On-Track status based on averages
+          isOpenOnTrack: avgOpen <= THRESHOLDS.MAX_OPEN_SOFT,
+          isActionableSnoozedOnTrack: avgActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT,
+          isOverallOnTrack: avgCombined <= THRESHOLDS.MAX_COMBINED
+        };
+      })
       .sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [snapshots, selectedTSEs, startDate, endDate, managerTeamFilter]);
 
-  // Day-of-week analysis
+  // Day-of-week analysis (using average backlog)
   const dayOfWeekAnalysis = useMemo(() => {
     if (!chartData.length) return null;
     
     const dayStats = {
-      'Monday': { count: 0, overall: 0, open: 0, snoozed: 0 },
-      'Tuesday': { count: 0, overall: 0, open: 0, snoozed: 0 },
-      'Wednesday': { count: 0, overall: 0, open: 0, snoozed: 0 },
-      'Thursday': { count: 0, overall: 0, open: 0, snoozed: 0 },
-      'Friday': { count: 0, overall: 0, open: 0, snoozed: 0 }
+      'Monday': { count: 0, combined: 0, open: 0, snoozed: 0 },
+      'Tuesday': { count: 0, combined: 0, open: 0, snoozed: 0 },
+      'Wednesday': { count: 0, combined: 0, open: 0, snoozed: 0 },
+      'Thursday': { count: 0, combined: 0, open: 0, snoozed: 0 },
+      'Friday': { count: 0, combined: 0, open: 0, snoozed: 0 }
     };
     
     chartData.forEach(d => {
@@ -1080,29 +1081,31 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
       
       if (dayStats[dayName]) {
         dayStats[dayName].count++;
-        dayStats[dayName].overall += d.overallOnTrack;
-        dayStats[dayName].open += d.openOnTrack;
-        dayStats[dayName].snoozed += d.snoozedOnTrack;
+        dayStats[dayName].combined += d.avgCombined;
+        dayStats[dayName].open += d.avgOpen;
+        dayStats[dayName].snoozed += d.avgActionableSnoozed;
       }
     });
     
     return Object.entries(dayStats).map(([day, stats]) => ({
       day: day.substring(0, 3), // Mon, Tue, etc.
       fullDay: day,
-      overallOnTrack: stats.count > 0 ? Math.round(stats.overall / stats.count) : 0,
-      openOnTrack: stats.count > 0 ? Math.round(stats.open / stats.count) : 0,
-      snoozedOnTrack: stats.count > 0 ? Math.round(stats.snoozed / stats.count) : 0,
+      avgCombined: stats.count > 0 ? Math.round((stats.combined / stats.count) * 10) / 10 : 0,
+      avgOpen: stats.count > 0 ? Math.round((stats.open / stats.count) * 10) / 10 : 0,
+      avgActionableSnoozed: stats.count > 0 ? Math.round((stats.snoozed / stats.count) * 10) / 10 : 0,
+      isOnTrack: stats.count > 0 ? (stats.combined / stats.count) <= THRESHOLDS.MAX_COMBINED : false,
       count: stats.count
     })).filter(d => d.count > 0);
   }, [chartData]);
 
-  // Best/worst days analysis
+  // Best/worst days analysis (lower combined avg is better)
   const bestWorstDays = useMemo(() => {
     if (!chartData.length) return null;
     
-    const sorted = [...chartData].sort((a, b) => b.overallOnTrack - a.overallOnTrack);
-    const best = sorted[0];
-    const worst = sorted[sorted.length - 1];
+    // Sort by avgCombined - lower is better
+    const sorted = [...chartData].sort((a, b) => a.avgCombined - b.avgCombined);
+    const best = sorted[0]; // Lowest combined avg is best
+    const worst = sorted[sorted.length - 1]; // Highest combined avg is worst
     
     const [bestYear, bestMonth, bestDay] = best.date.split('-').map(Number);
     const [worstYear, worstMonth, worstDay] = worst.date.split('-').map(Number);
@@ -1113,16 +1116,18 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
       best: {
         date: best.date,
         displayDate: `${bestDate.getMonth() + 1}/${bestDate.getDate()}`,
-        overall: best.overallOnTrack,
-        open: best.openOnTrack,
-        snoozed: best.snoozedOnTrack
+        avgCombined: best.avgCombined,
+        avgOpen: best.avgOpen,
+        avgActionableSnoozed: best.avgActionableSnoozed,
+        isOnTrack: best.isOverallOnTrack
       },
       worst: {
         date: worst.date,
         displayDate: `${worstDate.getMonth() + 1}/${worstDate.getDate()}`,
-        overall: worst.overallOnTrack,
-        open: worst.openOnTrack,
-        snoozed: worst.snoozedOnTrack
+        avgCombined: worst.avgCombined,
+        avgOpen: worst.avgOpen,
+        avgActionableSnoozed: worst.avgActionableSnoozed,
+        isOnTrack: worst.isOverallOnTrack
       }
     };
   }, [chartData]);
@@ -1223,7 +1228,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
   }, [chartData]);
 
 
-  // Calculate chart data with 3-day moving averages
+  // Calculate chart data with 3-day moving averages (for average backlog counts)
   const chartDataWithMovingAvg = useMemo(() => {
     if (!chartData.length) return [];
     
@@ -1231,81 +1236,79 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
       if (index < 2) {
         return { 
           ...item, 
-          movingAvgOverall: item.overallOnTrack,
-          movingAvgOpen: item.openOnTrack,
-          movingAvgSnoozed: item.snoozedOnTrack
+          movingAvgCombined: item.avgCombined,
+          movingAvgOpen: item.avgOpen,
+          movingAvgSnoozed: item.avgActionableSnoozed
         };
       }
       const window = chartData.slice(Math.max(0, index - 2), index + 1);
-      const avgOverall = window.reduce((sum, d) => sum + d.overallOnTrack, 0) / window.length;
-      const avgOpen = window.reduce((sum, d) => sum + d.openOnTrack, 0) / window.length;
-      const avgSnoozed = window.reduce((sum, d) => sum + d.snoozedOnTrack, 0) / window.length;
+      const avgCombinedMA = window.reduce((sum, d) => sum + d.avgCombined, 0) / window.length;
+      const avgOpenMA = window.reduce((sum, d) => sum + d.avgOpen, 0) / window.length;
+      const avgSnoozedMA = window.reduce((sum, d) => sum + d.avgActionableSnoozed, 0) / window.length;
       
       return { 
         ...item, 
-        movingAvgOverall: Math.round(avgOverall * 10) / 10,
-        movingAvgOpen: Math.round(avgOpen * 10) / 10,
-        movingAvgSnoozed: Math.round(avgSnoozed * 10) / 10
+        movingAvgCombined: Math.round(avgCombinedMA * 10) / 10,
+        movingAvgOpen: Math.round(avgOpenMA * 10) / 10,
+        movingAvgSnoozed: Math.round(avgSnoozedMA * 10) / 10
       };
     });
   }, [chartData]);
 
-  // Calculate actionable metrics for summary cards
+  // Calculate period-wide average metrics for summary cards
   const actionableMetrics = useMemo(() => {
     if (!chartData.length) return null;
 
-    const TARGET_PERCENTAGE = 100; // Target is 100% on-track
+    // Calculate overall averages across the entire period
+    const totalDays = chartData.length;
+    const sumOpen = chartData.reduce((sum, d) => sum + d.avgOpen, 0);
+    const sumActionableSnoozed = chartData.reduce((sum, d) => sum + d.avgActionableSnoozed, 0);
     
-    // Days meeting target (100% overall on-track)
-    const daysMeetingTarget = chartData.filter(d => d.overallOnTrack === TARGET_PERCENTAGE).length;
-    const daysMeetingTargetPct = Math.round((daysMeetingTarget / chartData.length) * 100);
+    const periodAvgOpen = Math.round((sumOpen / totalDays) * 10) / 10;
+    const periodAvgActionableSnoozed = Math.round((sumActionableSnoozed / totalDays) * 10) / 10;
+    const periodAvgCombined = Math.round((periodAvgOpen + periodAvgActionableSnoozed) * 10) / 10;
+    
+    // On-Track status for the entire period
+    const isOpenOnTrack = periodAvgOpen <= THRESHOLDS.MAX_OPEN_SOFT;
+    const isActionableSnoozedOnTrack = periodAvgActionableSnoozed <= THRESHOLDS.MAX_ACTIONABLE_SNOOZED_SOFT;
+    const isOverallOnTrack = periodAvgCombined <= THRESHOLDS.MAX_COMBINED;
+    
+    // Count days where averages were on-track
+    const daysOpenOnTrack = chartData.filter(d => d.isOpenOnTrack).length;
+    const daysActionableSnoozedOnTrack = chartData.filter(d => d.isActionableSnoozedOnTrack).length;
+    const daysOverallOnTrack = chartData.filter(d => d.isOverallOnTrack).length;
 
-    // Current streak (consecutive days at 100%)
-    let currentStreak = 0;
-    for (let i = chartData.length - 1; i >= 0; i--) {
-      if (chartData[i].overallOnTrack === TARGET_PERCENTAGE) {
-        currentStreak++;
-      } else {
-        break;
-      }
-    }
-
-    // Best streak
-    let bestStreak = 0;
-    let tempStreak = 0;
-    chartData.forEach(d => {
-      if (d.overallOnTrack === TARGET_PERCENTAGE) {
-        tempStreak++;
-        bestStreak = Math.max(bestStreak, tempStreak);
-      } else {
-        tempStreak = 0;
-      }
-    });
-
-    // Trend direction (comparing last 3 days vs previous 3 days)
+    // Trend direction (comparing last 3 days vs previous 3 days of avgCombined)
     let trendDirection = 'stable';
     let trendChange = 0;
     if (chartData.length >= 6) {
       const recent3 = chartData.slice(-3);
       const previous3 = chartData.slice(-6, -3);
-      const recentAvg = recent3.reduce((sum, d) => sum + d.overallOnTrack, 0) / recent3.length;
-      const previousAvg = previous3.reduce((sum, d) => sum + d.overallOnTrack, 0) / previous3.length;
+      const recentAvg = recent3.reduce((sum, d) => sum + d.avgCombined, 0) / recent3.length;
+      const previousAvg = previous3.reduce((sum, d) => sum + d.avgCombined, 0) / previous3.length;
       trendChange = Math.round((recentAvg - previousAvg) * 10) / 10;
-      if (trendChange > 2) trendDirection = 'improving';
-      else if (trendChange < -2) trendDirection = 'worsening';
+      // Lower is better for averages, so negative change is improving
+      if (trendChange < -0.5) trendDirection = 'improving';
+      else if (trendChange > 0.5) trendDirection = 'worsening';
     } else if (chartData.length >= 2) {
-      const recent = chartData[chartData.length - 1].overallOnTrack;
-      const previous = chartData[chartData.length - 2].overallOnTrack;
+      const recent = chartData[chartData.length - 1].avgCombined;
+      const previous = chartData[chartData.length - 2].avgCombined;
       trendChange = Math.round((recent - previous) * 10) / 10;
-      if (trendChange > 2) trendDirection = 'improving';
-      else if (trendChange < -2) trendDirection = 'worsening';
+      if (trendChange < -0.5) trendDirection = 'improving';
+      else if (trendChange > 0.5) trendDirection = 'worsening';
     }
 
     return {
-      daysMeetingTarget,
-      daysMeetingTargetPct,
-      currentStreak,
-      bestStreak,
+      periodAvgOpen,
+      periodAvgActionableSnoozed,
+      periodAvgCombined,
+      isOpenOnTrack,
+      isActionableSnoozedOnTrack,
+      isOverallOnTrack,
+      daysOpenOnTrack,
+      daysActionableSnoozedOnTrack,
+      daysOverallOnTrack,
+      totalDays,
       trendDirection,
       trendChange
     };
@@ -2732,7 +2735,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
             <span className="cron-info-text">
               <span className="cron-info-line">
                 <span className="emoji-spacer">✅</span>
-                <span><strong>"On Track"</strong> means a TSE meets all three criteria on a given day: (1) Open conversations ≤ 5, (2) Actionable Snoozed ≤ 5, and (3) Combined (Open + Actionable Snoozed) ≤ 10.</span>
+                <span><strong>"On Track"</strong> is determined by calculating the average backlog across all selected TSEs within the date range. The thresholds are: (1) Avg Open ≤ 5, (2) Avg Actionable Snoozed ≤ 5, and (3) Combined Avg ≤ 10.</span>
               </span>
               <span className="cron-info-line">
                 <span className="emoji-spacer">📋</span>
@@ -2740,7 +2743,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
               </span>
               <span className="cron-info-line">
                 <span className="emoji-spacer">👥</span>
-                <span><strong>For a group of TSEs over time:</strong> Each day's percentage is calculated as (number of TSEs on track that day) ÷ (total TSEs that day), shown as a daily trend.</span>
+                <span><strong>For a group of TSEs:</strong> Calculate the average Open and Actionable Snoozed counts across all TSEs in the group. If Avg Open ≤ 5, the group is "On-Track" for Open. If Avg Actionable Snoozed ≤ 5, the group is "On-Track" for Snoozed. If Combined Avg ≤ 10, the group is "Overall On-Track".</span>
               </span>
             </span>
           </div>
@@ -2754,70 +2757,57 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
           {(() => {
             const insights = [];
             
-            // Days meeting target
+            // Overall On-Track Status
             if (actionableMetrics) {
-              if (actionableMetrics.daysMeetingTargetPct >= 80) {
+              // Overall status insight
+              if (actionableMetrics.isOverallOnTrack) {
                 insights.push({
                   type: 'positive',
-                  text: `Excellent performance: ${actionableMetrics.daysMeetingTarget} of ${chartData.length} days (${actionableMetrics.daysMeetingTargetPct}%) met 100% on-track target`
+                  text: `Overall On-Track: Combined average of ${actionableMetrics.periodAvgCombined} chats is within the ≤10 threshold`
                 });
-              } else if (actionableMetrics.daysMeetingTargetPct < 50) {
+              } else {
                 insights.push({
                   type: 'warning',
-                  text: `Performance below target: Only ${actionableMetrics.daysMeetingTarget} of ${chartData.length} days (${actionableMetrics.daysMeetingTargetPct}%) met 100% on-track target`
+                  text: `Over Limit: Combined average of ${actionableMetrics.periodAvgCombined} chats exceeds the ≤10 threshold`
                 });
               }
               
-              // Current streak
-              if (actionableMetrics.currentStreak >= 3) {
+              // Open status
+              if (actionableMetrics.isOpenOnTrack) {
                 insights.push({
                   type: 'positive',
-                  text: `Strong current streak: ${actionableMetrics.currentStreak} consecutive days at 100% on-track`
+                  text: `Open On-Track: Average of ${actionableMetrics.periodAvgOpen} open chats is within the ≤5 threshold`
                 });
-              } else if (actionableMetrics.currentStreak === 0 && chartData.length > 0) {
-                const latestOnTrack = chartData[chartData.length - 1]?.overallOnTrack || 0;
-                if (latestOnTrack < 80) {
-                  insights.push({
-                    type: 'warning',
-                    text: `No current streak: Latest day shows ${latestOnTrack}% on-track (target: 100%)`
-                  });
-                }
+              } else {
+                insights.push({
+                  type: 'warning',
+                  text: `Open Over Limit: Average of ${actionableMetrics.periodAvgOpen} open chats exceeds the ≤5 threshold`
+                });
+              }
+              
+              // Actionable Snoozed status
+              if (actionableMetrics.isActionableSnoozedOnTrack) {
+                insights.push({
+                  type: 'positive',
+                  text: `Actionable Snoozed On-Track: Average of ${actionableMetrics.periodAvgActionableSnoozed} snoozed chats is within the ≤5 threshold`
+                });
+              } else {
+                insights.push({
+                  type: 'warning',
+                  text: `Actionable Snoozed Over Limit: Average of ${actionableMetrics.periodAvgActionableSnoozed} snoozed chats exceeds the ≤5 threshold`
+                });
               }
               
               // Trend direction
-              if (actionableMetrics.trendDirection === 'improving' && actionableMetrics.trendChange >= 5) {
+              if (actionableMetrics.trendDirection === 'improving') {
                 insights.push({
                   type: 'positive',
-                  text: `Performance improving: +${actionableMetrics.trendChange}% increase in on-track percentage over recent period`
+                  text: `Trend improving: Combined backlog decreased by ${Math.abs(actionableMetrics.trendChange)} chats on average over recent days`
                 });
-              } else if (actionableMetrics.trendDirection === 'worsening' && actionableMetrics.trendChange <= -5) {
+              } else if (actionableMetrics.trendDirection === 'worsening') {
                 insights.push({
                   type: 'warning',
-                  text: `Performance declining: ${actionableMetrics.trendChange}% decrease in on-track percentage over recent period`
-                });
-              }
-              
-              // Best streak
-              if (actionableMetrics.bestStreak >= 5) {
-                insights.push({
-                  type: 'positive',
-                  text: `Best streak achieved: ${actionableMetrics.bestStreak} consecutive days at 100% on-track during this period`
-                });
-              }
-            }
-            
-            // Average performance
-            if (chartData.length > 0) {
-              const avgOnTrack = Math.round(chartData.reduce((sum, d) => sum + d.overallOnTrack, 0) / chartData.length);
-              if (avgOnTrack >= 90) {
-                insights.push({
-                  type: 'positive',
-                  text: `Strong average performance: ${avgOnTrack}% average on-track across ${chartData.length} days`
-                });
-              } else if (avgOnTrack < 70) {
-                insights.push({
-                  type: 'warning',
-                  text: `Average performance below target: ${avgOnTrack}% average on-track across ${chartData.length} days (target: 100%)`
+                  text: `Trend worsening: Combined backlog increased by ${Math.abs(actionableMetrics.trendChange)} chats on average over recent days`
                 });
               }
             }
@@ -2992,30 +2982,36 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
             ) : null;
           })()}
 
-          {/* Actionable Metrics Summary */}
+          {/* Actionable Metrics Summary - Average-Based On-Track Status */}
           <div className="historical-summary">
             {actionableMetrics && (
               <>
                 <div className="summary-card">
-                  <h4>Days Meeting Target</h4>
-                  <div className="summary-value-large">
-                    {actionableMetrics.daysMeetingTarget}
+                  <h4>Avg Open Backlog</h4>
+                  <div className={`summary-value-large ${actionableMetrics.isOpenOnTrack ? 'on-track' : 'over-limit'}`} style={{ color: actionableMetrics.isOpenOnTrack ? '#4cec8c' : '#fd8789' }}>
+                    {actionableMetrics.periodAvgOpen}
                   </div>
-                  <div className="summary-subtext">of {chartData.length} days ({actionableMetrics.daysMeetingTargetPct}%)</div>
+                  <div className="summary-subtext">
+                    {actionableMetrics.isOpenOnTrack ? '✓ On-Track' : '✗ Over Limit'} (threshold: ≤5)
+                  </div>
                 </div>
                 <div className="summary-card">
-                  <h4>Current Streak</h4>
-                  <div className="summary-value-large">
-                    {actionableMetrics.currentStreak}
+                  <h4>Avg Actionable Snoozed</h4>
+                  <div className={`summary-value-large ${actionableMetrics.isActionableSnoozedOnTrack ? 'on-track' : 'over-limit'}`} style={{ color: actionableMetrics.isActionableSnoozedOnTrack ? '#4cec8c' : '#fd8789' }}>
+                    {actionableMetrics.periodAvgActionableSnoozed}
                   </div>
-                  <div className="summary-subtext">consecutive days at 100%</div>
+                  <div className="summary-subtext">
+                    {actionableMetrics.isActionableSnoozedOnTrack ? '✓ On-Track' : '✗ Over Limit'} (threshold: ≤5)
+                  </div>
                 </div>
                 <div className="summary-card">
-                  <h4>Best Streak</h4>
-                  <div className="summary-value-large">
-                    {actionableMetrics.bestStreak}
+                  <h4>Combined Avg Backlog</h4>
+                  <div className={`summary-value-large ${actionableMetrics.isOverallOnTrack ? 'on-track' : 'over-limit'}`} style={{ color: actionableMetrics.isOverallOnTrack ? '#4cec8c' : '#fd8789' }}>
+                    {actionableMetrics.periodAvgCombined}
                   </div>
-                  <div className="summary-subtext">consecutive days at 100%</div>
+                  <div className="summary-subtext">
+                    {actionableMetrics.isOverallOnTrack ? '✓ Overall On-Track' : '✗ Over Limit'} (threshold: ≤10)
+                  </div>
                 </div>
                 <div className="summary-card">
                   <h4>
@@ -3027,31 +3023,31 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                         <div style={{ textAlign: 'left' }}>
                           <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Recent Trend</div>
                           <div style={{ marginBottom: '6px' }}>
-                            <strong>Calculation:</strong> Compares the average on-track percentage of the last 3 days against the previous 3 days (or last 2 days if fewer than 6 days of data).
+                            <strong>Calculation:</strong> Compares the average combined backlog of the last 3 days against the previous 3 days.
                           </div>
                           <div style={{ marginBottom: '6px' }}>
                             <strong>Direction:</strong>
                             <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                              <li><strong>↑ Improving:</strong> Recent average is 2%+ higher than previous</li>
-                              <li><strong>↓ Declining:</strong> Recent average is 2%+ lower than previous</li>
-                              <li><strong>→ Stable:</strong> Change is within ±2%</li>
+                              <li><strong>↓ Improving:</strong> Backlog is decreasing (lower is better)</li>
+                              <li><strong>↑ Worsening:</strong> Backlog is increasing</li>
+                              <li><strong>→ Stable:</strong> Change is within ±0.5</li>
                             </ul>
                           </div>
                           <div>
-                            This metric helps identify short-term performance trends and whether the team is improving or declining in recent days.
+                            This metric helps identify if the team's queue backlog is trending up or down.
                           </div>
                         </div>
                       }
                     />
                   </h4>
                   <div className={`summary-value-large trend-indicator ${actionableMetrics.trendDirection}`}>
-                    {actionableMetrics.trendDirection === 'improving' && '↑'}
-                    {actionableMetrics.trendDirection === 'worsening' && '↓'}
+                    {actionableMetrics.trendDirection === 'improving' && '↓'}
+                    {actionableMetrics.trendDirection === 'worsening' && '↑'}
                     {actionableMetrics.trendDirection === 'stable' && '→'}
-                    {Math.abs(actionableMetrics.trendChange)}%
+                    {Math.abs(actionableMetrics.trendChange)}
                   </div>
                   <div className="summary-subtext">
-                    {actionableMetrics.trendDirection === 'improving' ? 'Improving' : actionableMetrics.trendDirection === 'worsening' ? 'Declining' : 'Stable'}
+                    {actionableMetrics.trendDirection === 'improving' ? 'Improving (decreasing)' : actionableMetrics.trendDirection === 'worsening' ? 'Worsening (increasing)' : 'Stable'}
                   </div>
                 </div>
               </>
@@ -3061,25 +3057,25 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
           <div className="chart-container">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h3 className="chart-title" style={{ margin: 0 }}>
-                Team Daily On Track Percentage Trends
+                Daily Average Backlog Trends
                 <InfoIcon 
                   isDarkMode={isDarkMode}
                   content={
                     <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Team Daily On Track Trends</div>
+                      <div style={{ fontWeight: 600, marginBottom: '8px', fontSize: '13px' }}>Daily Average Backlog Trends</div>
                       <div style={{ marginBottom: '6px' }}>
                         <strong>Chart Elements:</strong>
                         <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                          <li><strong>Solid lines:</strong> Daily on-track percentages</li>
+                          <li><strong>Solid lines:</strong> Daily average backlog per TSE</li>
                           <li><strong>Dashed lines:</strong> 3-day moving averages (smoothed trend)</li>
-                          <li><strong>Gray dotted line:</strong> Target reference at 80%</li>
+                          <li><strong>Reference lines:</strong> Thresholds for On-Track status (5 for Open/Snoozed, 10 for Combined)</li>
                         </ul>
                       </div>
                       <div style={{ marginBottom: '6px' }}>
-                        <strong>Period Comparison:</strong> Click "Show Period Comparison" to see a side-by-side comparison of the first half vs. second half of your selected date range. This helps identify if performance is improving or declining over time.
+                        <strong>On-Track Status:</strong> Values at or below the threshold line indicate "On-Track" status. Values above indicate "Over Limit".
                       </div>
                       <div>
-                        <strong>How to read:</strong> Values above the 80% target line indicate good performance. The moving average lines help smooth out daily fluctuations to show the underlying trend.
+                        <strong>How to read:</strong> Lower values are better. The combined average (green) should stay at or below 10 for overall On-Track status.
                       </div>
                     </div>
                   }
@@ -3163,8 +3159,8 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                 <YAxis 
                   stroke={isDarkMode ? '#ffffff' : '#292929'}
                   tick={{ fill: isDarkMode ? '#ffffff' : '#292929', fontSize: 12 }}
-                  domain={[0, 100]}
-                  label={{ value: 'On Track %', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
+                  domain={[0, 'auto']}
+                  label={{ value: 'Avg Backlog Per TSE', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#ffffff' : '#292929' }}
                 />
                 <Tooltip 
                   contentStyle={{ 
@@ -3175,46 +3171,53 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                   }}
                   labelFormatter={formatDateForTooltip}
                   formatter={(value, name) => {
-                    if (name.includes('Moving Avg')) return [`${value.toFixed(1)}%`, name];
-                    return [`${value}%`, name];
+                    return [`${value.toFixed(1)} chats`, name];
                   }}
                 />
-                {/* Target Reference Line */}
+                {/* Combined Threshold Reference Line (10) */}
                 <ReferenceLine 
-                  y={80} 
-                  stroke="#999" 
+                  y={10} 
+                  stroke="#4cec8c" 
                   strokeWidth={2}
                   strokeDasharray="2 2"
-                  label={{ value: "Target (80%)", position: "top", fill: isDarkMode ? '#999' : '#666', fontSize: 11, offset: 10 }}
+                  label={{ value: "Combined Threshold (10)", position: "top", fill: '#4cec8c', fontSize: 11, offset: 10 }}
                 />
-                {/* Overall On Track Line */}
+                {/* Open/Snoozed Threshold Reference Line (5) */}
+                <ReferenceLine 
+                  y={5} 
+                  stroke="#999" 
+                  strokeWidth={1.5}
+                  strokeDasharray="2 2"
+                  label={{ value: "Open/Snoozed Threshold (5)", position: "bottom", fill: isDarkMode ? '#999' : '#666', fontSize: 10, offset: -15 }}
+                />
+                {/* Combined Avg Backlog Line */}
                 <Line 
                   type="monotone" 
-                  dataKey="overallOnTrack" 
+                  dataKey="avgCombined" 
                   stroke="#4cec8c" 
                   strokeWidth={3}
                   dot={{ fill: '#4cec8c', r: 4 }}
-                  name="Overall On Track"
-                  label={createHolidayLabel(chartDataWithMovingAvg, false, 'overallOnTrack')}
+                  name="Combined Avg"
+                  label={createHolidayLabel(chartDataWithMovingAvg, false, 'avgCombined')}
                 />
-                {/* Overall Moving Average */}
+                {/* Combined Moving Average */}
                 <Line 
                   type="monotone" 
-                  dataKey="movingAvgOverall" 
+                  dataKey="movingAvgCombined" 
                   stroke="#4cec8c" 
                   strokeWidth={2}
                   strokeDasharray="5 5"
                   dot={false}
-                  name="Overall 3-Day Avg"
+                  name="Combined 3-Day Avg"
                 />
-                {/* Open On Track Line */}
+                {/* Avg Open Line */}
                 <Line 
                   type="monotone" 
-                  dataKey="openOnTrack" 
+                  dataKey="avgOpen" 
                   stroke="#35a1b4" 
                   strokeWidth={2}
                   dot={{ fill: '#35a1b4', r: 3 }}
-                  name="Open On Track"
+                  name="Avg Open"
                 />
                 {/* Open Moving Average */}
                 <Line 
@@ -3226,14 +3229,14 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                   dot={false}
                   name="Open 3-Day Avg"
                 />
-                {/* Actionable Snoozed On Track Line */}
+                {/* Avg Actionable Snoozed Line */}
                 <Line 
                   type="monotone" 
-                  dataKey="snoozedOnTrack" 
+                  dataKey="avgActionableSnoozed" 
                   stroke="#ff9a74" 
                   strokeWidth={2}
                   dot={{ fill: '#ff9a74', r: 3 }}
-                  name="Actionable Snoozed On Track"
+                  name="Avg Actionable Snoozed"
                 />
                 {/* Actionable Snoozed Moving Average */}
                 <Line 
@@ -3243,20 +3246,20 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                   strokeWidth={1.5}
                   strokeDasharray="5 5"
                   dot={false}
-                  name="Actionable Snoozed 3-Day Avg"
+                  name="Snoozed 3-Day Avg"
                 />
                 <Legend 
                   wrapperStyle={{ color: isDarkMode ? '#ffffff' : '#292929' }}
                   content={({ payload }) => {
                     if (!payload) return null;
-                    // Reorder payload: Overall 3-Day Avg, Overall On Track, Open 3-Day Avg, Open On Track, Snoozed 3-Day Avg, Snoozed On Track
+                    // Reorder payload: Combined Avg, Combined 3-Day Avg, Avg Open, Open 3-Day Avg, Avg Snoozed, Snoozed 3-Day Avg
                     const orderedPayload = [
-                      payload.find(item => item.dataKey === 'movingAvgOverall'),
-                      payload.find(item => item.dataKey === 'overallOnTrack'),
+                      payload.find(item => item.dataKey === 'avgCombined'),
+                      payload.find(item => item.dataKey === 'movingAvgCombined'),
+                      payload.find(item => item.dataKey === 'avgOpen'),
                       payload.find(item => item.dataKey === 'movingAvgOpen'),
-                      payload.find(item => item.dataKey === 'openOnTrack'),
-                      payload.find(item => item.dataKey === 'movingAvgSnoozed'),
-                      payload.find(item => item.dataKey === 'snoozedOnTrack')
+                      payload.find(item => item.dataKey === 'avgActionableSnoozed'),
+                      payload.find(item => item.dataKey === 'movingAvgSnoozed')
                     ].filter(Boolean);
                     
                     return (
@@ -3264,7 +3267,7 @@ function HistoricalView({ onSaveSnapshot, refreshTrigger, managerTeamFilter = nu
                         {orderedPayload.map((entry, index) => {
                           if (!entry) return null;
                           // Check if it's a dashed line (3-Day Avg lines)
-                          const isDashed = entry.dataKey?.includes('movingAvg') || entry.dataKey === 'movingAvgOverall' || entry.dataKey === 'movingAvgOpen' || entry.dataKey === 'movingAvgSnoozed';
+                          const isDashed = entry.dataKey?.includes('movingAvg');
                           return (
                             <div key={`legend-item-${index}`} style={{ display: 'flex', alignItems: 'center', margin: '0 10px', cursor: 'pointer' }}>
                               <svg width="14" height="14" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
